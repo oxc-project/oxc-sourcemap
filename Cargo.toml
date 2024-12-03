@@ -66,5 +66,5 @@ insta = { version = "1.4.0", features = ["glob"] }
 
 [features]
 default = []
-concurrent = ["dep:rayon"]
+rayon = ["dep:rayon"]
 napi = ["dep:napi", "dep:napi-derive"]

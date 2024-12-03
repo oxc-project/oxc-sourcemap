@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-#[cfg(feature = "concurrent")]
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 use crate::JSONSourceMap;
@@ -58,7 +58,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     if let Some(source_contents) = &sourcemap.source_contents {
         contents.push("],\"sourcesContent\":[".into());
         cfg_if::cfg_if! {
-            if #[cfg(feature = "concurrent")] {
+            if #[cfg(feature = "rayon")] {
                 let quoted_source_contents: Vec<_> = source_contents
                     .par_iter()
                     .map(escape_json_string)
@@ -102,7 +102,7 @@ fn serialize_sourcemap_mappings(sm: &SourceMap) -> String {
         |token_chunks| {
             // Serialize `tokens` to vlq `mappings` at parallel.
             cfg_if::cfg_if! {
-                if #[cfg(feature = "concurrent")] {
+                if #[cfg(feature = "rayon")] {
                     token_chunks
                         .par_iter()
                         .map(|token_chunk| serialize_mappings(&sm.tokens, token_chunk))

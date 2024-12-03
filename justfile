@@ -11,4 +11,4 @@ alias r := ready
 ready:
   cargo check --all-targets --all-features
   cargo test
-  cargo clippy
+  cargo clippy --all-targets --all-features
