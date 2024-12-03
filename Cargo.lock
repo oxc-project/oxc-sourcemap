@@ -251,7 +251,7 @@ checksum = "4030760ffd992bef45b0ae3f10ce1aba99e33464c90d14dd7c039884963ddc7a"
 
 [[package]]
 name = "oxc_sourcemap"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "base64-simd",
  "cfg-if",
