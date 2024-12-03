@@ -20,7 +20,6 @@ pub struct SourceMapBuilder {
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
 
-#[allow(clippy::cast_possible_truncation)]
 impl SourceMapBuilder {
     /// Add item to `SourceMap::name`.
     pub fn add_name(&mut self, name: &str) -> u32 {

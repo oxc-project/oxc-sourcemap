@@ -17,7 +17,6 @@ impl<'a> SourcemapVisualizer<'a> {
         Self { output, sourcemap }
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     pub fn into_visualizer_text(self) -> String {
         let source_contents_lines_map: FxHashMap<String, Option<Vec<Vec<u16>>>> = self
             .sourcemap

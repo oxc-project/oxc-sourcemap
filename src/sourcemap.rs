@@ -24,7 +24,6 @@ pub struct SourceMap {
     pub(crate) debug_id: Option<String>,
 }
 
-#[allow(clippy::cast_possible_truncation)]
 impl SourceMap {
     pub fn new(
         file: Option<Arc<str>>,

@@ -14,7 +14,6 @@ pub struct ConcatSourceMapBuilder {
     pub(crate) token_chunk_prev_name_id: u32,
 }
 
-#[allow(clippy::cast_possible_truncation)]
 impl ConcatSourceMapBuilder {
     /// Create new `ConcatSourceMapBuilder` with pre-allocated capacity.
     ///

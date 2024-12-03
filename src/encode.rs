@@ -91,7 +91,6 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     contents.consume()
 }
 
-#[allow(clippy::cast_possible_truncation)]
 fn serialize_sourcemap_mappings(sm: &SourceMap) -> String {
     sm.token_chunks.as_ref().map_or_else(
         || {
@@ -219,11 +218,7 @@ static B64_CHARS: Aligned64 = Aligned64([
 /// # SAFETY
 /// Caller must ensure at least 7 bytes spare capacity in `out`,
 /// as this function does not perform any bounds checks.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::unnecessary_safety_comment
-)]
+#[allow(clippy::unnecessary_safety_comment)]
 unsafe fn encode_vlq(out: &mut String, num: i64) {
     let mut num = if num < 0 { ((-num) << 1) + 1 } else { num << 1 };
 

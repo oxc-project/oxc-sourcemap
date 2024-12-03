@@ -1,5 +1,4 @@
 mod concat_sourcemap_builder;
-#[allow(clippy::cast_sign_loss)]
 mod decode;
 mod encode;
 mod error;

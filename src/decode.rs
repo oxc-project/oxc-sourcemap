@@ -48,7 +48,6 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap> {
     decode(serde_json::from_str(value)?)
 }
 
-#[allow(clippy::cast_possible_truncation)]
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mut tokens = vec![];
 
