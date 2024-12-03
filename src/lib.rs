@@ -3,6 +3,8 @@ mod concat_sourcemap_builder;
 mod decode;
 mod encode;
 mod error;
+#[cfg(feature = "napi")]
+mod napi;
 mod sourcemap;
 mod sourcemap_builder;
 mod sourcemap_visualizer;

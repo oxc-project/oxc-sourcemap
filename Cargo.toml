@@ -58,6 +58,8 @@ rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rayon = { version = "1", optional = true }
+napi = { version = "3.0.0-alpha", optional = true }
+napi-derive = { version = "3.0.0-alpha" , optional = true }
 
 [dev-dependencies]
 insta = { version = "1.4.0", features = ["glob"] }
@@ -65,3 +67,4 @@ insta = { version = "1.4.0", features = ["glob"] }
 [features]
 default = []
 concurrent = ["dep:rayon"]
+napi = ["dep:napi", "dep:napi-derive"]
