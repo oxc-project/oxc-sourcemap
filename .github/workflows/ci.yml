@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize]
+    paths-ignore:
+      - '**/*.md'
+      - '!.github/workflows/ci.yml'
+  push:
+    branches:
+      - main
+      - "renovate/**"
+    paths-ignore:
+      - '**/*.md'
+      - '!.github/workflows/ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  test:
+    name: Test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: ubuntu-latest
+          - os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: taiki-e/checkout-action@v1
+      - uses: Boshen/setup-rust@main
+        with:
+          save-cache: ${{ github.ref_name == 'main' }}
+      - run: cargo check --all-targets --all-features
+      - run: cargo test
+
+  lint:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: taiki-e/checkout-action@v1
+
+      - uses: Boshen/setup-rust@main
+        with:
+          components: clippy rust-docs rustfmt
+
+      - run: |
+          cargo fmt --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --document-private-items
+
+      - uses: crate-ci/typos@master
+        with:
+          files: .

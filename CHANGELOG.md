@@ -141,7 +141,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Features
 
-- 96f02e6 sourcemap: Optional JSONSourceMap fileds (#2910) (underfin)
+- 96f02e6 sourcemap: Optional JSONSourceMap fields (#2910) (underfin)
 - d87cf17 sourcemap: Add methods to mutate SourceMap (#2909) (underfin)
 - 74aca1c sourcemap: Add SourceMapBuilder file (#2908) (underfin)
 
