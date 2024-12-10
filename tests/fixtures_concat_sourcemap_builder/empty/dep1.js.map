@@ -1,0 +1,1 @@
+{"version":3,"file":"dep1.js","names":[],"sources":["../src/dep1.js"],"sourcesContent":["console.log('dep1');\n"],"mappings":";;AAAA,QAAQ,IAAI,OAAO"}

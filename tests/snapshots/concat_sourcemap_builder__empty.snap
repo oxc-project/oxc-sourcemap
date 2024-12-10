@@ -1,0 +1,15 @@
+---
+source: tests/concat_sourcemap_builder.rs
+expression: visualizer_text
+snapshot_kind: text
+---
+- ../src/dep1.js
+(0:0) "console." --> (2:0) "console."
+(0:8) "log(" --> (2:8) "log("
+(0:12) "'dep1')" --> (2:12) "\"dep1\")"
+(0:19) ";\n" --> (2:19) ";\n"
+- ../src/dep3.js
+(0:0) "console." --> (12:0) "console."
+(0:8) "log(" --> (12:8) "log("
+(0:12) "'dep3')" --> (12:12) "\"dep3\")"
+(0:19) ";\n" --> (12:19) ";\n"
