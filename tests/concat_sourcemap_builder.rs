@@ -39,5 +39,6 @@ fn concat_sourcemap_builder_with_empty() {
     let sourcemap = SourceMap::from_json(sourcemap.to_json()).unwrap();
     let visualizer = SourcemapVisualizer::new(&source, &sourcemap);
     let visualizer_text = visualizer.into_visualizer_text();
+    let visualizer_text = visualizer_text.replace("\\r\\n", "\\n");
     insta::assert_snapshot!("empty", visualizer_text);
 }
