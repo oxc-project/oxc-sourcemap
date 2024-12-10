@@ -3,11 +3,11 @@ use std::fs;
 use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap, SourcemapVisualizer};
 
 #[test]
-fn concat_sourcemap_builder_basic() {
+fn concat_sourcemap_builder_with_empty() {
     let dir = std::path::Path::new(file!())
         .parent()
         .unwrap()
-        .join("fixtures_concat_sourcemap_builder/basic");
+        .join("fixtures_concat_sourcemap_builder/empty");
 
     let mut builder = ConcatSourceMapBuilder::default();
     let mut source = String::new();
@@ -19,6 +19,7 @@ fn concat_sourcemap_builder_basic() {
         source.push_str(&js);
     }
     {
+        // this soucemap has { mappings: '' }
         let js = fs::read_to_string(dir.join("dep2.js")).unwrap();
         let js_map = fs::read_to_string(dir.join("dep2.js.map")).unwrap();
         let sourcemap = SourceMap::from_json_string(&js_map).unwrap();
@@ -38,5 +39,5 @@ fn concat_sourcemap_builder_basic() {
     let sourcemap = SourceMap::from_json(sourcemap.to_json()).unwrap();
     let visualizer = SourcemapVisualizer::new(&source, &sourcemap);
     let visualizer_text = visualizer.into_visualizer_text();
-    insta::assert_snapshot!("concat_sourcemap_builder_basic", visualizer_text);
+    insta::assert_snapshot!("empty", visualizer_text);
 }
