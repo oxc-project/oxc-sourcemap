@@ -34,7 +34,7 @@ fn concat_sourcemap_builder_basic() {
     }
 
     let sourcemap = builder.into_sourcemap();
-    // encode and decode to go through token chunk
+    // encode and decode to test token chunk serialization
     let sourcemap = SourceMap::from_json(sourcemap.to_json()).unwrap();
     let visualizer = SourcemapVisualizer::new(&source, &sourcemap);
     let visualizer_text = visualizer.into_visualizer_text();
