@@ -4,7 +4,10 @@ use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap, SourcemapVisualizer};
 
 #[test]
 fn concat_sourcemap_builder_basic() {
-    let dir = std::path::Path::new(file!()).parent().unwrap().join("fixtures_concat_sourcemap_builder/basic");
+    let dir = std::path::Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("fixtures_concat_sourcemap_builder/basic");
 
     let mut builder = ConcatSourceMapBuilder::default();
     let mut source = String::new();
