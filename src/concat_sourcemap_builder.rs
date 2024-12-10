@@ -11,6 +11,7 @@ pub struct ConcatSourceMapBuilder {
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
+    pub(crate) token_chunk_prev_source_id: u32,
     pub(crate) token_chunk_prev_name_id: u32,
 }
 
@@ -33,6 +34,7 @@ impl ConcatSourceMapBuilder {
             source_contents: Vec::with_capacity(sources_len),
             tokens: Vec::with_capacity(tokens_len),
             token_chunks: Vec::with_capacity(token_chunks_len),
+            token_chunk_prev_source_id: 0,
             token_chunk_prev_name_id: 0,
         }
     }
@@ -89,7 +91,7 @@ impl ConcatSourceMapBuilder {
                 last_token.get_src_line(),
                 last_token.get_src_col(),
                 self.token_chunk_prev_name_id,
-                source_offset - 1,
+                self.token_chunk_prev_source_id,
             ));
         } else {
             self.token_chunks.push(TokenChunk::new(
@@ -128,7 +130,10 @@ impl ConcatSourceMapBuilder {
                 token.get_dst_col(),
                 token.get_src_line(),
                 token.get_src_col(),
-                token.get_source_id().map(|x| x + source_offset),
+                token.get_source_id().map(|x| {
+                    self.token_chunk_prev_source_id = x + source_offset;
+                    self.token_chunk_prev_source_id
+                }),
                 token.get_name_id().map(|x| {
                     self.token_chunk_prev_name_id = x + name_offset;
                     self.token_chunk_prev_name_id
@@ -190,6 +195,15 @@ where
         vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         None,
     );
+    let sm_empty = SourceMap::new(
+        None,
+        vec!["empty".into()],
+        None,
+        vec!["empty.js".into()],
+        None,
+        vec![],
+        None,
+    );
     let sm3 = SourceMap::new(
         None,
         vec!["abc".into()],
@@ -200,18 +214,18 @@ where
         None,
     );
 
-    let builder = create_builder(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
+    let builder = create_builder(&[(&sm1, 0), (&sm2, 2), (&sm_empty, 2), (&sm3, 2)]);
 
     let sm = SourceMap::new(
         None,
-        vec!["foo".into(), "foo2".into(), "bar".into(), "abc".into()],
+        vec!["foo".into(), "foo2".into(), "bar".into(), "empty".into(), "abc".into()],
         None,
-        vec!["foo.js".into(), "bar.js".into(), "abc.js".into()],
+        vec!["foo.js".into(), "bar.js".into(), "empty.js".into(), "abc.js".into()],
         None,
         vec![
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
             Token::new(3, 1, 1, 1, Some(1), Some(2)),
-            Token::new(3, 2, 2, 2, Some(2), Some(3)),
+            Token::new(3, 2, 2, 2, Some(3), Some(4)),
         ],
         None,
     );
@@ -225,6 +239,7 @@ where
         Some(vec![
             TokenChunk::new(0, 1, 0, 0, 0, 0, 0, 0,),
             TokenChunk::new(1, 2, 1, 1, 1, 1, 0, 0,),
+            TokenChunk::new(2, 2, 3, 1, 1, 1, 2, 1,),
             TokenChunk::new(2, 3, 3, 1, 1, 1, 2, 1,)
         ])
     );
