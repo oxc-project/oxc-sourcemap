@@ -195,15 +195,6 @@ where
         vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         None,
     );
-    let sm_empty = SourceMap::new(
-        None,
-        vec!["empty".into()],
-        None,
-        vec!["empty.js".into()],
-        None,
-        vec![],
-        None,
-    );
     let sm3 = SourceMap::new(
         None,
         vec!["abc".into()],
@@ -214,18 +205,18 @@ where
         None,
     );
 
-    let builder = create_builder(&[(&sm1, 0), (&sm2, 2), (&sm_empty, 2), (&sm3, 2)]);
+    let builder = create_builder(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
 
     let sm = SourceMap::new(
         None,
-        vec!["foo".into(), "foo2".into(), "bar".into(), "empty".into(), "abc".into()],
+        vec!["foo".into(), "foo2".into(), "bar".into(), "abc".into()],
         None,
-        vec!["foo.js".into(), "bar.js".into(), "empty.js".into(), "abc.js".into()],
+        vec!["foo.js".into(), "bar.js".into(), "abc.js".into()],
         None,
         vec![
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
             Token::new(3, 1, 1, 1, Some(1), Some(2)),
-            Token::new(3, 2, 2, 2, Some(3), Some(4)),
+            Token::new(3, 2, 2, 2, Some(2), Some(3)),
         ],
         None,
     );
@@ -239,7 +230,6 @@ where
         Some(vec![
             TokenChunk::new(0, 1, 0, 0, 0, 0, 0, 0,),
             TokenChunk::new(1, 2, 1, 1, 1, 1, 0, 0,),
-            TokenChunk::new(2, 2, 3, 1, 1, 1, 2, 1,),
             TokenChunk::new(2, 3, 3, 1, 1, 1, 2, 1,)
         ])
     );
