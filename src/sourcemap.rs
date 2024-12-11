@@ -163,38 +163,46 @@ impl SourceMap {
     }
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
-    pub fn generate_lookup_table(&self) -> Vec<(u32, u32, u32)> {
-        let mut table = self
-            .tokens
-            .iter()
-            .enumerate()
-            .map(|(idx, token)| (token.dst_line, token.dst_col, idx as u32))
-            .collect::<Vec<_>>();
-        table.sort_unstable();
-        table
+    pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
+        if let Some(token) = self.tokens.last() {
+            let mut table: Vec<Vec<(u32, u32, u32)>> = vec![vec![]; token.dst_line as usize + 1];
+            for (idx, token) in self.tokens.iter().enumerate() {
+                table[token.dst_line as usize].push((token.dst_line, token.dst_col, idx as u32));
+            }
+            table.iter_mut().for_each(|line| line.sort_unstable());
+            table
+        } else {
+            vec![]
+        }
     }
 
     /// Lookup a token by line and column, it will used at remapping.
     pub fn lookup_token(
         &self,
-        lookup_table: &[(u32, u32, u32)],
+        lookup_table: &[LineLookupTable],
         line: u32,
         col: u32,
     ) -> Option<&Token> {
-        let table = greatest_lower_bound(lookup_table, &(line, col), |table| (table.0, table.1))?;
+        // If the line is greater than the number of lines in the lookup table, it hasn't corresponding origin token.
+        if line >= lookup_table.len() as u32 {
+            return None;
+        }
+        let table = greatest_lower_bound(&lookup_table[line as usize], &(line, col), |table| (table.0, table.1))?;
         self.get_token(table.2)
     }
 
     /// Lookup a token by line and column, it will used at remapping. See `SourceViewToken`.
     pub fn lookup_source_view_token(
         &self,
-        lookup_table: &[(u32, u32, u32)],
+        lookup_table: &[LineLookupTable],
         line: u32,
         col: u32,
     ) -> Option<SourceViewToken<'_>> {
         self.lookup_token(lookup_table, line, col).map(|token| SourceViewToken::new(token, self))
     }
 }
+
+type LineLookupTable = Vec<(u32, u32, u32)>;
 
 fn greatest_lower_bound<'a, T, K: Ord, F: Fn(&'a T) -> K>(
     slice: &'a [T],
@@ -253,10 +261,8 @@ fn test_sourcemap_lookup_token() {
         (Some("coolstuff.js"), 2, 8, None)
     );
 
-    // Token can return prior lines.
-    assert_eq!(
-        sm.lookup_source_view_token(&lookup_table, 1000, 0).unwrap().to_tuple(),
-        (Some("coolstuff.js"), 2, 8, None)
+    assert!(
+        sm.lookup_source_view_token(&lookup_table, 1000, 0).is_none()
     );
 }
 
