@@ -187,7 +187,9 @@ impl SourceMap {
         if line >= lookup_table.len() as u32 {
             return None;
         }
-        let table = greatest_lower_bound(&lookup_table[line as usize], &(line, col), |table| (table.0, table.1))?;
+        let table = greatest_lower_bound(&lookup_table[line as usize], &(line, col), |table| {
+            (table.0, table.1)
+        })?;
         self.get_token(table.2)
     }
 
@@ -261,9 +263,7 @@ fn test_sourcemap_lookup_token() {
         (Some("coolstuff.js"), 2, 8, None)
     );
 
-    assert!(
-        sm.lookup_source_view_token(&lookup_table, 1000, 0).is_none()
-    );
+    assert!(sm.lookup_source_view_token(&lookup_table, 1000, 0).is_none());
 }
 
 #[test]
