@@ -164,18 +164,13 @@ impl SourceMap {
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
     pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
-        let mut tokens = self
-            .tokens
-            .iter()
-            .enumerate()
-            .map(|(idx, token)| (token.dst_line, token.dst_col, idx as u32))
-            .collect::<Vec<_>>();
-        tokens.sort_unstable();
-        if let Some(last_token) = tokens.last() {
-            let mut table: Vec<Vec<(u32, u32, u32)>> = vec![vec![]; last_token.0 as usize + 1];
-            for token in tokens.into_iter() {
-                table[token.0 as usize].push(token);
+        // The dst line/dst col always has increasing order.
+        if let Some(last_token) = self.tokens.last() {
+            let mut table: Vec<Vec<(u32, u32, u32)>> = vec![vec![]; last_token.dst_line as usize + 1];
+            for (idx, token) in self.tokens.iter().enumerate() {
+                table[token.dst_line as usize].push((token.dst_line, token.dst_col, idx as u32));
             }
+            table.iter_mut().for_each(|line| line.sort_unstable());
             table
         } else {
             vec![]
