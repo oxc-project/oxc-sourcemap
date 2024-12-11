@@ -166,7 +166,7 @@ impl SourceMap {
     pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
         // The dst line/dst col always has increasing order.
         if let Some(last_token) = self.tokens.last() {
-            let mut table: Vec<Vec<(u32, u32, u32)>> = vec![vec![]; last_token.dst_line as usize + 1];
+            let mut table = vec![vec![]; last_token.dst_line as usize + 1];
             for (idx, token) in self.tokens.iter().enumerate() {
                 table[token.dst_line as usize].push((token.dst_line, token.dst_col, idx as u32));
             }
