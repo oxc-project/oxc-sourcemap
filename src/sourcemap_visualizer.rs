@@ -1,9 +1,6 @@
 use std::borrow::Cow;
 
-use rustc_hash::FxHashMap;
-
 use crate::SourceMap;
-use cow_utils::CowUtils;
 
 /// The `SourcemapVisualizer` is a helper for sourcemap testing.
 /// It print the mapping of original content and final content tokens.
@@ -18,33 +15,57 @@ impl<'a> SourcemapVisualizer<'a> {
     }
 
     pub fn into_visualizer_text(self) -> String {
-        let source_contents_lines_map: FxHashMap<String, Option<Vec<Vec<u16>>>> = self
-            .sourcemap
-            .get_sources()
-            .enumerate()
-            .map(|(source_id, source)| {
-                (
-                    source.to_string(),
-                    self.sourcemap
-                        .get_source_content(source_id as u32)
-                        .map(Self::generate_line_utf16_tables),
-                )
-            })
-            .collect();
-        let output_lines = Self::generate_line_utf16_tables(self.output);
-
         let mut s = String::new();
+
+        let Some(source_contents) = &self.sourcemap.source_contents else {
+            s.push_str("[no source contents]\n");
+            return s;
+        };
+
+        let source_contents_lines_map: Vec<Vec<Vec<u16>>> = source_contents
+            .iter()
+            .map(|content| Self::generate_line_utf16_tables(content))
+            .collect();
+
+        let output_lines = Self::generate_line_utf16_tables(self.output);
 
         let tokens = &self.sourcemap.tokens;
 
         let mut last_source: Option<&str> = None;
         for i in 0..tokens.len() {
             let t = &tokens[i];
-            let Some(source_id) = t.source_id else { continue };
-            let Some(source) = self.sourcemap.get_source(source_id) else { continue };
-            let Some(source_contents_lines) = source_contents_lines_map[source].as_ref() else {
+            let Some(source_id) = t.source_id else {
                 continue;
             };
+            let Some(source) = self.sourcemap.get_source(source_id) else { continue };
+            let source_lines = &source_contents_lines_map[source_id as usize];
+
+            // Print source
+            if last_source != Some(source) {
+                s.push('-');
+                s.push(' ');
+                s.push_str(source);
+                s.push('\n');
+                last_source = Some(source);
+            }
+
+            // validate token position
+            let dst_invalid = t.dst_line as usize >= output_lines.len()
+                || (t.dst_col as usize) >= output_lines[t.dst_line as usize].len();
+            let src_invalid = t.src_line as usize >= source_lines.len()
+                || (t.src_col as usize) >= source_lines[t.src_line as usize].len();
+            if dst_invalid || src_invalid {
+                s.push_str(&format!(
+                    "({}:{}){} --> ({}:{}){}\n",
+                    t.src_line,
+                    t.src_col,
+                    if src_invalid { " [invalid]" } else { "" },
+                    t.dst_line,
+                    t.dst_col,
+                    if dst_invalid { " [invalid]" } else { "" },
+                ));
+                continue;
+            }
 
             // find next dst column or EOL
             let dst_end_col = {
@@ -66,42 +87,18 @@ impl<'a> SourcemapVisualizer<'a> {
                     }
                     break;
                 }
-                source_contents_lines[t.src_line as usize].len() as u32
+                source_lines[t.src_line as usize].len() as u32
             };
 
-            // Print source
-            if last_source != Some(source) {
-                s.push('-');
-                s.push(' ');
-                s.push_str(source);
-                s.push('\n');
-                last_source = Some(source);
-            }
-
             s.push_str(&format!(
-                "({}:{}) {:?}",
+                "({}:{}) {:?} --> ({}:{}) {:?}\n",
                 t.src_line,
                 t.src_col,
-                Self::str_slice_by_token(
-                    source_contents_lines,
-                    (t.src_line, t.src_col),
-                    (t.src_line, src_end_col)
-                )
-            ));
-
-            s.push_str(" --> ");
-
-            s.push_str(&format!(
-                "({}:{}) {:?}",
+                Self::str_slice_by_token(source_lines, t.src_line, t.src_col, src_end_col),
                 t.dst_line,
                 t.dst_col,
-                Self::str_slice_by_token(
-                    &output_lines,
-                    (t.dst_line, t.dst_col),
-                    (t.dst_line, dst_end_col)
-                )
+                Self::str_slice_by_token(&output_lines, t.dst_line, t.dst_col, dst_end_col)
             ));
-            s.push('\n');
         }
 
         s
@@ -127,31 +124,14 @@ impl<'a> SourcemapVisualizer<'a> {
         tables
     }
 
-    fn str_slice_by_token(buff: &[Vec<u16>], start: (u32, u32), end: (u32, u32)) -> Cow<'_, str> {
-        if start.0 == end.0 {
-            return String::from_utf16(
-                &buff[start.0 as usize][start.1.min(end.1) as usize..start.1.max(end.1) as usize],
-            )
+    fn str_slice_by_token(buff: &[Vec<u16>], line: u32, start: u32, end: u32) -> Cow<'_, str> {
+        let line = line as usize;
+        let start = start as usize;
+        let end = end as usize;
+        let s = &buff[line];
+        String::from_utf16(&s[start.min(end).min(s.len())..start.max(end).min(s.len())])
             .unwrap()
             .replace("\r", "")
-            .into();
-        }
-
-        let mut s = String::new();
-        for i in start.0..=end.0 {
-            let slice = &buff[i as usize];
-            if i == start.0 {
-                s.push_str(&String::from_utf16(&slice[start.1 as usize..]).unwrap());
-            } else if i == end.0 {
-                s.push_str(&String::from_utf16(&slice[..end.1 as usize]).unwrap());
-            } else {
-                s.push_str(&String::from_utf16(slice).unwrap());
-            }
-        }
-
-        let replaced: Cow<str> = s.cow_replace("\r", "");
-
-        // Windows: Replace "\r\n" and replace with "\n"
-        Cow::Owned(replaced.into_owned())
+            .into()
     }
 }
