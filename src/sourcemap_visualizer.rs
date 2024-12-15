@@ -3,7 +3,6 @@ use std::borrow::Cow;
 use rustc_hash::FxHashMap;
 
 use crate::SourceMap;
-use cow_utils::CowUtils;
 
 /// The `SourcemapVisualizer` is a helper for sourcemap testing.
 /// It print the mapping of original content and final content tokens.
@@ -79,29 +78,14 @@ impl<'a> SourcemapVisualizer<'a> {
             }
 
             s.push_str(&format!(
-                "({}:{}) {:?}",
+                "({}:{}) {:?} --> ({}:{}) {:?}\n",
                 t.src_line,
                 t.src_col,
-                Self::str_slice_by_token(
-                    source_contents_lines,
-                    (t.src_line, t.src_col),
-                    (t.src_line, src_end_col)
-                )
-            ));
-
-            s.push_str(" --> ");
-
-            s.push_str(&format!(
-                "({}:{}) {:?}",
+                Self::str_slice_by_token(source_contents_lines, t.src_line, t.src_col, src_end_col),
                 t.dst_line,
                 t.dst_col,
-                Self::str_slice_by_token(
-                    &output_lines,
-                    (t.dst_line, t.dst_col),
-                    (t.dst_line, dst_end_col)
-                )
+                Self::str_slice_by_token(&output_lines, t.dst_line, t.dst_col, dst_end_col)
             ));
-            s.push('\n');
         }
 
         s
@@ -127,31 +111,17 @@ impl<'a> SourcemapVisualizer<'a> {
         tables
     }
 
-    fn str_slice_by_token(buff: &[Vec<u16>], start: (u32, u32), end: (u32, u32)) -> Cow<'_, str> {
-        if start.0 == end.0 {
-            return String::from_utf16(
-                &buff[start.0 as usize][start.1.min(end.1) as usize..start.1.max(end.1) as usize],
-            )
-            .unwrap()
-            .replace("\r", "")
-            .into();
-        }
-
-        let mut s = String::new();
-        for i in start.0..=end.0 {
-            let slice = &buff[i as usize];
-            if i == start.0 {
-                s.push_str(&String::from_utf16(&slice[start.1 as usize..]).unwrap());
-            } else if i == end.0 {
-                s.push_str(&String::from_utf16(&slice[..end.1 as usize]).unwrap());
-            } else {
-                s.push_str(&String::from_utf16(slice).unwrap());
-            }
-        }
-
-        let replaced: Cow<str> = s.cow_replace("\r", "");
-
-        // Windows: Replace "\r\n" and replace with "\n"
-        Cow::Owned(replaced.into_owned())
+    fn str_slice_by_token(
+        buff: &[Vec<u16>],
+        line: u32,
+        col_start: u32,
+        col_end: u32,
+    ) -> Cow<'_, str> {
+        String::from_utf16(
+            &buff[line as usize][col_start.min(col_end) as usize..col_start.max(col_end) as usize],
+        )
+        .unwrap()
+        .replace("\r", "")
+        .into()
     }
 }
