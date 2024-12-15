@@ -34,7 +34,9 @@ impl<'a> SourcemapVisualizer<'a> {
         let mut last_source: Option<&str> = None;
         for i in 0..tokens.len() {
             let t = &tokens[i];
-            let Some(source_id) = t.source_id else { continue; };
+            let Some(source_id) = t.source_id else {
+                continue;
+            };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
             let source_lines = &source_contents_lines_map[source_id as usize];
 
@@ -48,8 +50,10 @@ impl<'a> SourcemapVisualizer<'a> {
             }
 
             // validate token position
-            let dst_invalid = t.dst_line as usize >= output_lines.len() || (t.dst_col as usize) >= output_lines[t.dst_line as usize].len();
-            let src_invalid = t.src_line as usize >= source_lines.len() || (t.src_col as usize) >= source_lines[t.src_line as usize].len();
+            let dst_invalid = t.dst_line as usize >= output_lines.len()
+                || (t.dst_col as usize) >= output_lines[t.dst_line as usize].len();
+            let src_invalid = t.src_line as usize >= source_lines.len()
+                || (t.src_col as usize) >= source_lines[t.src_line as usize].len();
             if dst_invalid || src_invalid {
                 s.push_str(&format!(
                     "({}:{}){} --> ({}:{}){}\n",
@@ -120,17 +124,14 @@ impl<'a> SourcemapVisualizer<'a> {
         tables
     }
 
-    fn str_slice_by_token(
-        buff: &[Vec<u16>],
-        line: u32,
-        col_start: u32,
-        col_end: u32,
-    ) -> Cow<'_, str> {
-        String::from_utf16(
-            &buff[line as usize][col_start.min(col_end) as usize..col_start.max(col_end) as usize],
-        )
-        .unwrap()
-        .replace("\r", "")
-        .into()
+    fn str_slice_by_token(buff: &[Vec<u16>], line: u32, start: u32, end: u32) -> Cow<'_, str> {
+        let line = line as usize;
+        let start = start as usize;
+        let end = end as usize;
+        let s = &buff[line];
+        String::from_utf16(&s[start.min(end).min(s.len())..start.max(end).min(s.len())])
+            .unwrap()
+            .replace("\r", "")
+            .into()
     }
 }

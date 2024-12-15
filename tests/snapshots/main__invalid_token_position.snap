@@ -4,4 +4,6 @@ expression: visualizer_text
 snapshot_kind: text
 ---
 - src.js
-(10:0) [invalid] --> (0:10) [invalid]
+(0:0) "abc\n" --> (0:0) "abc\n"
+(0:0) --> (0:10) [invalid]
+(0:10) [invalid] --> (0:0)
