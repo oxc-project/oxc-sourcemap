@@ -1,6 +1,6 @@
 [package]
 name = "oxc_sourcemap"
-version = "1.0.5"
+version = "1.0.6"
 publish = true
 authors = ["Boshen <boshenc@gmail.com>"]
 edition = "2021"
