@@ -36,7 +36,32 @@ impl<'a> SourcemapVisualizer<'a> {
             let t = &tokens[i];
             let Some(source_id) = t.source_id else { continue; };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
-            let source_contents_lines = &source_contents_lines_map[source_id as usize];
+            let source_lines = &source_contents_lines_map[source_id as usize];
+
+            // Print source
+            if last_source != Some(source) {
+                s.push('-');
+                s.push(' ');
+                s.push_str(source);
+                s.push('\n');
+                last_source = Some(source);
+            }
+
+            // validate token position
+            let dst_invalid = t.dst_line as usize >= output_lines.len() || (t.dst_col as usize) >= output_lines[t.dst_line as usize].len();
+            let src_invalid = t.src_line as usize >= source_lines.len() || (t.src_col as usize) >= source_lines[t.src_line as usize].len();
+            if dst_invalid || src_invalid {
+                s.push_str(&format!(
+                    "({}:{}){} --> ({}:{}){}\n",
+                    t.src_line,
+                    t.src_col,
+                    if src_invalid { " [invalid]" } else { "" },
+                    t.dst_line,
+                    t.dst_col,
+                    if dst_invalid { " [invalid]" } else { "" },
+                ));
+                continue;
+            }
 
             // find next dst column or EOL
             let dst_end_col = {
@@ -58,23 +83,14 @@ impl<'a> SourcemapVisualizer<'a> {
                     }
                     break;
                 }
-                source_contents_lines[t.src_line as usize].len() as u32
+                source_lines[t.src_line as usize].len() as u32
             };
-
-            // Print source
-            if last_source != Some(source) {
-                s.push('-');
-                s.push(' ');
-                s.push_str(source);
-                s.push('\n');
-                last_source = Some(source);
-            }
 
             s.push_str(&format!(
                 "({}:{}) {:?} --> ({}:{}) {:?}\n",
                 t.src_line,
                 t.src_col,
-                Self::str_slice_by_token(source_contents_lines, t.src_line, t.src_col, src_end_col),
+                Self::str_slice_by_token(source_lines, t.src_line, t.src_col, src_end_col),
                 t.dst_line,
                 t.dst_col,
                 Self::str_slice_by_token(&output_lines, t.dst_line, t.dst_col, dst_end_col)
