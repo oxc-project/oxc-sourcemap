@@ -1,7 +1,5 @@
 use std::borrow::Cow;
 
-use rustc_hash::FxHashMap;
-
 use crate::SourceMap;
 
 /// The `SourcemapVisualizer` is a helper for sourcemap testing.
@@ -17,33 +15,28 @@ impl<'a> SourcemapVisualizer<'a> {
     }
 
     pub fn into_visualizer_text(self) -> String {
-        let source_contents_lines_map: FxHashMap<String, Option<Vec<Vec<u16>>>> = self
-            .sourcemap
-            .get_sources()
-            .enumerate()
-            .map(|(source_id, source)| {
-                (
-                    source.to_string(),
-                    self.sourcemap
-                        .get_source_content(source_id as u32)
-                        .map(Self::generate_line_utf16_tables),
-                )
-            })
-            .collect();
-        let output_lines = Self::generate_line_utf16_tables(self.output);
-
         let mut s = String::new();
+
+        let Some(source_contents) = &self.sourcemap.source_contents else {
+            s.push_str("[no source contents]\n");
+            return s;
+        };
+
+        let source_contents_lines_map: Vec<Vec<Vec<u16>>> = source_contents
+            .iter()
+            .map(|content| Self::generate_line_utf16_tables(content))
+            .collect();
+
+        let output_lines = Self::generate_line_utf16_tables(self.output);
 
         let tokens = &self.sourcemap.tokens;
 
         let mut last_source: Option<&str> = None;
         for i in 0..tokens.len() {
             let t = &tokens[i];
-            let Some(source_id) = t.source_id else { continue };
+            let Some(source_id) = t.source_id else { continue; };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
-            let Some(source_contents_lines) = source_contents_lines_map[source].as_ref() else {
-                continue;
-            };
+            let source_contents_lines = &source_contents_lines_map[source_id as usize];
 
             // find next dst column or EOL
             let dst_end_col = {
