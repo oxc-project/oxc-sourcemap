@@ -1,6 +1,6 @@
 use std::fs;
 
-use oxc_sourcemap::{SourceMap, SourcemapVisualizer};
+use oxc_sourcemap::{SourceMap, SourcemapVisualizer, Token};
 
 #[test]
 fn snapshot_sourcemap_visualizer() {
@@ -14,4 +14,23 @@ fn snapshot_sourcemap_visualizer() {
             insta::assert_snapshot!("visualizer", visualizer_text);
         });
     });
+}
+
+#[test]
+fn invalid_token_position() {
+    let sourcemap = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec!["src.js".into()],
+        Some(vec!["abc\ndef".into()]),
+        vec![
+            Token::new(0, 10, 10, 0, Some(0), None),
+        ],
+        None,
+    );
+    let js = "abc\ndef\n";
+    let visualizer = SourcemapVisualizer::new(js, &sourcemap);
+    let visualizer_text = visualizer.into_visualizer_text();
+    insta::assert_snapshot!("invalid_token_position", visualizer_text);
 }

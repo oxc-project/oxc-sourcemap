@@ -1,0 +1,7 @@
+---
+source: tests/main.rs
+expression: visualizer_text
+snapshot_kind: text
+---
+- src.js
+(10:0) [invalid] --> (0:10) [invalid]
