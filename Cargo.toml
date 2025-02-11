@@ -49,6 +49,7 @@ infinite_loop = "warn"
 
 [lib]
 doctest = false
+crate-type = ["lib", "cdylib"]
 
 [dependencies]
 base64-simd = "0.8"
@@ -64,7 +65,10 @@ napi-derive = { version = "3.0.0-alpha" , optional = true }
 [dev-dependencies]
 insta = { version = "1.4.0", features = ["glob"] }
 
+[build-dependencies]
+napi-build = { version = "2", optional = true }
+
 [features]
 default = []
 rayon = ["dep:rayon"]
-napi = ["dep:napi", "dep:napi-derive"]
+napi = ["dep:napi", "dep:napi-derive", "dep:napi"]
