@@ -265,6 +265,7 @@ dependencies = [
  "cow-utils",
  "insta",
  "napi",
+ "napi-build",
  "napi-derive",
  "rayon",
  "rustc-hash",
