@@ -71,4 +71,4 @@ napi-build = { version = "2", optional = true }
 [features]
 default = []
 rayon = ["dep:rayon"]
-napi = ["dep:napi", "dep:napi-derive", "dep:napi"]
+napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
