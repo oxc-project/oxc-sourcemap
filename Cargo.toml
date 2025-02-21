@@ -1,6 +1,6 @@
 [package]
 name = "oxc_sourcemap"
-version = "1.0.8"
+version = "1.0.9"
 publish = true
 authors = ["Boshen <boshenc@gmail.com>"]
 edition = "2021"
@@ -11,7 +11,7 @@ readme = "README.md"
 license = "MIT"
 repository = "https://github.com/oxc-project/oxc-sourcemap"
 rust-version = "1.76"
-include = ["/src"]
+include = ["/src", "build.rs"]
 
 # <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
 [lints.rust]
