@@ -8,7 +8,7 @@ use crate::JSONSourceMap;
 /// It is a helper for encode `SourceMap` to vlq sourcemap string, but here some different.
 /// - Quote `source_content` at parallel.
 /// - If you using `ConcatSourceMapBuilder`, serialize `tokens` to vlq `mappings` at parallel.
-use crate::{token::TokenChunk, SourceMap, Token};
+use crate::{SourceMap, Token, token::TokenChunk};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {
@@ -198,7 +198,9 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk) -> String {
 /// as this function does not perform any bounds checks.
 #[inline]
 unsafe fn encode_vlq_diff(out: &mut String, a: u32, b: u32) {
-    encode_vlq(out, i64::from(a) - i64::from(b));
+    unsafe {
+        encode_vlq(out, i64::from(a) - i64::from(b));
+    }
 }
 
 // Align chars lookup table on 64 so occupies a single cache line
@@ -218,37 +220,38 @@ static B64_CHARS: Aligned64 = Aligned64([
 /// # SAFETY
 /// Caller must ensure at least 7 bytes spare capacity in `out`,
 /// as this function does not perform any bounds checks.
-#[allow(clippy::unnecessary_safety_comment)]
 unsafe fn encode_vlq(out: &mut String, num: i64) {
-    let mut num = if num < 0 { ((-num) << 1) + 1 } else { num << 1 };
+    unsafe {
+        let mut num = if num < 0 { ((-num) << 1) + 1 } else { num << 1 };
 
-    // Breaking out of loop early when have reached last char (rather than conditionally adding
-    // 32 for last char within the loop) removes 3 instructions from the loop.
-    // https://godbolt.org/z/Es4Pavh9j
-    // This translates to a 16% speed-up for VLQ encoding.
-    let mut digit;
-    loop {
-        digit = num & 0b11111;
-        num >>= 5;
-        if num == 0 {
-            break;
+        // Breaking out of loop early when have reached last char (rather than conditionally adding
+        // 32 for last char within the loop) removes 3 instructions from the loop.
+        // https://godbolt.org/z/Es4Pavh9j
+        // This translates to a 16% speed-up for VLQ encoding.
+        let mut digit;
+        loop {
+            digit = num & 0b11111;
+            num >>= 5;
+            if num == 0 {
+                break;
+            }
+
+            let b = B64_CHARS.0[digit as usize + 32];
+            // SAFETY:
+            // * This loop can execute a maximum of 7 times, and on last turn will exit before getting here.
+            //   Caller promises there are at least 7 bytes spare capacity in `out` at start. We only
+            //   push 1 byte on each turn, so guaranteed there is at least 1 byte capacity in `out` here.
+            // * All values in `B64_CHARS` lookup table are ASCII bytes.
+            push_byte_unchecked(out, b);
         }
 
-        let b = B64_CHARS.0[digit as usize + 32];
+        let b = B64_CHARS.0[digit as usize];
         // SAFETY:
-        // * This loop can execute a maximum of 7 times, and on last turn will exit before getting here.
-        //   Caller promises there are at least 7 bytes spare capacity in `out` at start. We only
-        //   push 1 byte on each turn, so guaranteed there is at least 1 byte capacity in `out` here.
+        // * The loop above pushes max 6 bytes. Caller promises there are at least 7 bytes spare capacity
+        //   in `out` at start. So guaranteed there is at least 1 byte capacity in `out` here.
         // * All values in `B64_CHARS` lookup table are ASCII bytes.
         push_byte_unchecked(out, b);
     }
-
-    let b = B64_CHARS.0[digit as usize];
-    // SAFETY:
-    // * The loop above pushes max 6 bytes. Caller promises there are at least 7 bytes spare capacity
-    //   in `out` at start. So guaranteed there is at least 1 byte capacity in `out` here.
-    // * All values in `B64_CHARS` lookup table are ASCII bytes.
-    push_byte_unchecked(out, b);
 }
 
 /// Push a byte to `out` without bounds checking.
@@ -258,17 +261,19 @@ unsafe fn encode_vlq(out: &mut String, num: i64) {
 /// * `b` must be an ASCII byte (i.e. not `>= 128`).
 //
 // `#[inline(always)]` to ensure that `len` is stored in a register during `encode_vlq`'s loop.
-#[allow(clippy::inline_always)]
+#[expect(clippy::inline_always)]
 #[inline(always)]
 unsafe fn push_byte_unchecked(out: &mut String, b: u8) {
-    debug_assert!(out.len() < out.capacity());
-    debug_assert!(b.is_ascii());
+    unsafe {
+        debug_assert!(out.len() < out.capacity());
+        debug_assert!(b.is_ascii());
 
-    let out = out.as_mut_vec();
-    let len = out.len();
-    let ptr = out.as_mut_ptr().add(len);
-    ptr.write(b);
-    out.set_len(len + 1);
+        let out = out.as_mut_vec();
+        let len = out.len();
+        let ptr = out.as_mut_ptr().add(len);
+        ptr.write(b);
+        out.set_len(len + 1);
+    }
 }
 
 /// Push a byte to `out` a number of times without bounds checking.
@@ -278,17 +283,19 @@ unsafe fn push_byte_unchecked(out: &mut String, b: u8) {
 /// * `b` must be an ASCII byte (i.e. not `>= 128`).
 #[inline]
 unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
-    debug_assert!(out.capacity() - out.len() >= repeats as usize);
-    debug_assert!(b.is_ascii());
+    unsafe {
+        debug_assert!(out.capacity() - out.len() >= repeats as usize);
+        debug_assert!(b.is_ascii());
 
-    let out = out.as_mut_vec();
-    let len = out.len();
-    let mut ptr = out.as_mut_ptr().add(len);
-    for _ in 0..repeats {
-        ptr.write(b);
-        ptr = ptr.add(1);
+        let out = out.as_mut_vec();
+        let len = out.len();
+        let mut ptr = out.as_mut_ptr().add(len);
+        for _ in 0..repeats {
+            ptr.write(b);
+            ptr = ptr.add(1);
+        }
+        out.set_len(len + repeats as usize);
     }
-    out.set_len(len + repeats as usize);
 }
 
 /// A helper for pre-allocate string buffer.

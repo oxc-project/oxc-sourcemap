@@ -3,8 +3,8 @@ use std::sync::Arc;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    token::{Token, TokenChunk},
     SourceMap,
+    token::{Token, TokenChunk},
 };
 
 /// The `SourceMapBuilder` is a helper to generate sourcemap.

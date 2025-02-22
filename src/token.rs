@@ -63,7 +63,7 @@ pub struct TokenChunk {
 }
 
 impl TokenChunk {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         start: u32,
         end: u32,
