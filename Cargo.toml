@@ -3,14 +3,14 @@ name = "oxc_sourcemap"
 version = "2.0.1"
 publish = true
 authors = ["Boshen <boshenc@gmail.com>"]
-edition = "2021"
+edition = "2024"
 keywords = ["javascript", "sourcemap", "sourcemaps"]
 description = "Basic sourcemap handling for Rust"
 categories = []
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/oxc-project/oxc-sourcemap"
-rust-version = "1.76"
+rust-version = "1.85.0"
 include = ["/src", "build.rs"]
 
 # <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
@@ -44,8 +44,8 @@ rc_buffer = "warn"
 rc_mutex = "warn"
 rest_pat_in_fully_bound_structs = "warn"
 unnecessary_safety_comment = "warn"
-undocumented_unsafe_blocks = "warn"
 infinite_loop = "warn"
+undocumented_unsafe_blocks = "allow"
 
 [lib]
 doctest = false

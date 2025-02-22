@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use crate::{
-    decode::{decode, decode_from_string, JSONSourceMap},
+    SourceViewToken,
+    decode::{JSONSourceMap, decode, decode_from_string},
     encode::{encode, encode_to_string},
     error::Result,
     token::{Token, TokenChunk},
-    SourceViewToken,
 };
 
 #[derive(Debug, Clone, Default)]

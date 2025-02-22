@@ -210,9 +210,9 @@ checksum = "db836caddef23662b94e16bf1f26c40eceb09d6aee5d5b06a7ac199320b69b19"
 
 [[package]]
 name = "napi-derive"
-version = "3.0.0-alpha.27"
+version = "3.0.0-alpha.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b9c0ffdf074b3c6798ca01573df489ca65a3504af4a9198c0ae53eab5c22a0"
+checksum = "c8097918a9af1976700eac6944b120b65ad17bf6d38906703d2b68e17ee89256"
 dependencies = [
  "convert_case",
  "napi-derive-backend",
