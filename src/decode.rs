@@ -25,6 +25,11 @@ pub struct JSONSourceMap {
     pub names: Vec<String>,
     /// An optional field containing the debugId for this sourcemap.
     pub debug_id: Option<String>,
+    /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
+    /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
+    /// When parsing the source map, developer tools can use this to determine sections of the code that the browser loads and runs that could be automatically ignore-listed.
+    #[serde(rename = "x_google_ignoreList")]
+    pub x_google_ignore_list: Option<Vec<u32>>,
 }
 
 pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
@@ -39,7 +44,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
         }),
         tokens,
         token_chunks: None,
-        x_google_ignore_list: None,
+        x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id,
     })
 }
@@ -155,10 +160,12 @@ fn test_decode_sourcemap() {
         "sources": ["coolstuff.js"],
         "sourceRoot": "x",
         "names": ["x","alert"],
-        "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM"
+        "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
+        "x_google_ignoreList": [0]
     }"#;
     let sm = SourceMap::from_json_string(input).unwrap();
     assert_eq!(sm.get_source_root(), Some("x"));
+    assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
     let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
     assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
     assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
