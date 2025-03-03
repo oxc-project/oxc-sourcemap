@@ -22,6 +22,7 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
             .map(|x| x.iter().map(ToString::to_string).map(Some).collect()),
         names: sourcemap.names.iter().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
+        x_google_ignore_list: sourcemap.get_x_google_ignore_list().map(|x| x.to_vec()),
     }
 }
 
@@ -387,7 +388,8 @@ fn test_encode() {
         "sources": ["coolstuff.js"],
         "sourceRoot": "x",
         "names": ["x","alert"],
-        "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM"
+        "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
+        "x_google_ignoreList": [0]
     }"#;
     let sm = SourceMap::from_json_string(input).unwrap();
     let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();

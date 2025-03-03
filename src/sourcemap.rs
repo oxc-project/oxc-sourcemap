@@ -91,6 +91,10 @@ impl SourceMap {
         self.source_root.as_deref()
     }
 
+    pub fn get_x_google_ignore_list(&self) -> Option<&[u32]> {
+        self.x_google_ignore_list.as_deref()
+    }
+
     /// Set `x_google_ignoreList`.
     pub fn set_x_google_ignore_list(&mut self, x_google_ignore_list: Vec<u32>) {
         self.x_google_ignore_list = Some(x_google_ignore_list);
