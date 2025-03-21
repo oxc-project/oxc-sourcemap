@@ -21,8 +21,9 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.OXC_BOT_PAT }}
+          persist-credentials: true # required by release-plz
 
-      - uses: Boshen/setup-rust@main
+      - uses: oxc-project/setup-rust@cd82e1efec7fef815e2c23d296756f31c7cdc03d # v1.0.0
 
       - uses: MarcoIeni/release-plz-action@4cd77ee4d22f0cdb1a461e6eb3591cddc5e1f665 # v0.5
         env:
