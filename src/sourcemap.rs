@@ -14,7 +14,7 @@ pub struct SourceMap {
     pub(crate) names: Vec<Arc<str>>,
     pub(crate) source_root: Option<String>,
     pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) source_contents: Option<Vec<Arc<str>>>,
+    pub(crate) source_contents: Vec<Option<Arc<str>>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
@@ -30,7 +30,7 @@ impl SourceMap {
         names: Vec<Arc<str>>,
         source_root: Option<String>,
         sources: Vec<Arc<str>>,
-        source_contents: Option<Vec<Arc<str>>>,
+        source_contents: Vec<Option<Arc<str>>>,
         tokens: Vec<Token>,
         token_chunks: Option<Vec<TokenChunk>>,
     ) -> Self {
@@ -122,12 +122,13 @@ impl SourceMap {
     }
 
     /// Adjust `source_content`.
-    pub fn set_source_contents(&mut self, source_contents: Vec<&str>) {
-        self.source_contents = Some(source_contents.into_iter().map(Into::into).collect());
+    pub fn set_source_contents(&mut self, source_contents: Vec<Option<&str>>) {
+        self.source_contents =
+            source_contents.into_iter().map(|v| v.map(Arc::from)).collect::<Vec<_>>();
     }
 
-    pub fn get_source_contents(&self) -> Option<impl Iterator<Item = &str>> {
-        self.source_contents.as_ref().map(|v| v.iter().map(AsRef::as_ref))
+    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&str>> {
+        self.source_contents.iter().map(|item| item.as_ref().map(AsRef::as_ref))
     }
 
     pub fn get_token(&self, index: u32) -> Option<&Token> {
@@ -157,7 +158,7 @@ impl SourceMap {
     }
 
     pub fn get_source_content(&self, id: u32) -> Option<&str> {
-        self.source_contents.as_ref().and_then(|x| x.get(id as usize).map(AsRef::as_ref))
+        self.source_contents.get(id as usize).and_then(|item| item.as_ref().map(AsRef::as_ref))
     }
 
     pub fn get_source_and_content(&self, id: u32) -> Option<(&str, &str)> {
@@ -278,7 +279,7 @@ fn test_sourcemap_source_view_token() {
         vec!["foo".into()],
         None,
         vec!["foo.js".into()],
-        None,
+        vec![],
         vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         None,
     );
@@ -291,7 +292,7 @@ fn test_mut_sourcemap() {
     let mut sm = SourceMap::default();
     sm.set_file("index.js");
     sm.set_sources(vec!["foo.js"]);
-    sm.set_source_contents(vec!["foo"]);
+    sm.set_source_contents(vec![Some("foo")]);
 
     assert_eq!(sm.get_file(), Some("index.js"));
     assert_eq!(sm.get_source(0), Some("foo.js"));

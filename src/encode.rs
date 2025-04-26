@@ -16,14 +16,20 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
         mappings: serialize_sourcemap_mappings(sourcemap),
         source_root: sourcemap.get_source_root().map(ToString::to_string),
         sources: sourcemap.sources.iter().map(ToString::to_string).collect(),
-        sources_content: sourcemap
-            .source_contents
-            .as_ref()
-            .map(|x| x.iter().map(ToString::to_string).map(Some).collect()),
+        sources_content: Some(
+            sourcemap
+                .source_contents
+                .iter()
+                .map(|v| v.as_ref().map(|item| item.to_string()))
+                .collect(),
+        ),
         names: sourcemap.names.iter().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
         x_google_ignore_list: sourcemap.get_x_google_ignore_list().map(|x| x.to_vec()),
     }
+}
+fn escape_optional_json_string<S: AsRef<str>>(s: &Option<S>) -> String {
+    s.as_ref().map(escape_json_string).unwrap_or_else(|| String::from("null"))
 }
 
 // Here using `serde_json` to serialize `names` / `source_contents` / `sources`.
@@ -32,7 +38,8 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     let max_segments = 12
         + sourcemap.names.len() * 2
         + sourcemap.sources.len() * 2
-        + sourcemap.source_contents.as_ref().map_or(0, |sources| sources.len() * 2 + 1)
+        + sourcemap.source_contents.len() * 2
+        + 1
         + sourcemap.x_google_ignore_list.as_ref().map_or(0, |x| x.len() * 2 + 1);
     let mut contents = PreAllocatedString::new(max_segments);
 
@@ -56,20 +63,19 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     contents.push_list(sourcemap.sources.iter().map(escape_json_string));
 
     // Quote `source_content` in parallel
-    if let Some(source_contents) = &sourcemap.source_contents {
-        contents.push("],\"sourcesContent\":[".into());
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "rayon")] {
-                let quoted_source_contents: Vec<_> = source_contents
-                    .par_iter()
-                    .map(escape_json_string)
-                    .collect();
-                contents.push_list(quoted_source_contents.into_iter());
-            } else {
-                contents.push_list(source_contents.iter().map(escape_json_string));
-            }
-        };
-    }
+    let source_contents = &sourcemap.source_contents;
+    contents.push("],\"sourcesContent\":[".into());
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "rayon")] {
+            let quoted_source_contents: Vec<_> = source_contents
+                .par_iter()
+                .map(escape_optional_json_string)
+                .collect();
+            contents.push_list(quoted_source_contents.into_iter());
+        } else {
+            contents.push_list(source_contents.iter().map(escape_optional_json_string));
+        }
+    };
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         contents.push("],\"x_google_ignoreList\":[".into());
@@ -407,7 +413,7 @@ fn test_encode_escape_string() {
         vec!["name_length_greater_than_16_\0".into()],
         None,
         vec!["\0".into()],
-        Some(vec!["emoji-👀-\0".into()]),
+        vec![Some("emoji-👀-\0".into())],
         vec![],
         None,
     );
