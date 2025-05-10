@@ -23,7 +23,7 @@ fn invalid_token_position() {
         vec![],
         None,
         vec!["src.js".into()],
-        Some(vec!["abc\ndef".into()]),
+        vec![Some("abc\ndef".into())],
         vec![
             Token::new(0, 0, 0, 0, Some(0), None),
             Token::new(0, 10, 0, 0, Some(0), None),

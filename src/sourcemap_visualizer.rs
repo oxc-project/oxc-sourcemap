@@ -16,15 +16,18 @@ impl<'a> SourcemapVisualizer<'a> {
 
     pub fn into_visualizer_text(self) -> String {
         let mut s = String::new();
-
-        let Some(source_contents) = &self.sourcemap.source_contents else {
+        let source_contents = &self.sourcemap.source_contents;
+        if self.sourcemap.source_contents.is_empty() {
             s.push_str("[no source contents]\n");
             return s;
-        };
+        }
 
         let source_contents_lines_map: Vec<Vec<Vec<u16>>> = source_contents
             .iter()
-            .map(|content| Self::generate_line_utf16_tables(content))
+            .filter_map(|content| {
+                let content = content.as_ref()?;
+                Some(Self::generate_line_utf16_tables(content))
+            })
             .collect();
 
         let output_lines = Self::generate_line_utf16_tables(self.output);

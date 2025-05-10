@@ -15,7 +15,7 @@ pub struct SourceMapBuilder {
     pub(crate) names: Vec<Arc<str>>,
     pub(crate) sources: Vec<Arc<str>>,
     pub(crate) sources_map: FxHashMap<Arc<str>, u32>,
-    pub(crate) source_contents: Vec<Arc<str>>,
+    pub(crate) source_contents: Vec<Option<Arc<str>>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
@@ -38,7 +38,7 @@ impl SourceMapBuilder {
         let id = *self.sources_map.entry(source.into()).or_insert(count);
         if id == count {
             self.sources.push(source.into());
-            self.source_contents.push(source_content.into());
+            self.source_contents.push(Some(source_content.into()));
         }
         id
     }
@@ -48,7 +48,7 @@ impl SourceMapBuilder {
     pub fn set_source_and_content(&mut self, source: &str, source_content: &str) -> u32 {
         let count = self.sources.len() as u32;
         self.sources.push(source.into());
-        self.source_contents.push(source_content.into());
+        self.source_contents.push(Some(source_content.into()));
         count
     }
 
@@ -80,7 +80,7 @@ impl SourceMapBuilder {
             self.names,
             None,
             self.sources,
-            Some(self.source_contents),
+            self.source_contents,
             self.tokens,
             self.token_chunks,
         )

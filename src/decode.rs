@@ -39,9 +39,10 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
         names: json.names.into_iter().map(Arc::from).collect(),
         source_root: json.source_root,
         sources: json.sources.into_iter().map(Arc::from).collect(),
-        source_contents: json.sources_content.map(|content| {
-            content.into_iter().map(|c| c.map(Arc::from).unwrap_or_default()).collect()
-        }),
+        source_contents: json
+            .sources_content
+            .map(|content| content.into_iter().map(|c| c.map(Arc::from)).collect())
+            .unwrap_or_default(),
         tokens,
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,

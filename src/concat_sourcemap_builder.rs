@@ -7,7 +7,7 @@ use crate::{SourceMap, Token, token::TokenChunk};
 pub struct ConcatSourceMapBuilder {
     pub(crate) names: Vec<Arc<str>>,
     pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) source_contents: Vec<Arc<str>>,
+    pub(crate) source_contents: Vec<Option<Arc<str>>>,
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
@@ -109,14 +109,10 @@ impl ConcatSourceMapBuilder {
         // Extend `sources` and `source_contents`.
         self.sources.extend(sourcemap.get_sources().map(Into::into));
 
-        if let Some(source_contents) = &sourcemap.source_contents {
-            // Clone `Arc` instead of generating a new `Arc` and copying string data because
-            // source texts are generally long strings. Cost of copying a large string is higher
-            // than cloning an `Arc`.
-            self.source_contents.extend(source_contents.iter().map(Arc::clone));
-        } else {
-            self.source_contents.extend((0..sourcemap.sources.len()).map(|_| "".into()));
-        }
+        // Clone `Arc` instead of generating a new `Arc` and copying string data because
+        // source texts are generally long strings. Cost of copying a large string is higher
+        // than cloning an `Arc`.
+        self.source_contents.extend(sourcemap.source_contents.iter().cloned());
 
         // Extend `names`.
         self.names.reserve(sourcemap.names.len());
@@ -149,7 +145,7 @@ impl ConcatSourceMapBuilder {
             self.names,
             None,
             self.sources,
-            Some(self.source_contents),
+            self.source_contents,
             self.tokens,
             Some(self.token_chunks),
         )
@@ -182,7 +178,7 @@ where
         vec!["foo".into(), "foo2".into()],
         None,
         vec!["foo.js".into()],
-        None,
+        vec![],
         vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         None,
     );
@@ -191,7 +187,7 @@ where
         vec!["bar".into()],
         None,
         vec!["bar.js".into()],
-        None,
+        vec![],
         vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         None,
     );
@@ -200,7 +196,7 @@ where
         vec!["abc".into()],
         None,
         vec!["abc.js".into()],
-        None,
+        vec![],
         vec![Token::new(1, 2, 2, 2, Some(0), Some(0))],
         None,
     );
@@ -212,7 +208,7 @@ where
         vec!["foo".into(), "foo2".into(), "bar".into(), "abc".into()],
         None,
         vec!["foo.js".into(), "bar.js".into(), "abc.js".into()],
-        None,
+        vec![],
         vec![
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
             Token::new(3, 1, 1, 1, Some(1), Some(2)),
