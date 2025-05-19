@@ -59,11 +59,11 @@ rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rayon = { version = "1", optional = true }
-napi = { version = "3.0.0-alpha", optional = true }
-napi-derive = { version = "3.0.0-alpha" , optional = true }
+napi = { version = "3.0.0-beta", optional = true }
+napi-derive = { version = "3.0.0-beta" , optional = true }
 
 [dev-dependencies]
-insta = { version = "1.4.0", features = ["glob"] }
+insta = { version = "1.43.1", features = ["glob"] }
 
 [build-dependencies]
 napi-build = { version = "2", optional = true }
