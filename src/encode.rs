@@ -1,8 +1,5 @@
 use std::borrow::Cow;
 
-#[cfg(feature = "rayon")]
-use rayon::prelude::*;
-
 use crate::JSONSourceMap;
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs
 /// It is a helper for encode `SourceMap` to vlq sourcemap string, but here some different.
@@ -65,17 +62,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
     contents.push("],\"sourcesContent\":[".into());
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "rayon")] {
-            let quoted_source_contents: Vec<_> = source_contents
-                .par_iter()
-                .map(escape_optional_json_string)
-                .collect();
-            contents.push_list(quoted_source_contents.into_iter());
-        } else {
-            contents.push_list(source_contents.iter().map(escape_optional_json_string));
-        }
-    };
+    contents.push_list(source_contents.iter().map(escape_optional_json_string));
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         contents.push("],\"x_google_ignoreList\":[".into());
@@ -107,20 +94,10 @@ fn serialize_sourcemap_mappings(sm: &SourceMap) -> String {
             )
         },
         |token_chunks| {
-            // Serialize `tokens` to vlq `mappings` at parallel.
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "rayon")] {
-                    token_chunks
-                        .par_iter()
-                        .map(|token_chunk| serialize_mappings(&sm.tokens, token_chunk))
-                        .collect::<String>()
-                } else {
-                    token_chunks
-                        .iter()
-                        .map(|token_chunk| serialize_mappings(&sm.tokens, token_chunk))
-                        .collect::<String>()
-                }
-            }
+            token_chunks
+                .iter()
+                .map(|token_chunk| serialize_mappings(&sm.tokens, token_chunk))
+                .collect::<String>()
         },
     )
 }
