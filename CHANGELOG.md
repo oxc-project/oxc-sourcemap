@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project does not adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) until v1.0.0.
 
+## [4.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v3.0.2...v4.0.0) - 2025-07-17
+
+### Other
+
+- *(deps)* bump deps ([#83](https://github.com/oxc-project/oxc-sourcemap/pull/83))
+- remove `rayon` feature ([#81](https://github.com/oxc-project/oxc-sourcemap/pull/81))
+
 ## [3.0.2](https://github.com/oxc-project/oxc-sourcemap/compare/v3.0.1...v3.0.2) - 2025-05-19
 
 ### Other
