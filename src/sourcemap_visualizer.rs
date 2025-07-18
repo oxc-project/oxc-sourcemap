@@ -37,7 +37,7 @@ impl<'a> SourcemapVisualizer<'a> {
         let mut last_source: Option<&str> = None;
         for i in 0..tokens.len() {
             let t = &tokens[i];
-            let Some(source_id) = t.source_id else {
+            let Some(source_id) = t.get_source_id() else {
                 continue;
             };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
@@ -81,7 +81,7 @@ impl<'a> SourcemapVisualizer<'a> {
             // find next src column or EOL
             let src_end_col = 'result: {
                 for t2 in &tokens[i + 1..] {
-                    if t2.source_id == t.source_id && t2.src_line == t.src_line {
+                    if t2.get_source_id() == t.get_source_id() && t2.src_line == t.src_line {
                         // skip duplicate or backward
                         if t2.src_col <= t.src_col {
                             continue;
