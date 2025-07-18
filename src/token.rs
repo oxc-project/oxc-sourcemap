@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::SourceMap;
 
 /// The `Token` is used to generate vlq `mappings`.
@@ -142,7 +144,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_content(&self) -> Option<&str> {
+    pub fn get_source_content(&self) -> Option<&Arc<str>> {
         if self.token.source_id == !0 {
             None
         } else {
