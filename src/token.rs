@@ -7,8 +7,8 @@ pub struct Token {
     pub(crate) dst_col: u32,
     pub(crate) src_line: u32,
     pub(crate) src_col: u32,
-    pub(crate) source_id: Option<u32>,
-    pub(crate) name_id: Option<u32>,
+    source_id: u32,
+    name_id: u32,
 }
 
 impl Token {
@@ -20,7 +20,14 @@ impl Token {
         source_id: Option<u32>,
         name_id: Option<u32>,
     ) -> Self {
-        Self { dst_line, dst_col, src_line, src_col, source_id, name_id }
+        Self {
+            dst_line,
+            dst_col,
+            src_line,
+            src_col,
+            source_id: source_id.unwrap_or(!0),
+            name_id: name_id.unwrap_or(!0),
+        }
     }
 
     pub fn get_dst_line(&self) -> u32 {
@@ -40,11 +47,11 @@ impl Token {
     }
 
     pub fn get_name_id(&self) -> Option<u32> {
-        self.name_id
+        if self.name_id == !0 { None } else { Some(self.name_id) }
     }
 
     pub fn get_source_id(&self) -> Option<u32> {
-        self.source_id
+        if self.source_id == !0 { None } else { Some(self.source_id) }
     }
 }
 
@@ -116,27 +123,39 @@ impl<'a> SourceViewToken<'a> {
     }
 
     pub fn get_name_id(&self) -> Option<u32> {
-        self.token.name_id
+        if self.token.name_id == !0 { None } else { Some(self.token.name_id) }
     }
 
     pub fn get_source_id(&self) -> Option<u32> {
-        self.token.source_id
+        if self.token.source_id == !0 { None } else { Some(self.token.source_id) }
     }
 
     pub fn get_name(&self) -> Option<&str> {
-        self.token.name_id.and_then(|id| self.sourcemap.get_name(id))
+        if self.token.name_id == !0 { None } else { self.sourcemap.get_name(self.token.name_id) }
     }
 
     pub fn get_source(&self) -> Option<&str> {
-        self.token.source_id.and_then(|id| self.sourcemap.get_source(id))
+        if self.token.source_id == !0 {
+            None
+        } else {
+            self.sourcemap.get_source(self.token.source_id)
+        }
     }
 
     pub fn get_source_content(&self) -> Option<&str> {
-        self.token.source_id.and_then(|id| self.sourcemap.get_source_content(id))
+        if self.token.source_id == !0 {
+            None
+        } else {
+            self.sourcemap.get_source_content(self.token.source_id)
+        }
     }
 
     pub fn get_source_and_content(&self) -> Option<(&str, &str)> {
-        self.token.source_id.and_then(|id| self.sourcemap.get_source_and_content(id))
+        if self.token.source_id == !0 {
+            None
+        } else {
+            self.sourcemap.get_source_and_content(self.token.source_id)
+        }
     }
 
     pub fn to_tuple(&self) -> (Option<&str>, u32, u32, Option<&str>) {
