@@ -127,8 +127,8 @@ impl SourceMap {
             source_contents.into_iter().map(|v| v.map(Arc::from)).collect::<Vec<_>>();
     }
 
-    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&str>> {
-        self.source_contents.iter().map(|item| item.as_ref().map(AsRef::as_ref))
+    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&Arc<str>>> {
+        self.source_contents.iter().map(|item| item.as_ref())
     }
 
     pub fn get_token(&self, index: u32) -> Option<&Token> {
@@ -157,8 +157,8 @@ impl SourceMap {
         self.sources.get(id as usize).map(AsRef::as_ref)
     }
 
-    pub fn get_source_content(&self, id: u32) -> Option<&str> {
-        self.source_contents.get(id as usize).and_then(|item| item.as_ref().map(AsRef::as_ref))
+    pub fn get_source_content(&self, id: u32) -> Option<&Arc<str>> {
+        self.source_contents.get(id as usize).and_then(|item| item.as_ref())
     }
 
     pub fn get_source_and_content(&self, id: u32) -> Option<(&str, &str)> {
@@ -296,5 +296,5 @@ fn test_mut_sourcemap() {
 
     assert_eq!(sm.get_file(), Some("index.js"));
     assert_eq!(sm.get_source(0), Some("foo.js"));
-    assert_eq!(sm.get_source_content(0), Some("foo"));
+    assert_eq!(sm.get_source_content(0).map(|s| s.as_ref()), Some("foo"));
 }
