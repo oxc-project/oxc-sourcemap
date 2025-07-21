@@ -16,7 +16,6 @@
 
 Forked version of [rust-sourcemap](https://github.com/getsentry/rust-sourcemap), but has some different with it.
 
-- Encode sourcemap at parallel, including quote `sourceContent` and encode token to `vlq` mappings.
 - Avoid `Sourcemap` some methods overhead, like `SourceMap::tokens()`.
 
 [discord-badge]: https://img.shields.io/discord/1079625926024900739?logo=discord&label=Discord
