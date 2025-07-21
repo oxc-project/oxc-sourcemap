@@ -246,7 +246,6 @@ name = "oxc_sourcemap"
 version = "4.0.2"
 dependencies = [
  "base64-simd",
- "cfg-if",
  "cow-utils",
  "insta",
  "napi",
