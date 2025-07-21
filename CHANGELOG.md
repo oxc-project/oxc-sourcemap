@@ -15,13 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Other
 
-- *(deps)* napi v3 ([#84](https://github.com/oxc-project/oxc-sourcemap/pull/84))
+- _(deps)_ napi v3 ([#84](https://github.com/oxc-project/oxc-sourcemap/pull/84))
 
 ## [4.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v3.0.2...v4.0.0) - 2025-07-17
 
 ### Other
 
-- *(deps)* bump deps ([#83](https://github.com/oxc-project/oxc-sourcemap/pull/83))
+- _(deps)_ bump deps ([#83](https://github.com/oxc-project/oxc-sourcemap/pull/83))
 - remove `rayon` feature ([#81](https://github.com/oxc-project/oxc-sourcemap/pull/81))
 
 ## [3.0.2](https://github.com/oxc-project/oxc-sourcemap/compare/v3.0.1...v3.0.2) - 2025-05-19
@@ -76,7 +76,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-- *(lookup_token)* should be None if original tokens hasn't the line (#9)
+- _(lookup_token)_ should be None if original tokens hasn't the line (#9)
 
 ## [1.0.4](https://github.com/oxc-project/oxc-sourcemap/compare/v1.0.3...v1.0.4) - 2024-12-10
 
@@ -224,6 +224,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - 90d2d09 sourcemap: Add Sourcemap#from_json method (#3361) (underfin)
 
 ### Bug Fixes
+
 - 899a52b Fix some nightly warnings (Boshen)
 
 ## [0.13.0] - 2024-05-14
@@ -257,9 +258,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [0.11.0] - 2024-03-30
 
 ### Features
+
 - b199cb8 Add oxc sourcemap crate (#2825) (underfin)
 
 ### Bug Fixes
 
 - 6177c2f codegen: Sourcemap token name should be original name (#2843) (underfin)
-

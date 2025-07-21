@@ -6,6 +6,7 @@
 [![Build Status][ci-badge]][ci-url]
 [![Sponsors][sponsors-badge]][sponsors-url]
 [![Discord chat][discord-badge]][discord-url]
+
 <!-- [![Code Coverage][code-coverage-badge]][code-coverage-url] -->
 <!-- [![CodSpeed Badge][codspeed-badge]][codspeed-url] -->
 

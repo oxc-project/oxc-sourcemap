@@ -3,15 +3,15 @@ name = "oxc_sourcemap"
 version = "4.0.2"
 publish = true
 authors = ["Boshen <boshenc@gmail.com>"]
-edition = "2024"
-keywords = ["javascript", "sourcemap", "sourcemaps"]
-description = "Basic sourcemap handling for Rust"
 categories = []
-readme = "README.md"
+edition = "2024"
+include = ["/src", "build.rs"]
+keywords = ["javascript", "sourcemap", "sourcemaps"]
 license = "MIT"
+readme = "README.md"
 repository = "https://github.com/oxc-project/oxc-sourcemap"
 rust-version = "1.85.0"
-include = ["/src", "build.rs"]
+description = "Basic sourcemap handling for Rust"
 
 # <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
 [lints.rust]
@@ -51,15 +51,16 @@ undocumented_unsafe_blocks = "allow"
 doctest = false
 crate-type = ["lib", "cdylib"]
 
+[package.metadata.cargo-shear]
+ignored = ["napi"]
+
 [dependencies]
 base64-simd = "0.8"
-cfg-if = "1.0.1"
-cow-utils = "0.1.3"
+napi = { version = "3", optional = true }
+napi-derive = { version = "3", optional = true }
 rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-napi = { version = "3", optional = true }
-napi-derive = { version = "3" , optional = true }
 
 [build-dependencies]
 napi-build = { version = "2", optional = true }

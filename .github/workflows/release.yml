@@ -5,9 +5,9 @@ on:
     branches:
       - main
     paths-ignore:
-      - '**/*.md'
-      - '**/*.yml'
-      - '!.github/workflows/release.yml'
+      - "**/*.md"
+      - "**/*.yml"
+      - "!.github/workflows/release.yml"
 
 jobs:
   release-plz:
