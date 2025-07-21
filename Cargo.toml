@@ -1,13 +1,13 @@
 [package]
 name = "oxc_sourcemap"
 version = "4.0.2"
-publish = true
 authors = ["Boshen <boshenc@gmail.com>"]
 categories = []
 edition = "2024"
 include = ["/src", "build.rs"]
 keywords = ["javascript", "sourcemap", "sourcemaps"]
 license = "MIT"
+publish = true
 readme = "README.md"
 repository = "https://github.com/oxc-project/oxc-sourcemap"
 rust-version = "1.85.0"
