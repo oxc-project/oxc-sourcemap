@@ -12,9 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - remove outdated text from README ([#95](https://github.com/oxc-project/oxc-sourcemap/pull/95))
-- *(deps)* lock file maintenance ([#97](https://github.com/oxc-project/oxc-sourcemap/pull/97))
-- *(justfile)* add `dprint` ([#94](https://github.com/oxc-project/oxc-sourcemap/pull/94))
+- _(deps)_ lock file maintenance ([#97](https://github.com/oxc-project/oxc-sourcemap/pull/97))
+- _(justfile)_ add `dprint` ([#94](https://github.com/oxc-project/oxc-sourcemap/pull/94))
 - add auto format ([#92](https://github.com/oxc-project/oxc-sourcemap/pull/92))
+
 # Changelog
 
 All notable changes to this package will be documented in this file.
