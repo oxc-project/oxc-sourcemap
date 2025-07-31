@@ -4,7 +4,7 @@ version = "4.0.3"
 authors = ["Boshen <boshenc@gmail.com>"]
 categories = []
 edition = "2024"
-include = ["/src", "build.rs"]
+include = ["build.rs", "/src", "/benches"]
 keywords = ["javascript", "sourcemap", "sourcemaps"]
 license = "MIT"
 publish = true
@@ -50,6 +50,10 @@ undocumented_unsafe_blocks = "allow"
 [lib]
 doctest = false
 crate-type = ["lib", "cdylib"]
+
+[[bench]]
+name = "resolve"
+harness = false
 
 [package.metadata.cargo-shear]
 ignored = ["napi"]
