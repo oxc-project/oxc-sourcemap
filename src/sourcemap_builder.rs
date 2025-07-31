@@ -23,12 +23,14 @@ pub struct SourceMapBuilder {
 impl SourceMapBuilder {
     /// Add item to `SourceMap::name`.
     pub fn add_name(&mut self, name: &str) -> u32 {
-        let count = self.names.len() as u32;
-        let id = *self.names_map.entry(name.into()).or_insert(count);
-        if id == count {
-            self.names.push(name.into());
+        if let Some(&id) = self.names_map.get(name) {
+            return id;
         }
-        id
+        let count = self.names.len() as u32;
+        let name = Arc::from(name);
+        self.names_map.insert(Arc::clone(&name), count);
+        self.names.push(name);
+        count
     }
 
     /// Add item to `SourceMap::sources` and `SourceMap::source_contents`.
