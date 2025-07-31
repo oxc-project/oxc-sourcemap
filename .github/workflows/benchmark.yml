@@ -8,6 +8,7 @@ on:
     types: [opened, synchronize]
     paths:
       - "**/*.rs"
+      - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/benchmark.yml"
   push:
@@ -16,6 +17,7 @@ on:
     paths:
       - "**/*.rs"
       - "Cargo.lock"
+      - "Cargo.toml"
       - ".github/workflows/benchmark.yml"
 
 concurrency:
