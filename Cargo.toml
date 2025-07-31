@@ -52,7 +52,7 @@ doctest = false
 crate-type = ["lib", "cdylib"]
 
 [[bench]]
-name = "resolve"
+name = "simple"
 harness = false
 
 [package.metadata.cargo-shear]
