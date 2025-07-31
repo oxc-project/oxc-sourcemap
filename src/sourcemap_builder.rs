@@ -95,9 +95,9 @@ fn test_sourcemap_builder() {
     builder.set_file("file");
 
     let sm = builder.into_sourcemap();
-    assert_eq!(sm.get_source(0), Some("baz.js"));
-    assert_eq!(sm.get_name(0), Some("x"));
-    assert_eq!(sm.get_file(), Some("file"));
+    assert_eq!(sm.get_source(0).map(|s| s.as_ref()), Some("baz.js"));
+    assert_eq!(sm.get_name(0).map(|s| s.as_ref()), Some("x"));
+    assert_eq!(sm.get_file().map(|s| s.as_ref()), Some("file"));
 
     let expected = r#"{"version":3,"file":"file","names":["x"],"sources":["baz.js"],"sourcesContent":[""],"mappings":""}"#;
     assert_eq!(expected, sm.to_json_string());

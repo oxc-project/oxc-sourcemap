@@ -132,11 +132,11 @@ impl<'a> SourceViewToken<'a> {
         if self.token.source_id == !0 { None } else { Some(self.token.source_id) }
     }
 
-    pub fn get_name(&self) -> Option<&str> {
+    pub fn get_name(&self) -> Option<&Arc<str>> {
         if self.token.name_id == !0 { None } else { self.sourcemap.get_name(self.token.name_id) }
     }
 
-    pub fn get_source(&self) -> Option<&str> {
+    pub fn get_source(&self) -> Option<&Arc<str>> {
         if self.token.source_id == !0 {
             None
         } else {
@@ -160,7 +160,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn to_tuple(&self) -> (Option<&str>, u32, u32, Option<&str>) {
+    pub fn to_tuple(&self) -> (Option<&Arc<str>>, u32, u32, Option<&Arc<str>>) {
         (self.get_source(), self.get_src_line(), self.get_src_col(), self.get_name())
     }
 }
