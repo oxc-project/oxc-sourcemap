@@ -107,7 +107,7 @@ impl ConcatSourceMapBuilder {
         }
 
         // Extend `sources` and `source_contents`.
-        self.sources.extend(sourcemap.get_sources().map(Into::into));
+        self.sources.extend(sourcemap.get_sources().map(Arc::clone));
 
         // Clone `Arc` instead of generating a new `Arc` and copying string data because
         // source texts are generally long strings. Cost of copying a large string is higher

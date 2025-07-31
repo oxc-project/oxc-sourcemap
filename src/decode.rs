@@ -168,9 +168,18 @@ fn test_decode_sourcemap() {
     assert_eq!(sm.get_source_root(), Some("x"));
     assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
     let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
-    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
-    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
-    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 2, 2, Some("alert")));
+    assert_eq!(
+        iter.next().unwrap().to_tuple(),
+        (Some(&"coolstuff.js".into()), 0, 4, Some(&"x".into()))
+    );
+    assert_eq!(
+        iter.next().unwrap().to_tuple(),
+        (Some(&"coolstuff.js".into()), 1, 4, Some(&"x".into()))
+    );
+    assert_eq!(
+        iter.next().unwrap().to_tuple(),
+        (Some(&"coolstuff.js".into()), 2, 2, Some(&"alert".into()))
+    );
     assert!(iter.next().is_none());
 }
 

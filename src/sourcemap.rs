@@ -79,8 +79,8 @@ impl SourceMap {
         format!("data:application/json;charset=utf-8;base64,{base_64_str}")
     }
 
-    pub fn get_file(&self) -> Option<&str> {
-        self.file.as_deref()
+    pub fn get_file(&self) -> Option<&Arc<str>> {
+        self.file.as_ref()
     }
 
     pub fn set_file(&mut self, file: &str) {
@@ -117,8 +117,8 @@ impl SourceMap {
         self.sources = sources.into_iter().map(Into::into).collect();
     }
 
-    pub fn get_sources(&self) -> impl Iterator<Item = &str> {
-        self.sources.iter().map(AsRef::as_ref)
+    pub fn get_sources(&self) -> impl Iterator<Item = &Arc<str>> {
+        self.sources.iter()
     }
 
     /// Adjust `source_content`.
@@ -149,12 +149,12 @@ impl SourceMap {
         self.tokens.iter().map(|token| SourceViewToken::new(token, self))
     }
 
-    pub fn get_name(&self, id: u32) -> Option<&str> {
-        self.names.get(id as usize).map(AsRef::as_ref)
+    pub fn get_name(&self, id: u32) -> Option<&Arc<str>> {
+        self.names.get(id as usize)
     }
 
-    pub fn get_source(&self, id: u32) -> Option<&str> {
-        self.sources.get(id as usize).map(AsRef::as_ref)
+    pub fn get_source(&self, id: u32) -> Option<&Arc<str>> {
+        self.sources.get(id as usize)
     }
 
     pub fn get_source_content(&self, id: u32) -> Option<&Arc<str>> {
@@ -252,21 +252,21 @@ fn test_sourcemap_lookup_token() {
     let lookup_table = sm.generate_lookup_table();
     assert_eq!(
         sm.lookup_source_view_token(&lookup_table, 0, 0).unwrap().to_tuple(),
-        (Some("coolstuff.js"), 0, 0, None)
+        (Some(&"coolstuff.js".into()), 0, 0, None)
     );
     assert_eq!(
         sm.lookup_source_view_token(&lookup_table, 0, 3).unwrap().to_tuple(),
-        (Some("coolstuff.js"), 0, 4, Some("x"))
+        (Some(&"coolstuff.js".into()), 0, 4, Some(&"x".into()))
     );
     assert_eq!(
         sm.lookup_source_view_token(&lookup_table, 0, 24).unwrap().to_tuple(),
-        (Some("coolstuff.js"), 2, 8, None)
+        (Some(&"coolstuff.js".into()), 2, 8, None)
     );
 
     // Lines continue out to infinity
     assert_eq!(
         sm.lookup_source_view_token(&lookup_table, 0, 1000).unwrap().to_tuple(),
-        (Some("coolstuff.js"), 2, 8, None)
+        (Some(&"coolstuff.js".into()), 2, 8, None)
     );
 
     assert!(sm.lookup_source_view_token(&lookup_table, 1000, 0).is_none());
@@ -284,7 +284,10 @@ fn test_sourcemap_source_view_token() {
         None,
     );
     let mut source_view_tokens = sm.get_source_view_tokens();
-    assert_eq!(source_view_tokens.next().unwrap().to_tuple(), (Some("foo.js"), 1, 1, Some("foo")));
+    assert_eq!(
+        source_view_tokens.next().unwrap().to_tuple(),
+        (Some(&"foo.js".into()), 1, 1, Some(&"foo".into()))
+    );
 }
 
 #[test]
@@ -294,7 +297,7 @@ fn test_mut_sourcemap() {
     sm.set_sources(vec!["foo.js"]);
     sm.set_source_contents(vec![Some("foo")]);
 
-    assert_eq!(sm.get_file(), Some("index.js"));
-    assert_eq!(sm.get_source(0), Some("foo.js"));
+    assert_eq!(sm.get_file().map(|s| s.as_ref()), Some("index.js"));
+    assert_eq!(sm.get_source(0).map(|s| s.as_ref()), Some("foo.js"));
     assert_eq!(sm.get_source_content(0).map(|s| s.as_ref()), Some("foo"));
 }

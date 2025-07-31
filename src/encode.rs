@@ -43,7 +43,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     contents.push("{\"version\":3,".into());
     if let Some(file) = sourcemap.get_file() {
         contents.push("\"file\":\"".into());
-        contents.push(file.into());
+        contents.push(file.as_ref().into());
         contents.push("\",".into());
     }
 
