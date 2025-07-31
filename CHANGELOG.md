@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.4](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.3...v4.0.4) - 2025-07-31
+
+### Fixed
+
+- fix
+
+### Other
+
+- change some APIs to return `&Arc<str>` ([#105](https://github.com/oxc-project/oxc-sourcemap/pull/105))
+- avoid string allocation in `SourceMapBuilder::add_name` ([#103](https://github.com/oxc-project/oxc-sourcemap/pull/103))
+- add [bench] to Cargo.toml
+- add benchmark ([#100](https://github.com/oxc-project/oxc-sourcemap/pull/100))
+
 ## [4.0.3](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.2...v4.0.3) - 2025-07-28
 
 ### Other
