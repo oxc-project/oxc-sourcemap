@@ -66,8 +66,10 @@ serde_json = { version = "1" }
 napi-build = { version = "2", optional = true }
 
 [dev-dependencies]
+criterion2 = { version = "3.0.2", default-features = false }
 insta = { version = "1.43.1", features = ["glob"] }
 
 [features]
 default = []
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+codspeed = ["criterion2/codspeed"]
