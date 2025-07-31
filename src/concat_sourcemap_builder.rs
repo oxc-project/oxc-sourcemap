@@ -107,7 +107,8 @@ impl ConcatSourceMapBuilder {
         }
 
         // Extend `sources` and `source_contents`.
-        self.sources.extend(sourcemap.get_sources().map(Into::into));
+        // Clone `Arc` instead of creating new `Arc` from `&str`
+        self.sources.extend(sourcemap.sources.iter().cloned());
 
         // Clone `Arc` instead of generating a new `Arc` and copying string data because
         // source texts are generally long strings. Cost of copying a large string is higher
@@ -115,8 +116,9 @@ impl ConcatSourceMapBuilder {
         self.source_contents.extend(sourcemap.source_contents.iter().cloned());
 
         // Extend `names`.
+        // Clone `Arc` instead of creating new `Arc` from `&str`
         self.names.reserve(sourcemap.names.len());
-        self.names.extend(sourcemap.get_names().map(Into::into));
+        self.names.extend(sourcemap.names.iter().cloned());
 
         // Extend `tokens`.
         self.tokens.reserve(sourcemap.tokens.len());

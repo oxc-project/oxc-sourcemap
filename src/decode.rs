@@ -55,14 +55,17 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap> {
 }
 
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
-    let mut tokens = vec![];
+    // Estimate initial capacity based on mapping length
+    // Each segment is roughly 1-4 chars, and we have separators, so estimate conservatively
+    let estimated_tokens = mapping.len() / 6;
+    let mut tokens = Vec::with_capacity(estimated_tokens);
 
     let mut dst_col;
     let mut src_id = 0;
     let mut src_line = 0;
     let mut src_col = 0;
     let mut name_id = 0;
-    let mut nums = Vec::with_capacity(6);
+    let mut nums = Vec::with_capacity(5); // Max 5 values per segment
 
     for (dst_line, line) in mapping.split(';').enumerate() {
         if line.is_empty() {

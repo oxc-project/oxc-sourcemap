@@ -171,11 +171,29 @@ impl SourceMap {
     pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
         // The dst line/dst col always has increasing order.
         if let Some(last_token) = self.tokens.last() {
-            let mut table = vec![vec![]; last_token.dst_line as usize + 1];
+            let max_line = last_token.dst_line as usize + 1;
+            let mut table = Vec::with_capacity(max_line);
+            table.resize_with(max_line, Vec::new);
+            
+            // Pre-allocate capacity for each line based on token distribution
+            let avg_tokens_per_line = if max_line > 0 { self.tokens.len() / max_line } else { 0 };
+            let min_capacity = if avg_tokens_per_line > 0 { avg_tokens_per_line } else { 1 };
+            
+            for line_vec in &mut table {
+                line_vec.reserve(min_capacity);
+            }
+            
             for (idx, token) in self.tokens.iter().enumerate() {
                 table[token.dst_line as usize].push((token.dst_line, token.dst_col, idx as u32));
             }
-            table.iter_mut().for_each(|line| line.sort_unstable());
+            
+            // Only sort lines that actually have tokens
+            for line in &mut table {
+                if line.len() > 1 {
+                    line.sort_unstable();
+                }
+            }
+            
             table
         } else {
             vec![]
