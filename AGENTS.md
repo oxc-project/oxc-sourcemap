@@ -21,16 +21,9 @@ To build and develop this project, you'll need:
 
 ### Initial Setup
 
-```bash
-# Install development tools
-just init
-```
+`just init` has already been run, all tools (`typos-cli`, `cargo-shear`, `dprint`) are already installed, do not run `just init`.
 
-This installs the following tools via `cargo binstall`:
-- `watchexec-cli` - File watcher for development
-- `typos-cli` - Spell checker for code
-- `cargo-shear` - Unused dependency remover
-- `dprint` - Code formatter
+Rust and `cargo` components `clippy`, `rust-docs` and `rustfmt` has already been installed, do not install them.
 
 ### Development Workflow
 
@@ -49,14 +42,6 @@ typos                                     # Check for typos
 ```
 
 The `just ready` command runs a comprehensive check including git status verification, spell checking, compilation checks, tests, linting, and formatting.
-
-## Agent Contributions
-
-### GitHub Copilot
-
-- **Type**: Code completion and generation assistant
-- **Usage**: Assists developers with code suggestions and automated fixes
-- **Contributions**: Various code improvements and maintenance tasks
 
 ## Guidelines for AI Agent Contributions
 
