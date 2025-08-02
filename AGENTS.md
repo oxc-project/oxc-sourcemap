@@ -10,6 +10,46 @@ This file serves to:
 - Provide transparency about automated contributions
 - Track the evolution of AI-assisted development in this codebase
 
+## Build Instructions
+
+To build and develop this project, you'll need:
+
+### Prerequisites
+
+- [Rust toolchain](https://rustup.rs/) (version specified in `rust-toolchain.toml`)
+- [Just command runner](https://github.com/casey/just) for task automation
+
+### Initial Setup
+
+```bash
+# Install development tools
+just init
+```
+
+This installs the following tools via `cargo binstall`:
+- `watchexec-cli` - File watcher for development
+- `typos-cli` - Spell checker for code
+- `cargo-shear` - Unused dependency remover
+- `dprint` - Code formatter
+
+### Development Workflow
+
+```bash
+# Run all checks (recommended before committing)
+just ready
+
+# Format code
+just fmt
+
+# Individual commands
+cargo check --all-targets --all-features  # Check compilation
+cargo test                                # Run tests
+cargo clippy --all-targets --all-features # Run linter
+typos                                     # Check for typos
+```
+
+The `just ready` command runs a comprehensive check including git status verification, spell checking, compilation checks, tests, linting, and formatting.
+
 ## Agent Contributions
 
 ### GitHub Copilot
