@@ -5,6 +5,7 @@ This document tracks AI agents and their contributions to the oxc-sourcemap proj
 ## Purpose
 
 This file serves to:
+
 - Document AI agent contributions to the project
 - Provide transparency about automated contributions
 - Track the evolution of AI-assisted development in this codebase
@@ -12,6 +13,7 @@ This file serves to:
 ## Agent Contributions
 
 ### GitHub Copilot
+
 - **Type**: Code completion and generation assistant
 - **Usage**: Assists developers with code suggestions and automated fixes
 - **Contributions**: Various code improvements and maintenance tasks
