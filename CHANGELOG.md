@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.5](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.4...v4.0.5) - 2025-08-03
+
+### Other
+
+- make `Token` Copy ([#108](https://github.com/oxc-project/oxc-sourcemap/pull/108))
+- change some APIs to return `&Arc<str>` ([#107](https://github.com/oxc-project/oxc-sourcemap/pull/107))
+
 ## [4.0.4](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.3...v4.0.4) - 2025-07-31
 
 ### Fixed
