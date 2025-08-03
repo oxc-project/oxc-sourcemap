@@ -152,7 +152,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_and_content(&self) -> Option<(&str, &str)> {
+    pub fn get_source_and_content(&self) -> Option<(&Arc<str>, &Arc<str>)> {
         if self.token.source_id == !0 {
             None
         } else {

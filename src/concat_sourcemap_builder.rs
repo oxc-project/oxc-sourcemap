@@ -116,7 +116,7 @@ impl ConcatSourceMapBuilder {
 
         // Extend `names`.
         self.names.reserve(sourcemap.names.len());
-        self.names.extend(sourcemap.get_names().map(Into::into));
+        self.names.extend(sourcemap.get_names().map(Arc::clone));
 
         // Extend `tokens`.
         self.tokens.reserve(sourcemap.tokens.len());
