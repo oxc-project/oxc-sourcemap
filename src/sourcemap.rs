@@ -108,8 +108,8 @@ impl SourceMap {
         self.debug_id.as_deref()
     }
 
-    pub fn get_names(&self) -> impl Iterator<Item = &str> {
-        self.names.iter().map(AsRef::as_ref)
+    pub fn get_names(&self) -> impl Iterator<Item = &Arc<str>> {
+        self.names.iter()
     }
 
     /// Adjust `sources`.
@@ -161,7 +161,7 @@ impl SourceMap {
         self.source_contents.get(id as usize).and_then(|item| item.as_ref())
     }
 
-    pub fn get_source_and_content(&self, id: u32) -> Option<(&str, &str)> {
+    pub fn get_source_and_content(&self, id: u32) -> Option<(&Arc<str>, &Arc<str>)> {
         let source = self.get_source(id)?;
         let content = self.get_source_content(id)?;
         Some((source, content))
