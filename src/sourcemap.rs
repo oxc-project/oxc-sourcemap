@@ -131,22 +131,22 @@ impl SourceMap {
         self.source_contents.iter().map(|item| item.as_ref())
     }
 
-    pub fn get_token(&self, index: u32) -> Option<&Token> {
-        self.tokens.get(index as usize)
+    pub fn get_token(&self, index: u32) -> Option<Token> {
+        self.tokens.get(index as usize).copied()
     }
 
     pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_>> {
-        self.tokens.get(index as usize).map(|token| SourceViewToken::new(token, self))
+        self.tokens.get(index as usize).copied().map(|token| SourceViewToken::new(token, self))
     }
 
     /// Get raw tokens.
-    pub fn get_tokens(&self) -> impl Iterator<Item = &Token> {
-        self.tokens.iter()
+    pub fn get_tokens(&self) -> impl Iterator<Item = Token> {
+        self.tokens.iter().copied()
     }
 
     /// Get source view tokens. See [`SourceViewToken`] for more information.
     pub fn get_source_view_tokens(&self) -> impl Iterator<Item = SourceViewToken<'_>> {
-        self.tokens.iter().map(|token| SourceViewToken::new(token, self))
+        self.tokens.iter().map(|&token| SourceViewToken::new(token, self))
     }
 
     pub fn get_name(&self, id: u32) -> Option<&Arc<str>> {
@@ -188,7 +188,7 @@ impl SourceMap {
         lookup_table: &[LineLookupTable],
         line: u32,
         col: u32,
-    ) -> Option<&Token> {
+    ) -> Option<Token> {
         // If the line is greater than the number of lines in the lookup table, it hasn't corresponding origin token.
         if line >= lookup_table.len() as u32 {
             return None;
