@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::SourceMap;
 
 /// The `Token` is used to generate vlq `mappings`.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Token {
     pub(crate) dst_line: u32,
     pub(crate) dst_col: u32,
@@ -99,12 +99,12 @@ impl TokenChunk {
 /// The `SourceViewToken` provider extra `source` and `source_content` value.
 #[derive(Debug, Clone, Copy)]
 pub struct SourceViewToken<'a> {
-    pub(crate) token: &'a Token,
+    pub(crate) token: Token,
     pub(crate) sourcemap: &'a SourceMap,
 }
 
 impl<'a> SourceViewToken<'a> {
-    pub fn new(token: &'a Token, sourcemap: &'a SourceMap) -> Self {
+    pub fn new(token: Token, sourcemap: &'a SourceMap) -> Self {
         Self { token, sourcemap }
     }
 
