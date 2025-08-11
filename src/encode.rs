@@ -386,6 +386,11 @@ unsafe fn escape_json_string_avx512(s: &str) -> String {
     // Process 64-byte chunks with AVX512
     while i + 64 <= bytes.len() {
         unsafe {
+            // Prefetch next cache line into L1 cache for better performance
+            if i + 128 <= bytes.len() {
+                _mm_prefetch(bytes.as_ptr().add(i + 64) as *const i8, _MM_HINT_T0);
+            }
+
             let chunk = _mm512_loadu_si512(bytes.as_ptr().add(i) as *const __m512i);
 
             // Check for characters that need escaping
@@ -440,6 +445,11 @@ unsafe fn escape_json_string_avx2(s: &str) -> String {
     // Process 32-byte chunks with AVX2
     while i + 32 <= bytes.len() {
         unsafe {
+            // Prefetch next cache line into L1 cache for better performance
+            if i + 64 <= bytes.len() {
+                _mm_prefetch(bytes.as_ptr().add(i + 32) as *const i8, _MM_HINT_T0);
+            }
+
             let chunk = _mm256_loadu_si256(bytes.as_ptr().add(i) as *const __m256i);
 
             // Check for characters that need escaping
