@@ -333,18 +333,21 @@ impl<'a> PreAllocatedString<'a> {
 pub fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
 
-    // Use SIMD acceleration if available on x86_64
+    // Use SIMD acceleration if available on x86_64 and string is long enough
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
+        if is_x86_feature_detected!("avx512f")
+            && is_x86_feature_detected!("avx512bw")
+            && s.len() >= 64
+        {
             return unsafe { escape_json_string_avx512(s) };
         }
-        if is_x86_feature_detected!("avx2") {
+        if is_x86_feature_detected!("avx2") && s.len() >= 32 {
             return unsafe { escape_json_string_avx2(s) };
         }
     }
 
-    // Fallback to serde_json implementation
+    // Fallback to serde_json implementation for small strings or non-SIMD platforms
     escape_json_string_fallback(s)
 }
 
@@ -597,6 +600,41 @@ fn test_avx2_direct() {
             );
         }
     }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn test_length_threshold_behavior() {
+    // Test that short strings use fallback even on SIMD-capable hardware
+    let short_string_31 = "a".repeat(31); // Below AVX2 threshold (32)
+    let medium_string_32 = "a".repeat(32); // At AVX2 threshold
+    let medium_string_63 = "a".repeat(63); // Below AVX512 threshold (64)
+    let long_string_64 = "a".repeat(64); // At AVX512 threshold
+
+    // All should produce the same results
+    assert_eq!(escape_json_string(&short_string_31), escape_json_string_fallback(&short_string_31));
+    assert_eq!(
+        escape_json_string(&medium_string_32),
+        escape_json_string_fallback(&medium_string_32)
+    );
+    assert_eq!(
+        escape_json_string(&medium_string_63),
+        escape_json_string_fallback(&medium_string_63)
+    );
+    assert_eq!(escape_json_string(&long_string_64), escape_json_string_fallback(&long_string_64));
+
+    // Test strings that need escaping at various lengths
+    let short_with_quotes = "\"".repeat(15); // 15 quotes, below all thresholds
+    let medium_with_quotes = "\"".repeat(40); // 40 quotes, above both thresholds
+
+    assert_eq!(
+        escape_json_string(&short_with_quotes),
+        escape_json_string_fallback(&short_with_quotes)
+    );
+    assert_eq!(
+        escape_json_string(&medium_with_quotes),
+        escape_json_string_fallback(&medium_with_quotes)
+    );
 }
 
 #[test]
