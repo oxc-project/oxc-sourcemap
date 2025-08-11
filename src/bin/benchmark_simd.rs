@@ -182,7 +182,7 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
     println!();
 
     // Benchmark 1: Main implementation (with SIMD dispatch)
-    {
+    let main_avg_ms = {
         let start = Instant::now();
         for _ in 0..ITERATIONS {
             let _ = sourcemap.to_json_string();
@@ -194,11 +194,12 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
             avg_ms,
             duration.as_secs_f64()
         );
-    }
+        avg_ms
+    };
 
     // Benchmark 2: Fallback implementation only
     // For simplicity, let's just measure string escaping directly on the biggest strings
-    {
+    let fallback_avg_ms = {
         let start = Instant::now();
         for _ in 0..ITERATIONS {
             // Escape all strings using fallback only
@@ -219,37 +220,57 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
             avg_ms,
             duration.as_secs_f64()
         );
-    }
+        avg_ms
+    };
 
     // Benchmark 3: AVX2 only (if available)
-    #[cfg(target_arch = "x86_64")]
-    if is_x86_feature_detected!("avx2") {
-        let start = Instant::now();
-        for _ in 0..ITERATIONS {
-            // Escape all strings using AVX2 when possible
-            for name in sourcemap.get_names() {
-                let _ = escape_json_string_avx2_if_available(name.as_ref())
-                    .unwrap_or_else(|| escape_json_string_fallback(name.as_ref()));
+    let avx2_avg_ms = {
+        #[cfg(target_arch = "x86_64")]
+        if is_x86_feature_detected!("avx2") {
+            let start = Instant::now();
+            for _ in 0..ITERATIONS {
+                // Escape all strings using AVX2 when possible
+                for name in sourcemap.get_names() {
+                    let _ = escape_json_string_avx2_if_available(name.as_ref())
+                        .unwrap_or_else(|| escape_json_string_fallback(name.as_ref()));
+                }
+                for source in sourcemap.get_sources() {
+                    let _ = escape_json_string_avx2_if_available(source.as_ref())
+                        .unwrap_or_else(|| escape_json_string_fallback(source.as_ref()));
+                }
+                for content in sourcemap.get_source_contents().flatten() {
+                    let _ = escape_json_string_avx2_if_available(content.as_ref())
+                        .unwrap_or_else(|| escape_json_string_fallback(content.as_ref()));
+                }
             }
-            for source in sourcemap.get_sources() {
-                let _ = escape_json_string_avx2_if_available(source.as_ref())
-                    .unwrap_or_else(|| escape_json_string_fallback(source.as_ref()));
-            }
-            for content in sourcemap.get_source_contents().flatten() {
-                let _ = escape_json_string_avx2_if_available(content.as_ref())
-                    .unwrap_or_else(|| escape_json_string_fallback(content.as_ref()));
-            }
+            let duration = start.elapsed();
+            let avg_ms = duration.as_nanos() as f64 / ITERATIONS as f64 / 1_000_000.0;
+            println!(
+                "AVX2 (strings only):     {:.3}ms avg ({:.3}s total)",
+                avg_ms,
+                duration.as_secs_f64()
+            );
+            Some(avg_ms)
+        } else {
+            None
         }
-        let duration = start.elapsed();
-        let avg_ms = duration.as_nanos() as f64 / ITERATIONS as f64 / 1_000_000.0;
-        println!(
-            "AVX2 (strings only):     {:.3}ms avg ({:.3}s total)",
-            avg_ms,
-            duration.as_secs_f64()
-        );
+
+        #[cfg(not(target_arch = "x86_64"))]
+        None
+    };
+
+    // Show speedup calculations and performance summary
+    println!();
+    println!("=== PERFORMANCE SUMMARY ===");
+
+    if let Some(avx2_ms) = avx2_avg_ms {
+        let avx2_speedup = fallback_avg_ms / avx2_ms;
+        println!("AVX2 vs Fallback speedup: {:.2}x faster", avx2_speedup);
     }
 
-    // Show speedup calculations
+    let simd_speedup = fallback_avg_ms / main_avg_ms;
+    println!("SIMD dispatch vs Fallback speedup: {:.2}x faster", simd_speedup);
+
     println!();
     println!("Note: Main implementation uses:");
     println!("  - AVX512 for strings ≥64 bytes (if available)");
@@ -258,6 +279,8 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
     println!();
     println!("String-only benchmarks show the pure escaping performance difference.");
     println!("Full to_json_string includes other processing (mappings, structure, etc.)");
+    println!();
+    println!("✅ Benchmark completed successfully!");
 
     Ok(())
 }
