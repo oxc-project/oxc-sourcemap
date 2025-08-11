@@ -409,6 +409,7 @@ unsafe fn escape_json_string_avx512(s: &str) -> String {
     unsafe { String::from_utf8_unchecked(result) }
 }
 
+#[cfg(target_arch = "x86_64")]
 #[inline]
 fn append_escaped_byte(result: &mut Vec<u8>, byte: u8) {
     match byte {
