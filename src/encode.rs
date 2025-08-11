@@ -332,7 +332,7 @@ impl<'a> PreAllocatedString<'a> {
 
 pub fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    
+
     // Use AVX512 acceleration if available on x86_64
     #[cfg(target_arch = "x86_64")]
     {
@@ -340,7 +340,7 @@ pub fn escape_json_string<S: AsRef<str>>(s: S) -> String {
             return unsafe { escape_json_string_avx512(s) };
         }
     }
-    
+
     // Fallback to serde_json implementation
     escape_json_string_fallback(s)
 }
@@ -359,28 +359,28 @@ pub fn escape_json_string_fallback<S: AsRef<str>>(s: S) -> String {
 #[target_feature(enable = "avx512f,avx512bw")]
 unsafe fn escape_json_string_avx512(s: &str) -> String {
     use std::arch::x86_64::*;
-    
+
     let bytes = s.as_bytes();
     let mut result = Vec::with_capacity(s.len() * 2 + 2);
-    
+
     // Add opening quote
     result.push(b'"');
-    
+
     let mut i = 0;
-    
+
     // Process 64-byte chunks with AVX512
     while i + 64 <= bytes.len() {
         unsafe {
             let chunk = _mm512_loadu_si512(bytes.as_ptr().add(i) as *const __m512i);
-            
+
             // Check for characters that need escaping
             // ASCII control characters (0x00-0x1F), quote (0x22), backslash (0x5C)
             let control_mask = _mm512_cmplt_epu8_mask(chunk, _mm512_set1_epi8(0x20));
             let quote_mask = _mm512_cmpeq_epu8_mask(chunk, _mm512_set1_epi8(b'"' as i8));
             let backslash_mask = _mm512_cmpeq_epu8_mask(chunk, _mm512_set1_epi8(b'\\' as i8));
-            
+
             let escape_mask = control_mask | quote_mask | backslash_mask;
-            
+
             if escape_mask == 0 {
                 // No characters need escaping, copy directly
                 result.extend_from_slice(&bytes[i..i + 64]);
@@ -395,16 +395,16 @@ unsafe fn escape_json_string_avx512(s: &str) -> String {
             }
         }
     }
-    
+
     // Process remaining bytes
     while i < bytes.len() {
         append_escaped_byte(&mut result, bytes[i]);
         i += 1;
     }
-    
+
     // Add closing quote
     result.push(b'"');
-    
+
     // Safety: We only write valid UTF-8 sequences
     unsafe { String::from_utf8_unchecked(result) }
 }
@@ -459,7 +459,7 @@ fn test_avx512_vs_fallback_consistency() {
     let long_x = "x".repeat(100);
     let long_quotes = "\"".repeat(100);
     let long_control = "\n".repeat(100);
-    
+
     let test_strings = vec![
         "",
         "simple",
@@ -467,8 +467,8 @@ fn test_avx512_vs_fallback_consistency() {
         "with\\backslashes",
         "with\ncontrol\tchars\r",
         "🚀 unicode 虎",
-        &long_x, // Test longer strings to trigger AVX512 path
-        &long_quotes, // Many quotes to test escaping
+        &long_x,       // Test longer strings to trigger AVX512 path
+        &long_quotes,  // Many quotes to test escaping
         &long_control, // Many control chars
         "mixed content with \"quotes\", \\backslashes, and \ncontrol\tchars",
     ];
@@ -476,15 +476,11 @@ fn test_avx512_vs_fallback_consistency() {
     for test_str in test_strings {
         let fallback_result = escape_json_string_fallback(test_str);
         let main_result = escape_json_string(test_str);
-        assert_eq!(
-            fallback_result, main_result,
-            "Results differ for input: {:?}",
-            test_str
-        );
+        assert_eq!(fallback_result, main_result, "Results differ for input: {:?}", test_str);
     }
 }
 
-#[test] 
+#[test]
 #[cfg(target_arch = "x86_64")]
 fn test_avx512_direct() {
     // Test the AVX512 function directly if AVX512 is available
@@ -496,7 +492,7 @@ fn test_avx512_direct() {
             "with\ncontrol\rchars\t",
             long_a.as_str(), // Longer than one AVX512 chunk
         ];
-        
+
         for test_str in test_strings {
             let avx512_result = unsafe { escape_json_string_avx512(test_str) };
             let fallback_result = escape_json_string_fallback(test_str);

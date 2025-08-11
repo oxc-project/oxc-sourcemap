@@ -4,12 +4,12 @@ use oxc_sourcemap::{SourceMap, SourceMapBuilder, escape_json_string, escape_json
 pub fn bench_json_escaping(c: &mut Criterion) {
     let long_clean = "abcdefghijklmnopqrstuvwxyz".repeat(50);
     let long_quotes = "\"test\"".repeat(100);
-    
+
     let test_strings = vec![
         ("short_clean", "simple string without escapes"),
         ("short_quotes", "string with \"quotes\" and \\backslashes"),
         ("short_control", "string with\ncontrol\tchars\r"),
-        ("long_clean", long_clean.as_str()), // Long string without escapes  
+        ("long_clean", long_clean.as_str()), // Long string without escapes
         ("long_quotes", long_quotes.as_str()), // Many escapes
         ("mixed", "mixed: \"quotes\", \\backslashes, \ncontrol\tchars, and regular text"),
     ];
@@ -18,7 +18,7 @@ pub fn bench_json_escaping(c: &mut Criterion) {
         c.bench_function(&format!("escape_fallback_{}", name), |b| {
             b.iter(|| escape_json_string_fallback(test_str));
         });
-        
+
         c.bench_function(&format!("escape_avx512_{}", name), |b| {
             b.iter(|| escape_json_string(test_str));
         });
