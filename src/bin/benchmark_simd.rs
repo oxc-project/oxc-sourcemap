@@ -126,21 +126,20 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
 
     // Analyze string lengths to understand SIMD impact
     let mut total_string_bytes = 0;
-    let mut long_strings = 0; // >= 64 bytes (AVX512 threshold)
-    let mut medium_strings = 0; // >= 32 bytes (AVX2 threshold)
-    let mut short_strings = 0; // < 32 bytes (fallback)
+    let mut names_count = 0;
+    let mut names_bytes = 0;
+    let mut long_strings = 0; // >= 64 bytes (AVX512 threshold) - sources/content only
+    let mut medium_strings = 0; // >= 32 bytes (AVX2 threshold) - sources/content only
+    let mut short_strings = 0; // < 32 bytes (fallback) - sources/content only
 
+    // Names always use fallback (never SIMD)
     for name in sourcemap.get_names() {
         total_string_bytes += name.len();
-        if name.len() >= 64 {
-            long_strings += 1;
-        } else if name.len() >= 32 {
-            medium_strings += 1;
-        } else {
-            short_strings += 1;
-        }
+        names_bytes += name.len();
+        names_count += 1;
     }
 
+    // Sources and content can use SIMD based on length thresholds
     for source in sourcemap.get_sources() {
         total_string_bytes += source.len();
         if source.len() >= 64 {
@@ -165,6 +164,7 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
 
     println!("String analysis:");
     println!("  Total string bytes: {}", total_string_bytes);
+    println!("  Names (always fallback): {} strings, {} bytes", names_count, names_bytes);
     println!("  Long strings (≥64 bytes, AVX512): {}", long_strings);
     println!("  Medium strings (≥32 bytes, AVX2): {}", medium_strings);
     println!("  Short strings (<32 bytes, fallback): {}", short_strings);
@@ -229,11 +229,11 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
         if is_x86_feature_detected!("avx2") {
             let start = Instant::now();
             for _ in 0..ITERATIONS {
-                // Escape all strings using AVX2 when possible
+                // Names always use fallback (never SIMD) since they're typically short
                 for name in sourcemap.get_names() {
-                    let _ = escape_json_string_avx2_if_available(name.as_ref())
-                        .unwrap_or_else(|| escape_json_string_fallback(name.as_ref()));
+                    let _ = escape_json_string_fallback(name.as_ref());
                 }
+                // Sources and content use AVX2 when possible
                 for source in sourcemap.get_sources() {
                     let _ = escape_json_string_avx2_if_available(source.as_ref())
                         .unwrap_or_else(|| escape_json_string_fallback(source.as_ref()));
@@ -272,9 +272,9 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std
     println!("SIMD dispatch vs Fallback speedup: {:.2}x faster", simd_speedup);
 
     println!();
-    println!("Note: Main implementation uses:");
-    println!("  - AVX512 for strings ≥64 bytes (if available)");
-    println!("  - AVX2 for strings ≥32 bytes (if available)");
+    println!("Note: Implementation behavior:");
+    println!("  - Names: Always use fallback (sourcemap names are typically short)");
+    println!("  - Sources/Content: AVX512 for strings ≥64 bytes, AVX2 for strings ≥32 bytes");
     println!("  - Fallback for smaller strings or non-SIMD hardware");
     println!();
     println!("String-only benchmarks show the pure escaping performance difference.");
