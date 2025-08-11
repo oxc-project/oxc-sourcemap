@@ -12,6 +12,7 @@ pub mod napi;
 
 pub use concat_sourcemap_builder::ConcatSourceMapBuilder;
 pub use decode::JSONSourceMap;
+pub use encode::{escape_json_string, escape_json_string_fallback};
 pub use error::Error;
 pub use sourcemap::SourceMap;
 pub use sourcemap_builder::SourceMapBuilder;

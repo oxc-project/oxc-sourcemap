@@ -10,7 +10,7 @@ license = "MIT"
 publish = true
 readme = "README.md"
 repository = "https://github.com/oxc-project/oxc-sourcemap"
-rust-version = "1.85.0"
+rust-version = "1.89.0"
 description = "Basic sourcemap handling for Rust"
 
 # <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>

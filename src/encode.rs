@@ -330,7 +330,22 @@ impl<'a> PreAllocatedString<'a> {
     }
 }
 
-fn escape_json_string<S: AsRef<str>>(s: S) -> String {
+pub fn escape_json_string<S: AsRef<str>>(s: S) -> String {
+    let s = s.as_ref();
+    
+    // Use AVX512 acceleration if available on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
+            return unsafe { escape_json_string_avx512(s) };
+        }
+    }
+    
+    // Fallback to serde_json implementation
+    escape_json_string_fallback(s)
+}
+
+pub fn escape_json_string_fallback<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
     let mut escaped_buf = Vec::with_capacity(s.len() * 2 + 2);
     // This call is infallible as only error it can return is if the writer errors.
@@ -338,6 +353,81 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
     // Safety: `escaped_buf` is valid utf8.
     unsafe { String::from_utf8_unchecked(escaped_buf) }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn escape_json_string_avx512(s: &str) -> String {
+    use std::arch::x86_64::*;
+    
+    let bytes = s.as_bytes();
+    let mut result = Vec::with_capacity(s.len() * 2 + 2);
+    
+    // Add opening quote
+    result.push(b'"');
+    
+    let mut i = 0;
+    
+    // Process 64-byte chunks with AVX512
+    while i + 64 <= bytes.len() {
+        unsafe {
+            let chunk = _mm512_loadu_si512(bytes.as_ptr().add(i) as *const __m512i);
+            
+            // Check for characters that need escaping
+            // ASCII control characters (0x00-0x1F), quote (0x22), backslash (0x5C)
+            let control_mask = _mm512_cmplt_epu8_mask(chunk, _mm512_set1_epi8(0x20));
+            let quote_mask = _mm512_cmpeq_epu8_mask(chunk, _mm512_set1_epi8(b'"' as i8));
+            let backslash_mask = _mm512_cmpeq_epu8_mask(chunk, _mm512_set1_epi8(b'\\' as i8));
+            
+            let escape_mask = control_mask | quote_mask | backslash_mask;
+            
+            if escape_mask == 0 {
+                // No characters need escaping, copy directly
+                result.extend_from_slice(&bytes[i..i + 64]);
+                i += 64;
+            } else {
+                // Process byte by byte for this chunk due to escaping needed
+                for j in 0..64 {
+                    let byte = bytes[i + j];
+                    append_escaped_byte(&mut result, byte);
+                }
+                i += 64;
+            }
+        }
+    }
+    
+    // Process remaining bytes
+    while i < bytes.len() {
+        append_escaped_byte(&mut result, bytes[i]);
+        i += 1;
+    }
+    
+    // Add closing quote
+    result.push(b'"');
+    
+    // Safety: We only write valid UTF-8 sequences
+    unsafe { String::from_utf8_unchecked(result) }
+}
+
+#[inline]
+fn append_escaped_byte(result: &mut Vec<u8>, byte: u8) {
+    match byte {
+        b'"' => result.extend_from_slice(b"\\\""),
+        b'\\' => result.extend_from_slice(b"\\\\"),
+        b'\x08' => result.extend_from_slice(b"\\b"),
+        b'\x0C' => result.extend_from_slice(b"\\f"),
+        b'\n' => result.extend_from_slice(b"\\n"),
+        b'\r' => result.extend_from_slice(b"\\r"),
+        b'\t' => result.extend_from_slice(b"\\t"),
+        0x00..=0x1F => {
+            // Other control characters as unicode escapes
+            result.extend_from_slice(b"\\u00");
+            let hex_chars = b"0123456789abcdef";
+            result.push(hex_chars[(byte >> 4) as usize]);
+            result.push(hex_chars[(byte & 0x0F) as usize]);
+        }
+        _ => result.push(byte),
+    }
 }
 
 #[test]
@@ -361,6 +451,61 @@ fn test_escape_json_string() {
         let mut input = String::new();
         input.push(*c);
         assert_eq!(escape_json_string(input), *expected);
+    }
+}
+
+#[test]
+fn test_avx512_vs_fallback_consistency() {
+    let long_x = "x".repeat(100);
+    let long_quotes = "\"".repeat(100);
+    let long_control = "\n".repeat(100);
+    
+    let test_strings = vec![
+        "",
+        "simple",
+        "with\"quotes",
+        "with\\backslashes",
+        "with\ncontrol\tchars\r",
+        "🚀 unicode 虎",
+        &long_x, // Test longer strings to trigger AVX512 path
+        &long_quotes, // Many quotes to test escaping
+        &long_control, // Many control chars
+        "mixed content with \"quotes\", \\backslashes, and \ncontrol\tchars",
+    ];
+
+    for test_str in test_strings {
+        let fallback_result = escape_json_string_fallback(test_str);
+        let main_result = escape_json_string(test_str);
+        assert_eq!(
+            fallback_result, main_result,
+            "Results differ for input: {:?}",
+            test_str
+        );
+    }
+}
+
+#[test] 
+#[cfg(target_arch = "x86_64")]
+fn test_avx512_direct() {
+    // Test the AVX512 function directly if AVX512 is available
+    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
+        let long_a = "a".repeat(128);
+        let test_strings = vec![
+            "simple test",
+            "with \"quotes\"",
+            "with\ncontrol\rchars\t",
+            long_a.as_str(), // Longer than one AVX512 chunk
+        ];
+        
+        for test_str in test_strings {
+            let avx512_result = unsafe { escape_json_string_avx512(test_str) };
+            let fallback_result = escape_json_string_fallback(test_str);
+            assert_eq!(
+                avx512_result, fallback_result,
+                "AVX512 and fallback results differ for: {:?}",
+                test_str
+            );
+        }
     }
 }
 
