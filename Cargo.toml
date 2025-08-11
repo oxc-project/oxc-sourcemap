@@ -67,6 +67,7 @@ napi-derive = { version = "3", optional = true }
 rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
+ureq = "2.0"
 
 [build-dependencies]
 napi-build = { version = "2", optional = true }
