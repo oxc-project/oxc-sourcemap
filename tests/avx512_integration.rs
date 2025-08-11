@@ -27,13 +27,14 @@ fn test_integration_escape_functions() {
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_feature_detection() {
-    // This test just verifies that feature detection works
-    let has_avx512f = std::is_x86_feature_detected!("avx512f");
-    let has_avx512bw = std::is_x86_feature_detected!("avx512bw");
+    // This test verifies that feature detection functions work correctly and don't panic
+    let _has_avx512f = std::is_x86_feature_detected!("avx512f");
+    let _has_avx512bw = std::is_x86_feature_detected!("avx512bw");
 
-    println!("AVX512F detected: {}", has_avx512f);
-    println!("AVX512BW detected: {}", has_avx512bw);
-
-    // Test should always pass regardless of CPU features
-    assert!(true);
+    // Test the main escape function which uses feature detection internally
+    let test_input = "simple test";
+    let result = oxc_sourcemap::escape_json_string(test_input);
+    
+    // Verify it returns a properly formatted JSON string
+    assert!(result.starts_with('"') && result.ends_with('"'));
 }
