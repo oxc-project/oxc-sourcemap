@@ -494,9 +494,9 @@ fn append_escaped_byte(result: &mut Vec<u8>, byte: u8) {
         0x00..=0x1F => {
             // Other control characters as unicode escapes
             result.extend_from_slice(b"\\u00");
-            let hex_chars = b"0123456789abcdef";
-            result.push(hex_chars[(byte >> 4) as usize]);
-            result.push(hex_chars[(byte & 0x0F) as usize]);
+            static HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+            result.push(HEX_CHARS[(byte >> 4) as usize]);
+            result.push(HEX_CHARS[(byte & 0x0F) as usize]);
         }
         _ => result.push(byte),
     }

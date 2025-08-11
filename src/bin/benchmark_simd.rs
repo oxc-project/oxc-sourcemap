@@ -1,13 +1,13 @@
 #![allow(clippy::print_stdout)] // Allow prints for CLI output
 #![allow(clippy::print_stderr)] // Allow error prints for CLI output
 
-use oxc_sourcemap::{escape_json_string_fallback, SourceMap};
+use oxc_sourcemap::{SourceMap, escape_json_string_fallback};
 use std::time::Instant;
 
 #[cfg(target_arch = "x86_64")]
 use oxc_sourcemap::escape_json_string_avx2_if_available;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("SIMD JSON String Escaping Benchmark");
     println!("====================================");
 
@@ -25,7 +25,7 @@ fn main() {
         if !has_avx512 && !has_avx2 {
             eprintln!("Error: This benchmark requires at least AVX2 support.");
             eprintln!("Your system doesn't support AVX512 or AVX2.");
-            std::process::exit(1);
+            return Err("Insufficient SIMD support".into());
         }
 
         println!();
@@ -34,7 +34,7 @@ fn main() {
     #[cfg(not(target_arch = "x86_64"))]
     {
         eprintln!("Error: This benchmark is only supported on x86_64 architecture.");
-        std::process::exit(1);
+        return Err("Unsupported architecture".into());
     }
 
     // Download and parse the real-world sourcemap
@@ -78,7 +78,8 @@ fn main() {
         }
     };
 
-    run_benchmark_with_sourcemap(&sourcemap);
+    run_benchmark_with_sourcemap(&sourcemap)?;
+    Ok(())
 }
 
 fn create_large_test_sourcemap() -> SourceMap {
@@ -116,7 +117,7 @@ fn create_large_test_sourcemap() -> SourceMap {
     builder.into_sourcemap()
 }
 
-fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) {
+fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) -> Result<(), Box<dyn std::error::Error>> {
     println!("Parsed sourcemap with:");
     println!("  Sources: {}", sourcemap.get_sources().count());
     println!("  Names: {}", sourcemap.get_names().count());
@@ -257,6 +258,6 @@ fn run_benchmark_with_sourcemap(sourcemap: &SourceMap) {
     println!();
     println!("String-only benchmarks show the pure escaping performance difference.");
     println!("Full to_json_string includes other processing (mappings, structure, etc.)");
-    println!();
-    println!("Benchmark completed successfully!");
+
+    Ok(())
 }
