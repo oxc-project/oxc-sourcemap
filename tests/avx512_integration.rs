@@ -34,7 +34,7 @@ fn test_feature_detection() {
     // Test the main escape function which uses feature detection internally
     let test_input = "simple test";
     let result = oxc_sourcemap::escape_json_string(test_input);
-    
+
     // Verify it returns a properly formatted JSON string
     assert!(result.starts_with('"') && result.ends_with('"'));
 }
