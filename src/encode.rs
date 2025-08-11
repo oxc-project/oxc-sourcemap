@@ -54,7 +54,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     contents.push("\"names\":[".into());
-    contents.push_list(sourcemap.names.iter().map(escape_json_string));
+    contents.push_list(sourcemap.names.iter().map(escape_json_string_fallback));
 
     contents.push("],\"sources\":[".into());
     contents.push_list(sourcemap.sources.iter().map(escape_json_string));
