@@ -12,6 +12,8 @@ pub mod napi;
 
 pub use concat_sourcemap_builder::ConcatSourceMapBuilder;
 pub use decode::JSONSourceMap;
+#[cfg(target_arch = "x86_64")]
+pub use encode::escape_json_string_avx2_if_available;
 pub use encode::{escape_json_string, escape_json_string_fallback};
 pub use error::Error;
 pub use sourcemap::SourceMap;

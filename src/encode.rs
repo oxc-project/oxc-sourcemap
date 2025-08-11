@@ -333,11 +333,14 @@ impl<'a> PreAllocatedString<'a> {
 pub fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
 
-    // Use AVX512 acceleration if available on x86_64
+    // Use SIMD acceleration if available on x86_64
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
             return unsafe { escape_json_string_avx512(s) };
+        }
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { escape_json_string_avx2(s) };
         }
     }
 
@@ -353,6 +356,15 @@ pub fn escape_json_string_fallback<S: AsRef<str>>(s: S) -> String {
     serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
     // Safety: `escaped_buf` is valid utf8.
     unsafe { String::from_utf8_unchecked(escaped_buf) }
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn escape_json_string_avx2_if_available<S: AsRef<str>>(s: S) -> Option<String> {
+    if is_x86_feature_detected!("avx2") {
+        Some(unsafe { escape_json_string_avx2(s.as_ref()) })
+    } else {
+        None
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -392,6 +404,62 @@ unsafe fn escape_json_string_avx512(s: &str) -> String {
                     append_escaped_byte(&mut result, byte);
                 }
                 i += 64;
+            }
+        }
+    }
+
+    // Process remaining bytes
+    while i < bytes.len() {
+        append_escaped_byte(&mut result, bytes[i]);
+        i += 1;
+    }
+
+    // Add closing quote
+    result.push(b'"');
+
+    // Safety: We only write valid UTF-8 sequences
+    unsafe { String::from_utf8_unchecked(result) }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn escape_json_string_avx2(s: &str) -> String {
+    use std::arch::x86_64::*;
+
+    let bytes = s.as_bytes();
+    let mut result = Vec::with_capacity(s.len() * 2 + 2);
+
+    // Add opening quote
+    result.push(b'"');
+
+    let mut i = 0;
+
+    // Process 32-byte chunks with AVX2
+    while i + 32 <= bytes.len() {
+        unsafe {
+            let chunk = _mm256_loadu_si256(bytes.as_ptr().add(i) as *const __m256i);
+
+            // Check for characters that need escaping
+            // ASCII control characters (0x00-0x1F), quote (0x22), backslash (0x5C)
+            let control_cmp = _mm256_cmpgt_epi8(_mm256_set1_epi8(0x20), chunk);
+            let quote_cmp = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8(b'"' as i8));
+            let backslash_cmp = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8(b'\\' as i8));
+
+            let escape_cmp =
+                _mm256_or_si256(_mm256_or_si256(control_cmp, quote_cmp), backslash_cmp);
+            let escape_mask = _mm256_movemask_epi8(escape_cmp);
+
+            if escape_mask == 0 {
+                // No characters need escaping, copy directly
+                result.extend_from_slice(&bytes[i..i + 32]);
+                i += 32;
+            } else {
+                // Process byte by byte for this chunk due to escaping needed
+                for j in 0..32 {
+                    let byte = bytes[i + j];
+                    append_escaped_byte(&mut result, byte);
+                }
+                i += 32;
             }
         }
     }
@@ -500,6 +568,31 @@ fn test_avx512_direct() {
             assert_eq!(
                 avx512_result, fallback_result,
                 "AVX512 and fallback results differ for: {:?}",
+                test_str
+            );
+        }
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn test_avx2_direct() {
+    // Test the AVX2 function directly if AVX2 is available
+    if is_x86_feature_detected!("avx2") {
+        let long_a = "a".repeat(128);
+        let test_strings = vec![
+            "simple test",
+            "with \"quotes\"",
+            "with\ncontrol\rchars\t",
+            long_a.as_str(), // Longer than one AVX2 chunk
+        ];
+
+        for test_str in test_strings {
+            let avx2_result = unsafe { escape_json_string_avx2(test_str) };
+            let fallback_result = escape_json_string_fallback(test_str);
+            assert_eq!(
+                avx2_result, fallback_result,
+                "AVX2 and fallback results differ for: {:?}",
                 test_str
             );
         }
