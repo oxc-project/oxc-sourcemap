@@ -53,15 +53,17 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         contents.push("\",".into());
     }
 
-    contents.push("\"names\":[".into());
-    contents.push_list(sourcemap.names.iter().map(escape_json_string));
+    contents.push("\"names\":".into());
+    let names: Vec<&str> = sourcemap.names.iter().map(|s| s.as_ref()).collect();
+    contents.push(serde_json::to_string(&names).unwrap().into());
 
-    contents.push("],\"sources\":[".into());
-    contents.push_list(sourcemap.sources.iter().map(escape_json_string));
+    contents.push(",\"sources\":".into());
+    let sources: Vec<&str> = sourcemap.sources.iter().map(|s| s.as_ref()).collect();
+    contents.push(serde_json::to_string(&sources).unwrap().into());
 
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
-    contents.push("],\"sourcesContent\":[".into());
+    contents.push(",\"sourcesContent\":[".into());
     contents.push_list(source_contents.iter().map(escape_optional_json_string));
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
@@ -332,12 +334,22 @@ impl<'a> PreAllocatedString<'a> {
 
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    let mut escaped_buf = Vec::with_capacity(s.len() * 2 + 2);
-    // This call is infallible as only error it can return is if the writer errors.
-    // Writing to a `Vec<u8>` is infallible, so that's not possible here.
-    serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
-    // Safety: `escaped_buf` is valid utf8.
-    unsafe { String::from_utf8_unchecked(escaped_buf) }
+    
+    // Fast path: Most sourcemap strings are simple identifiers that don't need escaping
+    // Quick check for common special characters
+    if s.contains(&['"', '\\', '\n', '\r', '\t'][..]) || s.bytes().any(|b| b < 0x20) {
+        // Found special characters - use serde for escaping
+        let mut escaped_buf = Vec::with_capacity(s.len() * 2 + 2);
+        serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
+        unsafe { String::from_utf8_unchecked(escaped_buf) }
+    } else {
+        // Fast path: no escaping needed, just add quotes
+        let mut result = String::with_capacity(s.len() + 2);
+        result.push('"');
+        result.push_str(s);
+        result.push('"');
+        result
+    }
 }
 
 #[test]
