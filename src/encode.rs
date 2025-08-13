@@ -53,17 +53,15 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         contents.push("\",".into());
     }
 
-    contents.push("\"names\":".into());
-    let names: Vec<&str> = sourcemap.names.iter().map(|s| s.as_ref()).collect();
-    contents.push(serde_json::to_string(&names).unwrap().into());
+    contents.push("\"names\":[".into());
+    contents.push_list(sourcemap.names.iter().map(escape_json_string));
 
-    contents.push(",\"sources\":".into());
-    let sources: Vec<&str> = sourcemap.sources.iter().map(|s| s.as_ref()).collect();
-    contents.push(serde_json::to_string(&sources).unwrap().into());
+    contents.push("],\"sources\":[".into());
+    contents.push_list(sourcemap.sources.iter().map(escape_json_string));
 
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
-    contents.push(",\"sourcesContent\":[".into());
+    contents.push("],\"sourcesContent\":[".into());
     contents.push_list(source_contents.iter().map(escape_optional_json_string));
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
@@ -334,7 +332,7 @@ impl<'a> PreAllocatedString<'a> {
 
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    
+
     // Fast path: Most sourcemap strings are simple identifiers that don't need escaping
     // Quick check for common special characters
     if s.contains(&['"', '\\', '\n', '\r', '\t'][..]) || s.bytes().any(|b| b < 0x20) {
