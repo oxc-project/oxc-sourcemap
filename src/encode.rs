@@ -333,21 +333,30 @@ impl<'a> PreAllocatedString<'a> {
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
 
-    // Fast path: Most sourcemap strings are simple identifiers that don't need escaping
-    // Quick check for common special characters
-    if s.contains(&['"', '\\', '\n', '\r', '\t'][..]) || s.bytes().any(|b| b < 0x20) {
-        // Found special characters - use serde for escaping
-        let mut escaped_buf = Vec::with_capacity(s.len() * 2 + 2);
-        serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
-        unsafe { String::from_utf8_unchecked(escaped_buf) }
-    } else {
-        // Fast path: no escaping needed, just add quotes
-        let mut result = String::with_capacity(s.len() + 2);
-        result.push('"');
-        result.push_str(s);
-        result.push('"');
-        result
+    // Start with capacity for quotes + original string length
+    let mut result = String::with_capacity(s.len() + 2);
+    result.push('"');
+
+    for c in s.chars() {
+        match c {
+            '"' => result.push_str("\\\""),
+            '\\' => result.push_str("\\\\"),
+            '\x08' => result.push_str("\\b"),
+            '\x0C' => result.push_str("\\f"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            // Control characters (U+0000 to U+001F) need unicode escaping
+            c if (c as u32) < 0x20 => {
+                result.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            // All other characters (including '/') are kept as-is
+            c => result.push(c),
+        }
     }
+
+    result.push('"');
+    result
 }
 
 #[test]
