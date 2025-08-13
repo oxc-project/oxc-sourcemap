@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use crate::JSONSourceMap;
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs
 /// It is a helper for encode `SourceMap` to vlq sourcemap string, but here some different.
@@ -29,6 +27,18 @@ fn escape_optional_json_string<S: AsRef<str>>(s: &Option<S>) -> String {
     s.as_ref().map(escape_json_string).unwrap_or_else(|| String::from("null"))
 }
 
+fn push_list(s: &mut String, mut iter: impl Iterator<Item = String>) {
+    let Some(first) = iter.next() else {
+        return;
+    };
+    s.push_str(&first);
+
+    for other in iter {
+        s.push(',');
+        s.push_str(&other);
+    }
+}
+
 // Here using `serde_json` to serialize `names` / `source_contents` / `sources`.
 // It will escape the string to avoid invalid JSON string.
 pub fn encode_to_string(sourcemap: &SourceMap) -> String {
@@ -38,51 +48,48 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         + sourcemap.source_contents.len() * 2
         + 1
         + sourcemap.x_google_ignore_list.as_ref().map_or(0, |x| x.len() * 2 + 1);
-    let mut contents = PreAllocatedString::new(max_segments);
+    let mut contents = String::with_capacity(max_segments);
 
-    contents.push("{\"version\":3,".into());
+    contents.push_str("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
-        contents.push("\"file\":\"".into());
-        contents.push(file.as_ref().into());
-        contents.push("\",".into());
+        contents.push_str("\"file\":\"");
+        contents.push_str(file.as_ref());
+        contents.push_str("\",");
     }
 
     if let Some(source_root) = sourcemap.get_source_root() {
-        contents.push("\"sourceRoot\":\"".into());
-        contents.push(source_root.into());
-        contents.push("\",".into());
+        contents.push_str("\"sourceRoot\":\"");
+        contents.push_str(source_root);
+        contents.push_str("\",");
     }
 
-    contents.push("\"names\":[".into());
-    contents.push_list(sourcemap.names.iter().map(escape_json_string));
+    contents.push_str("\"names\":[");
+    push_list(&mut contents, sourcemap.names.iter().map(escape_json_string));
 
-    contents.push("],\"sources\":[".into());
-    contents.push_list(sourcemap.sources.iter().map(escape_json_string));
+    contents.push_str("],\"sources\":[");
+    push_list(&mut contents, sourcemap.sources.iter().map(escape_json_string));
 
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
-    contents.push("],\"sourcesContent\":[".into());
-    contents.push_list(source_contents.iter().map(escape_optional_json_string));
+    contents.push_str("],\"sourcesContent\":[");
+    push_list(&mut contents, source_contents.iter().map(escape_optional_json_string));
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
-        contents.push("],\"x_google_ignoreList\":[".into());
-        contents.push_list(x_google_ignore_list.iter().map(ToString::to_string));
+        contents.push_str("],\"x_google_ignoreList\":[");
+        contents.extend(x_google_ignore_list.iter().map(ToString::to_string));
     }
 
-    contents.push("],\"mappings\":\"".into());
-    contents.push(serialize_sourcemap_mappings(sourcemap).into());
+    contents.push_str("],\"mappings\":\"");
+    contents.push_str(&serialize_sourcemap_mappings(sourcemap));
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        contents.push("\",\"debugId\":\"".into());
-        contents.push(debug_id.into());
+        contents.push_str("\",\"debugId\":\"");
+        contents.push_str(debug_id);
     }
 
-    contents.push("\"}".into());
+    contents.push_str("\"}");
 
-    // Check we calculated number of segments required correctly
-    debug_assert!(contents.num_segments() <= max_segments);
-
-    contents.consume()
+    contents
 }
 
 fn serialize_sourcemap_mappings(sm: &SourceMap) -> String {
@@ -279,54 +286,6 @@ unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
             ptr = ptr.add(1);
         }
         out.set_len(len + repeats as usize);
-    }
-}
-
-/// A helper for pre-allocate string buffer.
-///
-/// Pre-allocate a Cow<'a, str> buffer, and push the segment into it.
-/// Finally, convert it to a pre-allocated length String.
-struct PreAllocatedString<'a> {
-    buf: Vec<Cow<'a, str>>,
-    len: usize,
-}
-
-impl<'a> PreAllocatedString<'a> {
-    fn new(max_segments: usize) -> Self {
-        Self { buf: Vec::with_capacity(max_segments), len: 0 }
-    }
-
-    #[inline]
-    fn push(&mut self, s: Cow<'a, str>) {
-        self.len += s.len();
-        self.buf.push(s);
-    }
-
-    #[inline]
-    fn push_list<I>(&mut self, mut iter: I)
-    where
-        I: Iterator<Item = String>,
-    {
-        let Some(first) = iter.next() else {
-            return;
-        };
-        self.push(Cow::Owned(first));
-
-        for other in iter {
-            self.push(Cow::Borrowed(","));
-            self.push(Cow::Owned(other));
-        }
-    }
-
-    #[inline]
-    fn consume(self) -> String {
-        let mut buf = String::with_capacity(self.len);
-        buf.extend(self.buf);
-        buf
-    }
-
-    fn num_segments(&self) -> usize {
-        self.buf.len()
     }
 }
 
