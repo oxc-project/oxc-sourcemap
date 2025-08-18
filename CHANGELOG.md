@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.5...v4.1.0) - 2025-08-18
+
+### Added
+
+- add `SourcemapVisualizer::get_url` method ([#126](https://github.com/oxc-project/oxc-sourcemap/pull/126))
+
 ## [4.0.5](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.4...v4.0.5) - 2025-08-03
 
 ### Other
