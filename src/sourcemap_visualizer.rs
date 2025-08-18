@@ -5,16 +5,23 @@ use crate::SourceMap;
 /// The `SourcemapVisualizer` is a helper for sourcemap testing.
 /// It print the mapping of original content and final content tokens.
 pub struct SourcemapVisualizer<'a> {
-    output: &'a str,
+    code: &'a str,
     sourcemap: &'a SourceMap,
 }
 
 impl<'a> SourcemapVisualizer<'a> {
-    pub fn new(output: &'a str, sourcemap: &'a SourceMap) -> Self {
-        Self { output, sourcemap }
+    pub fn new(code: &'a str, sourcemap: &'a SourceMap) -> Self {
+        Self { code, sourcemap }
     }
 
-    pub fn into_visualizer_text(self) -> String {
+    pub fn get_url(&self) -> String {
+        let result = self.sourcemap.to_json_string();
+        let s = format!("{}\0{}{}\0{}", self.code.len(), self.code, result.len(), result);
+        let hash = base64_simd::STANDARD.encode_to_string(s);
+        format!("https://evanw.github.io/source-map-visualization/#{hash}")
+    }
+
+    pub fn get_text(&self) -> String {
         let mut s = String::new();
         let source_contents = &self.sourcemap.source_contents;
         if self.sourcemap.source_contents.is_empty() {
@@ -30,7 +37,7 @@ impl<'a> SourcemapVisualizer<'a> {
             })
             .collect();
 
-        let output_lines = Self::generate_line_utf16_tables(self.output);
+        let output_lines = Self::generate_line_utf16_tables(self.code);
 
         let tokens = &self.sourcemap.tokens;
 
