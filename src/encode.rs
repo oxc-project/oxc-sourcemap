@@ -330,7 +330,7 @@ impl<'a> PreAllocatedString<'a> {
 // <https://github.com/serde-rs/json/blob/d12e943590208da738c092db92c34b39796a2538/src/ser.rs#L2079>
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    let mut bytes = s.as_bytes();
+    let bytes = s.as_bytes();
 
     // Estimate capacity - most strings don't need much escaping
     // Add some padding for potential escapes
@@ -339,21 +339,24 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
 
     result.push(b'"');
 
+    let mut start = 0;
     let mut i = 0;
+
     while i < bytes.len() {
-        let (string_run, rest) = bytes.split_at(i);
-        let (&byte, rest) = rest.split_first().unwrap();
+        let b = bytes[i];
 
-        let escape_byte = ESCAPE[byte as usize];
+        // Use lookup table to check if escaping is needed
+        let escape_byte = ESCAPE[b as usize];
 
-        i += 1;
         if escape_byte == 0 {
+            // No escape needed, continue scanning
+            i += 1;
             continue;
         }
 
-        // Copy unescaped bytes before this position
-        if !string_run.is_empty() {
-            result.extend_from_slice(string_run);
+        // Copy any unescaped bytes before this position
+        if start < i {
+            result.extend_from_slice(&bytes[start..i]);
         }
 
         // Handle the escape
@@ -361,7 +364,7 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
         if escape_byte == b'u' {
             // Unicode escape for control characters
             result.extend_from_slice(b"u00");
-            let hex_digits = &HEX_BYTES[byte as usize];
+            let hex_digits = &HEX_BYTES[b as usize];
             result.push(hex_digits.0);
             result.push(hex_digits.1);
         } else {
@@ -369,13 +372,13 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
             result.push(escape_byte);
         }
 
-        bytes = rest;
-        i = 0;
+        i += 1;
+        start = i;
     }
 
     // Copy any remaining unescaped bytes
-    if !bytes.is_empty() {
-        result.extend_from_slice(bytes);
+    if start < bytes.len() {
+        result.extend_from_slice(&bytes[start..]);
     }
 
     result.push(b'"');
