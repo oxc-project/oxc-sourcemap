@@ -332,8 +332,19 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
     let bytes = s.as_bytes();
 
+    // Fast path: check if any escaping is needed at all
+    // Use SIMD to scan for the most common escape characters
+    if !needs_json_escape_simd(bytes) {
+        // No escaping needed, just wrap in quotes
+        let mut result = String::with_capacity(bytes.len() + 2);
+        result.push('"');
+        result.push_str(s);
+        result.push('"');
+        return result;
+    }
+
+    // Slow path: escaping is needed
     // Estimate capacity - most strings don't need much escaping
-    // Add some padding for potential escapes
     let estimated_capacity = bytes.len() + bytes.len() / 2 + 2;
     let mut result = Vec::with_capacity(estimated_capacity);
 
@@ -385,6 +396,33 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
 
     // SAFETY: We only pushed valid UTF-8 bytes (original string bytes and ASCII escape sequences)
     unsafe { String::from_utf8_unchecked(result) }
+}
+
+// Use SIMD via memchr to quickly check if any JSON escaping is needed
+#[inline]
+fn needs_json_escape_simd(bytes: &[u8]) -> bool {
+    // Check for the most common escape characters using SIMD
+    // Quote (") and backslash (\) are by far the most common
+    if memchr::memchr2(b'"', b'\\', bytes).is_some() {
+        return true;
+    }
+    
+    // Check for common control characters
+    // \n, \r, \t are the most common control characters in JSON
+    if memchr::memchr3(b'\n', b'\r', b'\t', bytes).is_some() {
+        return true;
+    }
+    
+    // Check for other control characters (0x00-0x1F except the ones we already checked)
+    // This is less common, so we do it last and byte-by-byte
+    for &b in bytes {
+        match b {
+            0x00..=0x08 | 0x0B | 0x0C | 0x0E..=0x1F => return true,
+            _ => {}
+        }
+    }
+    
+    false
 }
 
 const BB: u8 = b'b'; // \x08
