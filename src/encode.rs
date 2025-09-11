@@ -329,34 +329,34 @@ impl<'a> PreAllocatedString<'a> {
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
     let bytes = s.as_bytes();
-    
+
     // Estimate capacity - most strings don't need much escaping
     // Add some padding for potential escapes
     let estimated_capacity = bytes.len() + bytes.len() / 2 + 2;
     let mut result = Vec::with_capacity(estimated_capacity);
-    
+
     result.push(b'"');
-    
+
     let mut start = 0;
     let mut i = 0;
-    
+
     while i < bytes.len() {
         let b = bytes[i];
-        
+
         // Use lookup table to check if escaping is needed
         let escape_byte = ESCAPE[b as usize];
-        
+
         if escape_byte == 0 {
             // No escape needed, continue scanning
             i += 1;
             continue;
         }
-        
+
         // Copy any unescaped bytes before this position
         if start < i {
             result.extend_from_slice(&bytes[start..i]);
         }
-        
+
         // Handle the escape
         result.push(b'\\');
         if escape_byte == b'u' {
@@ -369,18 +369,18 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
             // Simple escape
             result.push(escape_byte);
         }
-        
+
         i += 1;
         start = i;
     }
-    
+
     // Copy any remaining unescaped bytes
     if start < bytes.len() {
         result.extend_from_slice(&bytes[start..]);
     }
-    
+
     result.push(b'"');
-    
+
     // SAFETY: We only pushed valid UTF-8 bytes (original string bytes and ASCII escape sequences)
     unsafe { String::from_utf8_unchecked(result) }
 }
@@ -421,14 +421,38 @@ static ESCAPE: [u8; 256] = [
 struct HexPair(u8, u8);
 
 static HEX_BYTES: [HexPair; 32] = [
-    HexPair(b'0', b'0'), HexPair(b'0', b'1'), HexPair(b'0', b'2'), HexPair(b'0', b'3'),
-    HexPair(b'0', b'4'), HexPair(b'0', b'5'), HexPair(b'0', b'6'), HexPair(b'0', b'7'),
-    HexPair(b'0', b'8'), HexPair(b'0', b'9'), HexPair(b'0', b'a'), HexPair(b'0', b'b'),
-    HexPair(b'0', b'c'), HexPair(b'0', b'd'), HexPair(b'0', b'e'), HexPair(b'0', b'f'),
-    HexPair(b'1', b'0'), HexPair(b'1', b'1'), HexPair(b'1', b'2'), HexPair(b'1', b'3'),
-    HexPair(b'1', b'4'), HexPair(b'1', b'5'), HexPair(b'1', b'6'), HexPair(b'1', b'7'),
-    HexPair(b'1', b'8'), HexPair(b'1', b'9'), HexPair(b'1', b'a'), HexPair(b'1', b'b'),
-    HexPair(b'1', b'c'), HexPair(b'1', b'd'), HexPair(b'1', b'e'), HexPair(b'1', b'f'),
+    HexPair(b'0', b'0'),
+    HexPair(b'0', b'1'),
+    HexPair(b'0', b'2'),
+    HexPair(b'0', b'3'),
+    HexPair(b'0', b'4'),
+    HexPair(b'0', b'5'),
+    HexPair(b'0', b'6'),
+    HexPair(b'0', b'7'),
+    HexPair(b'0', b'8'),
+    HexPair(b'0', b'9'),
+    HexPair(b'0', b'a'),
+    HexPair(b'0', b'b'),
+    HexPair(b'0', b'c'),
+    HexPair(b'0', b'd'),
+    HexPair(b'0', b'e'),
+    HexPair(b'0', b'f'),
+    HexPair(b'1', b'0'),
+    HexPair(b'1', b'1'),
+    HexPair(b'1', b'2'),
+    HexPair(b'1', b'3'),
+    HexPair(b'1', b'4'),
+    HexPair(b'1', b'5'),
+    HexPair(b'1', b'6'),
+    HexPair(b'1', b'7'),
+    HexPair(b'1', b'8'),
+    HexPair(b'1', b'9'),
+    HexPair(b'1', b'a'),
+    HexPair(b'1', b'b'),
+    HexPair(b'1', b'c'),
+    HexPair(b'1', b'd'),
+    HexPair(b'1', b'e'),
+    HexPair(b'1', b'f'),
 ];
 
 #[test]
