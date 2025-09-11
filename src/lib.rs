@@ -17,5 +17,5 @@ pub use error::Error;
 pub use sourcemap::SourceMap;
 pub use sourcemap_builder::SourceMapBuilder;
 pub use sourcemap_visualizer::SourcemapVisualizer;
-pub use thread_safe::{ThreadSafeSourceMap, SharedSourceMap};
+pub use thread_safe::{SharedSourceMap, ThreadSafeSourceMap};
 pub use token::{SourceViewToken, Token, TokenChunk};

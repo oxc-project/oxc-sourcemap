@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use crate::{JSONSourceMap, SourceMap, Token, TokenChunk, error::Result};
 use std::rc::Rc;
-use crate::{SourceMap, JSONSourceMap, Token, TokenChunk, error::Result};
+use std::sync::Arc;
 
 /// Thread-safe version of SourceMap that uses Arc internally for thread safety
 #[derive(Debug, Clone)]
@@ -24,7 +24,9 @@ impl ThreadSafeSourceMap {
             names: sourcemap.names.into_iter().map(|rc| Arc::from(rc.as_ref())).collect(),
             source_root: sourcemap.source_root,
             sources: sourcemap.sources.into_iter().map(|rc| Arc::from(rc.as_ref())).collect(),
-            source_contents: sourcemap.source_contents.into_iter()
+            source_contents: sourcemap
+                .source_contents
+                .into_iter()
                 .map(|opt| opt.map(|rc| Arc::from(rc.as_ref())))
                 .collect(),
             tokens: sourcemap.tokens,
@@ -51,7 +53,9 @@ impl ThreadSafeSourceMap {
             names: self.names.iter().map(|arc| Rc::from(arc.as_ref())).collect(),
             source_root: self.source_root.clone(),
             sources: self.sources.iter().map(|arc| Rc::from(arc.as_ref())).collect(),
-            source_contents: self.source_contents.iter()
+            source_contents: self
+                .source_contents
+                .iter()
                 .map(|opt| opt.as_ref().map(|arc| Rc::from(arc.as_ref())))
                 .collect(),
             tokens: self.tokens.clone(),
