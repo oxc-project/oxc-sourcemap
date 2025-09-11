@@ -1,10 +1,8 @@
+//! Ported and modified from <https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs>
+
 use std::borrow::Cow;
 
 use crate::JSONSourceMap;
-/// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs
-/// It is a helper for encode `SourceMap` to vlq sourcemap string, but here some different.
-/// - Quote `source_content` at parallel.
-/// - If you using `ConcatSourceMapBuilder`, serialize `tokens` to vlq `mappings` at parallel.
 use crate::{SourceMap, Token, token::TokenChunk};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
@@ -29,8 +27,6 @@ fn escape_optional_json_string<S: AsRef<str>>(s: &Option<S>) -> String {
     s.as_ref().map(escape_json_string).unwrap_or_else(|| String::from("null"))
 }
 
-// Here using `serde_json` to serialize `names` / `source_contents` / `sources`.
-// It will escape the string to avoid invalid JSON string.
 pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     let max_segments = 12
         + sourcemap.names.len() * 2
@@ -330,15 +326,136 @@ impl<'a> PreAllocatedString<'a> {
     }
 }
 
+// Slightly modified version of
+// <https://github.com/serde-rs/json/blob/d12e943590208da738c092db92c34b39796a2538/src/ser.rs#L2079>
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    let mut escaped_buf = Vec::with_capacity(s.len() * 2 + 2);
-    // This call is infallible as only error it can return is if the writer errors.
-    // Writing to a `Vec<u8>` is infallible, so that's not possible here.
-    serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
-    // Safety: `escaped_buf` is valid utf8.
-    unsafe { String::from_utf8_unchecked(escaped_buf) }
+    let bytes = s.as_bytes();
+
+    // Estimate capacity - most strings don't need much escaping
+    // Add some padding for potential escapes
+    let estimated_capacity = bytes.len() + bytes.len() / 2 + 2;
+    let mut result = Vec::with_capacity(estimated_capacity);
+
+    result.push(b'"');
+
+    let mut start = 0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        // Use lookup table to check if escaping is needed
+        let escape_byte = ESCAPE[b as usize];
+
+        if escape_byte == 0 {
+            // No escape needed, continue scanning
+            i += 1;
+            continue;
+        }
+
+        // Copy any unescaped bytes before this position
+        if start < i {
+            result.extend_from_slice(&bytes[start..i]);
+        }
+
+        // Handle the escape
+        result.push(b'\\');
+        if escape_byte == b'u' {
+            // Unicode escape for control characters
+            result.extend_from_slice(b"u00");
+            let hex_digits = &HEX_BYTES[b as usize];
+            result.push(hex_digits.0);
+            result.push(hex_digits.1);
+        } else {
+            // Simple escape
+            result.push(escape_byte);
+        }
+
+        i += 1;
+        start = i;
+    }
+
+    // Copy any remaining unescaped bytes
+    if start < bytes.len() {
+        result.extend_from_slice(&bytes[start..]);
+    }
+
+    result.push(b'"');
+
+    // SAFETY: We only pushed valid UTF-8 bytes (original string bytes and ASCII escape sequences)
+    unsafe { String::from_utf8_unchecked(result) }
 }
+
+const BB: u8 = b'b'; // \x08
+const TT: u8 = b't'; // \x09
+const NN: u8 = b'n'; // \x0A
+const FF: u8 = b'f'; // \x0C
+const RR: u8 = b'r'; // \x0D
+const QU: u8 = b'"'; // \x22
+const BS: u8 = b'\\'; // \x5C
+const UU: u8 = b'u'; // \x00...\x1F except the ones above
+const __: u8 = 0;
+
+// Lookup table of escape sequences. A value of b'x' at index i means that byte
+// i is escaped as "\x" in JSON. A value of 0 means that byte i is not escaped.
+static ESCAPE: [u8; 256] = [
+    //   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+    UU, UU, UU, UU, UU, UU, UU, UU, BB, TT, NN, UU, FF, RR, UU, UU, // 0
+    UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, // 1
+    __, __, QU, __, __, __, __, __, __, __, __, __, __, __, __, __, // 2
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 3
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 4
+    __, __, __, __, __, __, __, __, __, __, __, __, BS, __, __, __, // 5
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 6
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 7
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 8
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 9
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // A
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // B
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // C
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // D
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // E
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // F
+];
+
+// Pre-computed hex digit pairs for control characters
+struct HexPair(u8, u8);
+
+static HEX_BYTES: [HexPair; 32] = [
+    HexPair(b'0', b'0'),
+    HexPair(b'0', b'1'),
+    HexPair(b'0', b'2'),
+    HexPair(b'0', b'3'),
+    HexPair(b'0', b'4'),
+    HexPair(b'0', b'5'),
+    HexPair(b'0', b'6'),
+    HexPair(b'0', b'7'),
+    HexPair(b'0', b'8'),
+    HexPair(b'0', b'9'),
+    HexPair(b'0', b'a'),
+    HexPair(b'0', b'b'),
+    HexPair(b'0', b'c'),
+    HexPair(b'0', b'd'),
+    HexPair(b'0', b'e'),
+    HexPair(b'0', b'f'),
+    HexPair(b'1', b'0'),
+    HexPair(b'1', b'1'),
+    HexPair(b'1', b'2'),
+    HexPair(b'1', b'3'),
+    HexPair(b'1', b'4'),
+    HexPair(b'1', b'5'),
+    HexPair(b'1', b'6'),
+    HexPair(b'1', b'7'),
+    HexPair(b'1', b'8'),
+    HexPair(b'1', b'9'),
+    HexPair(b'1', b'a'),
+    HexPair(b'1', b'b'),
+    HexPair(b'1', b'c'),
+    HexPair(b'1', b'd'),
+    HexPair(b'1', b'e'),
+    HexPair(b'1', b'f'),
+];
 
 #[test]
 fn test_escape_json_string() {
@@ -361,6 +478,77 @@ fn test_escape_json_string() {
         let mut input = String::new();
         input.push(*c);
         assert_eq!(escape_json_string(input), *expected);
+    }
+
+    // Additional test cases for comprehensive coverage
+    assert_eq!(escape_json_string(""), "\"\"");
+    assert_eq!(escape_json_string("hello"), "\"hello\"");
+    assert_eq!(escape_json_string("hello world"), "\"hello world\"");
+    assert_eq!(escape_json_string("hello\nworld"), "\"hello\\nworld\"");
+    assert_eq!(escape_json_string("hello\"world\""), "\"hello\\\"world\\\"\"");
+    assert_eq!(escape_json_string("hello\\world"), "\"hello\\\\world\"");
+    assert_eq!(escape_json_string("\x00\x01\x02"), "\"\\u0000\\u0001\\u0002\"");
+    assert_eq!(escape_json_string("\x1F"), "\"\\u001f\"");
+    assert_eq!(escape_json_string("emoji 👀"), "\"emoji 👀\"");
+    assert_eq!(escape_json_string("mixed\t\n\r\"\\content"), "\"mixed\\t\\n\\r\\\"\\\\content\"");
+
+    // Unicode handling tests
+    // 2-byte UTF-8 sequences
+    assert_eq!(escape_json_string("café"), "\"café\"");
+    assert_eq!(escape_json_string("Привет"), "\"Привет\"");
+    assert_eq!(escape_json_string("你好"), "\"你好\"");
+
+    // 3-byte UTF-8 sequences
+    assert_eq!(escape_json_string("€₹¥"), "\"€₹¥\"");
+    assert_eq!(escape_json_string("∑∏∫"), "\"∑∏∫\"");
+    assert_eq!(escape_json_string("♠♣♥♦"), "\"♠♣♥♦\"");
+
+    // 4-byte UTF-8 sequences (emoji and other supplementary characters)
+    assert_eq!(escape_json_string("🚀🌟💫"), "\"🚀🌟💫\"");
+    assert_eq!(escape_json_string("𝕳𝖊𝖑𝖑𝖔"), "\"𝕳𝖊𝖑𝖑𝖔\"");
+    assert_eq!(escape_json_string("𐍈𐍉𐍊"), "\"𐍈𐍉𐍊\"");
+
+    // Mixed ASCII, escapes, and Unicode
+    assert_eq!(escape_json_string("Hello \"世界\" 🌍!"), "\"Hello \\\"世界\\\" 🌍!\"");
+    assert_eq!(escape_json_string("Line1\nЛиния2\n行3"), "\"Line1\\nЛиния2\\n行3\"");
+    assert_eq!(escape_json_string("\t🎯\r\n📝"), "\"\\t🎯\\r\\n📝\"");
+
+    // Unicode with control characters
+    assert_eq!(escape_json_string("before\x00中文\x01after"), "\"before\\u0000中文\\u0001after\"");
+    assert_eq!(escape_json_string("emoji\x08🎨\x0C"), "\"emoji\\b🎨\\f\"");
+
+    // Edge cases with Unicode boundaries
+    assert_eq!(escape_json_string("a\x00б"), "\"a\\u0000б\""); // ASCII, control, 2-byte UTF-8
+    assert_eq!(escape_json_string("€\n元"), "\"€\\n元\""); // 3-byte, newline, 3-byte
+    assert_eq!(escape_json_string("🎭\t🎪"), "\"🎭\\t🎪\""); // 4-byte, tab, 4-byte
+
+    // Long strings with mixed content
+    let long_mixed =
+        "ASCII text 中文字符 Русский язык 🚀 \"quoted\" \\ backslash \n newline \t tab";
+    let expected =
+        "\"ASCII text 中文字符 Русский язык 🚀 \\\"quoted\\\" \\\\ backslash \\n newline \\t tab\"";
+    assert_eq!(escape_json_string(long_mixed), expected);
+
+    // Combining characters and diacritics
+    assert_eq!(escape_json_string("naïve"), "\"naïve\"");
+    assert_eq!(escape_json_string("e\u{0301}"), "\"e\u{0301}\""); // e + combining acute accent
+    assert_eq!(escape_json_string("a\u{0300}\u{0301}"), "\"a\u{0300}\u{0301}\""); // a + combining grave + acute
+
+    // Test all control characters
+    for b in 0x00..=0x1F {
+        let s = String::from_utf8(vec![b]).unwrap();
+        let result = escape_json_string(&s);
+        match b {
+            b'\x08' => assert_eq!(result, "\"\\b\""),
+            b'\x0C' => assert_eq!(result, "\"\\f\""),
+            b'\n' => assert_eq!(result, "\"\\n\""),
+            b'\r' => assert_eq!(result, "\"\\r\""),
+            b'\t' => assert_eq!(result, "\"\\t\""),
+            _ => {
+                let expected = format!("\"\\u{:04x}\"", b);
+                assert_eq!(result, expected);
+            }
+        }
     }
 }
 
