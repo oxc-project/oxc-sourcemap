@@ -332,13 +332,93 @@ impl<'a> PreAllocatedString<'a> {
 
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    let mut escaped_buf = Vec::with_capacity(s.len() * 2 + 2);
-    // This call is infallible as only error it can return is if the writer errors.
-    // Writing to a `Vec<u8>` is infallible, so that's not possible here.
-    serde::Serialize::serialize(s, &mut serde_json::Serializer::new(&mut escaped_buf)).unwrap();
-    // Safety: `escaped_buf` is valid utf8.
-    unsafe { String::from_utf8_unchecked(escaped_buf) }
+    let bytes = s.as_bytes();
+    
+    // Fast path: scan for characters that need escaping
+    let mut needs_escape = false;
+    let mut extra_bytes = 0usize;
+    
+    for &b in bytes {
+        match b {
+            b'"' | b'\\' => {
+                needs_escape = true;
+                extra_bytes += 1; // These characters become 2 bytes
+            }
+            b'\x08' | b'\x0C' | b'\n' | b'\r' | b'\t' => {
+                needs_escape = true;
+                extra_bytes += 1; // These become 2 bytes
+            }
+            0x00..=0x1F => {
+                needs_escape = true;
+                extra_bytes += 5; // These become 6 bytes (\uXXXX)
+            }
+            _ => {}
+        }
+    }
+    
+    // If no escaping needed, just wrap in quotes
+    if !needs_escape {
+        let mut result = String::with_capacity(s.len() + 2);
+        result.push('"');
+        result.push_str(s);
+        result.push('"');
+        return result;
+    }
+    
+    // Allocate exact capacity needed
+    let mut result = String::with_capacity(bytes.len() + extra_bytes + 2);
+    result.push('"');
+    
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            b'"' => result.push_str("\\\""),
+            b'\\' => result.push_str("\\\\"),
+            b'\x08' => result.push_str("\\b"),
+            b'\x0C' => result.push_str("\\f"),
+            b'\n' => result.push_str("\\n"),
+            b'\r' => result.push_str("\\r"),
+            b'\t' => result.push_str("\\t"),
+            0x00..=0x1F => {
+                // Format as \uXXXX
+                let high = (b >> 4) as usize;
+                let low = (b & 0xF) as usize;
+                result.push_str("\\u00");
+                result.push(HEX_CHARS[high]);
+                result.push(HEX_CHARS[low]);
+            }
+            _ => {
+                // For valid UTF-8 sequences, we can push directly
+                // This handles ASCII and multi-byte UTF-8 characters
+                let char_len = match b {
+                    0x00..=0x7F => 1,
+                    0xC0..=0xDF => 2,
+                    0xE0..=0xEF => 3,
+                    0xF0..=0xF7 => 4,
+                    _ => 1, // Should not happen with valid UTF-8
+                };
+                
+                let end = (i + char_len).min(bytes.len());
+                // SAFETY: We're pushing valid UTF-8 bytes from the original string
+                unsafe {
+                    result.as_mut_vec().extend_from_slice(&bytes[i..end]);
+                }
+                i += char_len;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    
+    result.push('"');
+    result
 }
+
+const HEX_CHARS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+];
 
 #[test]
 fn test_escape_json_string() {
@@ -361,6 +441,35 @@ fn test_escape_json_string() {
         let mut input = String::new();
         input.push(*c);
         assert_eq!(escape_json_string(input), *expected);
+    }
+    
+    // Additional test cases for comprehensive coverage
+    assert_eq!(escape_json_string(""), "\"\"");
+    assert_eq!(escape_json_string("hello"), "\"hello\"");
+    assert_eq!(escape_json_string("hello world"), "\"hello world\"");
+    assert_eq!(escape_json_string("hello\nworld"), "\"hello\\nworld\"");
+    assert_eq!(escape_json_string("hello\"world\""), "\"hello\\\"world\\\"\"");
+    assert_eq!(escape_json_string("hello\\world"), "\"hello\\\\world\"");
+    assert_eq!(escape_json_string("\x00\x01\x02"), "\"\\u0000\\u0001\\u0002\"");
+    assert_eq!(escape_json_string("\x1F"), "\"\\u001f\"");
+    assert_eq!(escape_json_string("emoji 👀"), "\"emoji 👀\"");
+    assert_eq!(escape_json_string("mixed\t\n\r\"\\content"), "\"mixed\\t\\n\\r\\\"\\\\content\"");
+    
+    // Test all control characters
+    for b in 0x00..=0x1F {
+        let s = String::from_utf8(vec![b]).unwrap();
+        let result = escape_json_string(&s);
+        match b {
+            b'\x08' => assert_eq!(result, "\"\\b\""),
+            b'\x0C' => assert_eq!(result, "\"\\f\""),
+            b'\n' => assert_eq!(result, "\"\\n\""),
+            b'\r' => assert_eq!(result, "\"\\r\""),
+            b'\t' => assert_eq!(result, "\"\\t\""),
+            _ => {
+                let expected = format!("\"\\u{:04x}\"", b);
+                assert_eq!(result, expected);
+            }
+        }
     }
 }
 
