@@ -55,6 +55,10 @@ crate-type = ["lib", "cdylib"]
 name = "simple"
 harness = false
 
+[[bench]]
+name = "hashmap_optimization"
+harness = false
+
 [package.metadata.cargo-shear]
 ignored = ["napi"]
 

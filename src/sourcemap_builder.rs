@@ -23,26 +23,33 @@ pub struct SourceMapBuilder {
 impl SourceMapBuilder {
     /// Add item to `SourceMap::name`.
     pub fn add_name(&mut self, name: &str) -> u32 {
-        if let Some(&id) = self.names_map.get(name) {
-            return id;
-        }
+        // Use entry API to avoid double lookup and unnecessary Arc creation
         let count = self.names.len() as u32;
-        let name = Arc::from(name);
-        self.names_map.insert(Arc::clone(&name), count);
-        self.names.push(name);
-        count
+        match self.names_map.entry(Arc::from(name)) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let name_arc = entry.key().clone();
+                entry.insert(count);
+                self.names.push(name_arc);
+                count
+            }
+        }
     }
 
     /// Add item to `SourceMap::sources` and `SourceMap::source_contents`.
     /// If `source` maybe duplicate, please use it.
     pub fn add_source_and_content(&mut self, source: &str, source_content: &str) -> u32 {
         let count = self.sources.len() as u32;
-        let id = *self.sources_map.entry(source.into()).or_insert(count);
-        if id == count {
-            self.sources.push(source.into());
-            self.source_contents.push(Some(source_content.into()));
+        match self.sources_map.entry(Arc::from(source)) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let source_arc = entry.key().clone();
+                entry.insert(count);
+                self.sources.push(source_arc);
+                self.source_contents.push(Some(source_content.into()));
+                count
+            }
         }
-        id
     }
 
     /// Add item to `SourceMap::sources` and `SourceMap::source_contents`.
