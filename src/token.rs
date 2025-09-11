@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::SourceMap;
 
@@ -132,11 +132,11 @@ impl<'a> SourceViewToken<'a> {
         if self.token.source_id == !0 { None } else { Some(self.token.source_id) }
     }
 
-    pub fn get_name(&self) -> Option<&Arc<str>> {
+    pub fn get_name(&self) -> Option<&Rc<str>> {
         if self.token.name_id == !0 { None } else { self.sourcemap.get_name(self.token.name_id) }
     }
 
-    pub fn get_source(&self) -> Option<&Arc<str>> {
+    pub fn get_source(&self) -> Option<&Rc<str>> {
         if self.token.source_id == !0 {
             None
         } else {
@@ -144,7 +144,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_content(&self) -> Option<&Arc<str>> {
+    pub fn get_source_content(&self) -> Option<&Rc<str>> {
         if self.token.source_id == !0 {
             None
         } else {
@@ -152,7 +152,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_and_content(&self) -> Option<(&Arc<str>, &Arc<str>)> {
+    pub fn get_source_and_content(&self) -> Option<(&Rc<str>, &Rc<str>)> {
         if self.token.source_id == !0 {
             None
         } else {
@@ -160,7 +160,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn to_tuple(&self) -> (Option<&Arc<str>>, u32, u32, Option<&Arc<str>>) {
+    pub fn to_tuple(&self) -> (Option<&Rc<str>>, u32, u32, Option<&Rc<str>>) {
         (self.get_source(), self.get_src_line(), self.get_src_col(), self.get_name())
     }
 }

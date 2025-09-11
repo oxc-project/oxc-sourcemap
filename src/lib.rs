@@ -5,6 +5,7 @@ mod error;
 mod sourcemap;
 mod sourcemap_builder;
 mod sourcemap_visualizer;
+mod thread_safe;
 mod token;
 
 #[cfg(feature = "napi")]
@@ -16,4 +17,5 @@ pub use error::Error;
 pub use sourcemap::SourceMap;
 pub use sourcemap_builder::SourceMapBuilder;
 pub use sourcemap_visualizer::SourcemapVisualizer;
+pub use thread_safe::{ThreadSafeSourceMap, SharedSourceMap};
 pub use token::{SourceViewToken, Token, TokenChunk};

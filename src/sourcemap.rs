@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::{
     SourceViewToken,
@@ -10,11 +10,11 @@ use crate::{
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
-    pub(crate) file: Option<Arc<str>>,
-    pub(crate) names: Vec<Arc<str>>,
+    pub(crate) file: Option<Rc<str>>,
+    pub(crate) names: Vec<Rc<str>>,
     pub(crate) source_root: Option<String>,
-    pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) source_contents: Vec<Option<Arc<str>>>,
+    pub(crate) sources: Vec<Rc<str>>,
+    pub(crate) source_contents: Vec<Option<Rc<str>>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
@@ -26,11 +26,11 @@ pub struct SourceMap {
 
 impl SourceMap {
     pub fn new(
-        file: Option<Arc<str>>,
-        names: Vec<Arc<str>>,
+        file: Option<Rc<str>>,
+        names: Vec<Rc<str>>,
         source_root: Option<String>,
-        sources: Vec<Arc<str>>,
-        source_contents: Vec<Option<Arc<str>>>,
+        sources: Vec<Rc<str>>,
+        source_contents: Vec<Option<Rc<str>>>,
         tokens: Vec<Token>,
         token_chunks: Option<Vec<TokenChunk>>,
     ) -> Self {
@@ -79,7 +79,7 @@ impl SourceMap {
         format!("data:application/json;charset=utf-8;base64,{base_64_str}")
     }
 
-    pub fn get_file(&self) -> Option<&Arc<str>> {
+    pub fn get_file(&self) -> Option<&Rc<str>> {
         self.file.as_ref()
     }
 
@@ -108,7 +108,7 @@ impl SourceMap {
         self.debug_id.as_deref()
     }
 
-    pub fn get_names(&self) -> impl Iterator<Item = &Arc<str>> {
+    pub fn get_names(&self) -> impl Iterator<Item = &Rc<str>> {
         self.names.iter()
     }
 
@@ -117,17 +117,17 @@ impl SourceMap {
         self.sources = sources.into_iter().map(Into::into).collect();
     }
 
-    pub fn get_sources(&self) -> impl Iterator<Item = &Arc<str>> {
+    pub fn get_sources(&self) -> impl Iterator<Item = &Rc<str>> {
         self.sources.iter()
     }
 
     /// Adjust `source_content`.
     pub fn set_source_contents(&mut self, source_contents: Vec<Option<&str>>) {
         self.source_contents =
-            source_contents.into_iter().map(|v| v.map(Arc::from)).collect::<Vec<_>>();
+            source_contents.into_iter().map(|v| v.map(Rc::from)).collect::<Vec<_>>();
     }
 
-    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&Arc<str>>> {
+    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&Rc<str>>> {
         self.source_contents.iter().map(|item| item.as_ref())
     }
 
@@ -149,19 +149,19 @@ impl SourceMap {
         self.tokens.iter().map(|&token| SourceViewToken::new(token, self))
     }
 
-    pub fn get_name(&self, id: u32) -> Option<&Arc<str>> {
+    pub fn get_name(&self, id: u32) -> Option<&Rc<str>> {
         self.names.get(id as usize)
     }
 
-    pub fn get_source(&self, id: u32) -> Option<&Arc<str>> {
+    pub fn get_source(&self, id: u32) -> Option<&Rc<str>> {
         self.sources.get(id as usize)
     }
 
-    pub fn get_source_content(&self, id: u32) -> Option<&Arc<str>> {
+    pub fn get_source_content(&self, id: u32) -> Option<&Rc<str>> {
         self.source_contents.get(id as usize).and_then(|item| item.as_ref())
     }
 
-    pub fn get_source_and_content(&self, id: u32) -> Option<(&Arc<str>, &Arc<str>)> {
+    pub fn get_source_and_content(&self, id: u32) -> Option<(&Rc<str>, &Rc<str>)> {
         let source = self.get_source(id)?;
         let content = self.get_source_content(id)?;
         Some((source, content))

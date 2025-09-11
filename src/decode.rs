@@ -1,6 +1,6 @@
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/decoder.rs
 /// It is a helper for decode vlq soucemap string to `SourceMap`.
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::error::{Error, Result};
 use crate::{SourceMap, Token};
@@ -35,13 +35,13 @@ pub struct JSONSourceMap {
 pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
     Ok(SourceMap {
-        file: json.file.map(Arc::from),
-        names: json.names.into_iter().map(Arc::from).collect(),
+        file: json.file.map(Rc::from),
+        names: json.names.into_iter().map(Rc::from).collect(),
         source_root: json.source_root,
-        sources: json.sources.into_iter().map(Arc::from).collect(),
+        sources: json.sources.into_iter().map(Rc::from).collect(),
         source_contents: json
             .sources_content
-            .map(|content| content.into_iter().map(|c| c.map(Arc::from)).collect())
+            .map(|content| content.into_iter().map(|c| c.map(Rc::from)).collect())
             .unwrap_or_default(),
         tokens,
         token_chunks: None,

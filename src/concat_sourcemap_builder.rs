@@ -1,13 +1,13 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::{SourceMap, Token, token::TokenChunk};
 
 /// The `ConcatSourceMapBuilder` is a helper to concat sourcemaps.
 #[derive(Debug, Default)]
 pub struct ConcatSourceMapBuilder {
-    pub(crate) names: Vec<Arc<str>>,
-    pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) source_contents: Vec<Option<Arc<str>>>,
+    pub(crate) names: Vec<Rc<str>>,
+    pub(crate) sources: Vec<Rc<str>>,
+    pub(crate) source_contents: Vec<Option<Rc<str>>>,
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
@@ -107,16 +107,16 @@ impl ConcatSourceMapBuilder {
         }
 
         // Extend `sources` and `source_contents`.
-        self.sources.extend(sourcemap.get_sources().map(Arc::clone));
+        self.sources.extend(sourcemap.get_sources().map(Rc::clone));
 
-        // Clone `Arc` instead of generating a new `Arc` and copying string data because
+        // Clone `Rc` instead of generating a new `Rc` and copying string data because
         // source texts are generally long strings. Cost of copying a large string is higher
-        // than cloning an `Arc`.
+        // than cloning an `Rc`.
         self.source_contents.extend(sourcemap.source_contents.iter().cloned());
 
         // Extend `names`.
         self.names.reserve(sourcemap.names.len());
-        self.names.extend(sourcemap.get_names().map(Arc::clone));
+        self.names.extend(sourcemap.get_names().map(Rc::clone));
 
         // Extend `tokens`.
         self.tokens.reserve(sourcemap.tokens.len());

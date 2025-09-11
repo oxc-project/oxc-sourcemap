@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use rustc_hash::FxHashMap;
 
@@ -10,12 +10,12 @@ use crate::{
 /// The `SourceMapBuilder` is a helper to generate sourcemap.
 #[derive(Debug, Default)]
 pub struct SourceMapBuilder {
-    pub(crate) file: Option<Arc<str>>,
-    pub(crate) names_map: FxHashMap<Arc<str>, u32>,
-    pub(crate) names: Vec<Arc<str>>,
-    pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) sources_map: FxHashMap<Arc<str>, u32>,
-    pub(crate) source_contents: Vec<Option<Arc<str>>>,
+    pub(crate) file: Option<Rc<str>>,
+    pub(crate) names_map: FxHashMap<Rc<str>, u32>,
+    pub(crate) names: Vec<Rc<str>>,
+    pub(crate) sources: Vec<Rc<str>>,
+    pub(crate) sources_map: FxHashMap<Rc<str>, u32>,
+    pub(crate) source_contents: Vec<Option<Rc<str>>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
@@ -27,8 +27,8 @@ impl SourceMapBuilder {
             return id;
         }
         let count = self.names.len() as u32;
-        let name = Arc::from(name);
-        self.names_map.insert(Arc::clone(&name), count);
+        let name = Rc::from(name);
+        self.names_map.insert(Rc::clone(&name), count);
         self.names.push(name);
         count
     }
