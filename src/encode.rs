@@ -1,10 +1,8 @@
+//! Ported and modified from <https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs>
+
 use std::borrow::Cow;
 
 use crate::JSONSourceMap;
-/// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs
-/// It is a helper for encode `SourceMap` to vlq sourcemap string, but here some different.
-/// - Quote `source_content` at parallel.
-/// - If you using `ConcatSourceMapBuilder`, serialize `tokens` to vlq `mappings` at parallel.
 use crate::{SourceMap, Token, token::TokenChunk};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
@@ -29,8 +27,6 @@ fn escape_optional_json_string<S: AsRef<str>>(s: &Option<S>) -> String {
     s.as_ref().map(escape_json_string).unwrap_or_else(|| String::from("null"))
 }
 
-// Here using `serde_json` to serialize `names` / `source_contents` / `sources`.
-// It will escape the string to avoid invalid JSON string.
 pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     let max_segments = 12
         + sourcemap.names.len() * 2
@@ -333,90 +329,107 @@ impl<'a> PreAllocatedString<'a> {
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
     let bytes = s.as_bytes();
-
-    // Fast path: scan for characters that need escaping
-    let mut needs_escape = false;
-    let mut extra_bytes = 0usize;
-
-    for &b in bytes {
-        match b {
-            b'"' | b'\\' => {
-                needs_escape = true;
-                extra_bytes += 1; // These characters become 2 bytes
-            }
-            b'\x08' | b'\x0C' | b'\n' | b'\r' | b'\t' => {
-                needs_escape = true;
-                extra_bytes += 1; // These become 2 bytes
-            }
-            0x00..=0x1F => {
-                needs_escape = true;
-                extra_bytes += 5; // These become 6 bytes (\uXXXX)
-            }
-            _ => {}
-        }
-    }
-
-    // If no escaping needed, just wrap in quotes
-    if !needs_escape {
-        let mut result = String::with_capacity(s.len() + 2);
-        result.push('"');
-        result.push_str(s);
-        result.push('"');
-        return result;
-    }
-
-    // Allocate exact capacity needed
-    let mut result = String::with_capacity(bytes.len() + extra_bytes + 2);
-    result.push('"');
-
+    
+    // Estimate capacity - most strings don't need much escaping
+    // Add some padding for potential escapes
+    let estimated_capacity = bytes.len() + bytes.len() / 2 + 2;
+    let mut result = Vec::with_capacity(estimated_capacity);
+    
+    result.push(b'"');
+    
+    let mut start = 0;
     let mut i = 0;
+    
     while i < bytes.len() {
         let b = bytes[i];
-        match b {
-            b'"' => result.push_str("\\\""),
-            b'\\' => result.push_str("\\\\"),
-            b'\x08' => result.push_str("\\b"),
-            b'\x0C' => result.push_str("\\f"),
-            b'\n' => result.push_str("\\n"),
-            b'\r' => result.push_str("\\r"),
-            b'\t' => result.push_str("\\t"),
-            0x00..=0x1F => {
-                // Format as \uXXXX
-                let high = (b >> 4) as usize;
-                let low = (b & 0xF) as usize;
-                result.push_str("\\u00");
-                result.push(HEX_CHARS[high]);
-                result.push(HEX_CHARS[low]);
-            }
-            _ => {
-                // For valid UTF-8 sequences, we can push directly
-                // This handles ASCII and multi-byte UTF-8 characters
-                let char_len = match b {
-                    0x00..=0x7F => 1,
-                    0xC0..=0xDF => 2,
-                    0xE0..=0xEF => 3,
-                    0xF0..=0xF7 => 4,
-                    _ => 1, // Should not happen with valid UTF-8
-                };
-
-                let end = (i + char_len).min(bytes.len());
-                // SAFETY: We're pushing valid UTF-8 bytes from the original string
-                unsafe {
-                    result.as_mut_vec().extend_from_slice(&bytes[i..end]);
-                }
-                i += char_len;
-                continue;
-            }
+        
+        // Use lookup table to check if escaping is needed
+        let escape_byte = ESCAPE[b as usize];
+        
+        if escape_byte == 0 {
+            // No escape needed, continue scanning
+            i += 1;
+            continue;
         }
+        
+        // Copy any unescaped bytes before this position
+        if start < i {
+            result.extend_from_slice(&bytes[start..i]);
+        }
+        
+        // Handle the escape
+        result.push(b'\\');
+        if escape_byte == b'u' {
+            // Unicode escape for control characters
+            result.extend_from_slice(b"u00");
+            let hex_digits = &HEX_BYTES[b as usize];
+            result.push(hex_digits.0);
+            result.push(hex_digits.1);
+        } else {
+            // Simple escape
+            result.push(escape_byte);
+        }
+        
         i += 1;
+        start = i;
     }
-
-    result.push('"');
-    result
+    
+    // Copy any remaining unescaped bytes
+    if start < bytes.len() {
+        result.extend_from_slice(&bytes[start..]);
+    }
+    
+    result.push(b'"');
+    
+    // SAFETY: We only pushed valid UTF-8 bytes (original string bytes and ASCII escape sequences)
+    unsafe { String::from_utf8_unchecked(result) }
 }
 
-const HEX_CHARS: [char; 16] =
-    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+const BB: u8 = b'b'; // \x08
+const TT: u8 = b't'; // \x09
+const NN: u8 = b'n'; // \x0A
+const FF: u8 = b'f'; // \x0C
+const RR: u8 = b'r'; // \x0D
+const QU: u8 = b'"'; // \x22
+const BS: u8 = b'\\'; // \x5C
+const UU: u8 = b'u'; // \x00...\x1F except the ones above
+const __: u8 = 0;
+
+// Lookup table of escape sequences. A value of b'x' at index i means that byte
+// i is escaped as "\x" in JSON. A value of 0 means that byte i is not escaped.
+static ESCAPE: [u8; 256] = [
+    //   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+    UU, UU, UU, UU, UU, UU, UU, UU, BB, TT, NN, UU, FF, RR, UU, UU, // 0
+    UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, UU, // 1
+    __, __, QU, __, __, __, __, __, __, __, __, __, __, __, __, __, // 2
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 3
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 4
+    __, __, __, __, __, __, __, __, __, __, __, __, BS, __, __, __, // 5
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 6
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 7
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 8
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // 9
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // A
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // B
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // C
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // D
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // E
+    __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, __, // F
+];
+
+// Pre-computed hex digit pairs for control characters
+struct HexPair(u8, u8);
+
+static HEX_BYTES: [HexPair; 32] = [
+    HexPair(b'0', b'0'), HexPair(b'0', b'1'), HexPair(b'0', b'2'), HexPair(b'0', b'3'),
+    HexPair(b'0', b'4'), HexPair(b'0', b'5'), HexPair(b'0', b'6'), HexPair(b'0', b'7'),
+    HexPair(b'0', b'8'), HexPair(b'0', b'9'), HexPair(b'0', b'a'), HexPair(b'0', b'b'),
+    HexPair(b'0', b'c'), HexPair(b'0', b'd'), HexPair(b'0', b'e'), HexPair(b'0', b'f'),
+    HexPair(b'1', b'0'), HexPair(b'1', b'1'), HexPair(b'1', b'2'), HexPair(b'1', b'3'),
+    HexPair(b'1', b'4'), HexPair(b'1', b'5'), HexPair(b'1', b'6'), HexPair(b'1', b'7'),
+    HexPair(b'1', b'8'), HexPair(b'1', b'9'), HexPair(b'1', b'a'), HexPair(b'1', b'b'),
+    HexPair(b'1', b'c'), HexPair(b'1', b'd'), HexPair(b'1', b'e'), HexPair(b'1', b'f'),
+];
 
 #[test]
 fn test_escape_json_string() {
