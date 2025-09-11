@@ -326,6 +326,8 @@ impl<'a> PreAllocatedString<'a> {
     }
 }
 
+// Slightly modified version of
+// <https://github.com/serde-rs/json/blob/d12e943590208da738c092db92c34b39796a2538/src/ser.rs#L2079>
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
     let bytes = s.as_bytes();
@@ -489,6 +491,46 @@ fn test_escape_json_string() {
     assert_eq!(escape_json_string("\x1F"), "\"\\u001f\"");
     assert_eq!(escape_json_string("emoji 👀"), "\"emoji 👀\"");
     assert_eq!(escape_json_string("mixed\t\n\r\"\\content"), "\"mixed\\t\\n\\r\\\"\\\\content\"");
+    
+    // Unicode handling tests
+    // 2-byte UTF-8 sequences
+    assert_eq!(escape_json_string("café"), "\"café\"");
+    assert_eq!(escape_json_string("Привет"), "\"Привет\"");
+    assert_eq!(escape_json_string("你好"), "\"你好\"");
+    
+    // 3-byte UTF-8 sequences  
+    assert_eq!(escape_json_string("€₹¥"), "\"€₹¥\"");
+    assert_eq!(escape_json_string("∑∏∫"), "\"∑∏∫\"");
+    assert_eq!(escape_json_string("♠♣♥♦"), "\"♠♣♥♦\"");
+    
+    // 4-byte UTF-8 sequences (emoji and other supplementary characters)
+    assert_eq!(escape_json_string("🚀🌟💫"), "\"🚀🌟💫\"");
+    assert_eq!(escape_json_string("𝕳𝖊𝖑𝖑𝖔"), "\"𝕳𝖊𝖑𝖑𝖔\"");
+    assert_eq!(escape_json_string("𐍈𐍉𐍊"), "\"𐍈𐍉𐍊\"");
+    
+    // Mixed ASCII, escapes, and Unicode
+    assert_eq!(escape_json_string("Hello \"世界\" 🌍!"), "\"Hello \\\"世界\\\" 🌍!\"");
+    assert_eq!(escape_json_string("Line1\nЛиния2\n行3"), "\"Line1\\nЛиния2\\n行3\"");
+    assert_eq!(escape_json_string("\t🎯\r\n📝"), "\"\\t🎯\\r\\n📝\"");
+    
+    // Unicode with control characters
+    assert_eq!(escape_json_string("before\x00中文\x01after"), "\"before\\u0000中文\\u0001after\"");
+    assert_eq!(escape_json_string("emoji\x08🎨\x0C"), "\"emoji\\b🎨\\f\"");
+    
+    // Edge cases with Unicode boundaries
+    assert_eq!(escape_json_string("a\x00б"), "\"a\\u0000б\""); // ASCII, control, 2-byte UTF-8
+    assert_eq!(escape_json_string("€\n元"), "\"€\\n元\""); // 3-byte, newline, 3-byte
+    assert_eq!(escape_json_string("🎭\t🎪"), "\"🎭\\t🎪\""); // 4-byte, tab, 4-byte
+    
+    // Long strings with mixed content
+    let long_mixed = "ASCII text 中文字符 Русский язык 🚀 \"quoted\" \\ backslash \n newline \t tab";
+    let expected = "\"ASCII text 中文字符 Русский язык 🚀 \\\"quoted\\\" \\\\ backslash \\n newline \\t tab\"";
+    assert_eq!(escape_json_string(long_mixed), expected);
+    
+    // Combining characters and diacritics
+    assert_eq!(escape_json_string("naïve"), "\"naïve\"");
+    assert_eq!(escape_json_string("e\u{0301}"), "\"e\u{0301}\""); // e + combining acute accent
+    assert_eq!(escape_json_string("a\u{0300}\u{0301}"), "\"a\u{0300}\u{0301}\""); // a + combining grave + acute
 
     // Test all control characters
     for b in 0x00..=0x1F {
