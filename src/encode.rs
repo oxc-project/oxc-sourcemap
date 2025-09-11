@@ -406,13 +406,13 @@ fn needs_json_escape_simd(bytes: &[u8]) -> bool {
     if memchr::memchr2(b'"', b'\\', bytes).is_some() {
         return true;
     }
-    
+
     // Check for common control characters
     // \n, \r, \t are the most common control characters in JSON
     if memchr::memchr3(b'\n', b'\r', b'\t', bytes).is_some() {
         return true;
     }
-    
+
     // Check for other control characters (0x00-0x1F except the ones we already checked)
     // This is less common, so we do it last and byte-by-byte
     for &b in bytes {
@@ -421,7 +421,7 @@ fn needs_json_escape_simd(bytes: &[u8]) -> bool {
             _ => {}
         }
     }
-    
+
     false
 }
 
