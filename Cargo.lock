@@ -462,6 +462,7 @@ dependencies = [
  "base64-simd",
  "criterion2",
  "insta",
+ "memchr",
  "napi",
  "napi-build",
  "napi-derive",
