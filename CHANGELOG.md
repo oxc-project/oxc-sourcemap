@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.1](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.0...v4.1.1) - 2025-09-11
+
+### Other
+
+- *(sourcemap)* optimize escape_json_string to avoid serde overhead ([#141](https://github.com/oxc-project/oxc-sourcemap/pull/141))
+
 ## [4.1.0](https://github.com/oxc-project/oxc-sourcemap/compare/v4.0.5...v4.1.0) - 2025-08-18
 
 ### Added
