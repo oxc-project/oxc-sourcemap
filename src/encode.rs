@@ -333,11 +333,11 @@ impl<'a> PreAllocatedString<'a> {
 fn escape_json_string<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
     let bytes = s.as_bytes();
-    
+
     // Fast path: scan for characters that need escaping
     let mut needs_escape = false;
     let mut extra_bytes = 0usize;
-    
+
     for &b in bytes {
         match b {
             b'"' | b'\\' => {
@@ -355,7 +355,7 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
             _ => {}
         }
     }
-    
+
     // If no escaping needed, just wrap in quotes
     if !needs_escape {
         let mut result = String::with_capacity(s.len() + 2);
@@ -364,11 +364,11 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
         result.push('"');
         return result;
     }
-    
+
     // Allocate exact capacity needed
     let mut result = String::with_capacity(bytes.len() + extra_bytes + 2);
     result.push('"');
-    
+
     let mut i = 0;
     while i < bytes.len() {
         let b = bytes[i];
@@ -398,7 +398,7 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
                     0xF0..=0xF7 => 4,
                     _ => 1, // Should not happen with valid UTF-8
                 };
-                
+
                 let end = (i + char_len).min(bytes.len());
                 // SAFETY: We're pushing valid UTF-8 bytes from the original string
                 unsafe {
@@ -410,15 +410,13 @@ fn escape_json_string<S: AsRef<str>>(s: S) -> String {
         }
         i += 1;
     }
-    
+
     result.push('"');
     result
 }
 
-const HEX_CHARS: [char; 16] = [
-    '0', '1', '2', '3', '4', '5', '6', '7',
-    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
-];
+const HEX_CHARS: [char; 16] =
+    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
 
 #[test]
 fn test_escape_json_string() {
@@ -442,7 +440,7 @@ fn test_escape_json_string() {
         input.push(*c);
         assert_eq!(escape_json_string(input), *expected);
     }
-    
+
     // Additional test cases for comprehensive coverage
     assert_eq!(escape_json_string(""), "\"\"");
     assert_eq!(escape_json_string("hello"), "\"hello\"");
@@ -454,7 +452,7 @@ fn test_escape_json_string() {
     assert_eq!(escape_json_string("\x1F"), "\"\\u001f\"");
     assert_eq!(escape_json_string("emoji 👀"), "\"emoji 👀\"");
     assert_eq!(escape_json_string("mixed\t\n\r\"\\content"), "\"mixed\\t\\n\\r\\\"\\\\content\"");
-    
+
     // Test all control characters
     for b in 0x00..=0x1F {
         let s = String::from_utf8(vec![b]).unwrap();
