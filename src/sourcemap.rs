@@ -175,7 +175,6 @@ impl SourceMap {
             for (idx, token) in self.tokens.iter().enumerate() {
                 table[token.dst_line as usize].push((token.dst_line, token.dst_col, idx as u32));
             }
-            table.iter_mut().for_each(|line| line.sort_unstable());
             table
         } else {
             vec![]

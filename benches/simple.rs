@@ -26,6 +26,11 @@ pub fn bench(c: &mut Criterion) {
         b.iter(|| sm.to_json_string());
     });
 
+    c.bench_function("SourceMap::generate_lookup_table", |b| {
+        let sm = SourceMap::from_json_string(input).unwrap();
+        b.iter(|| sm.generate_lookup_table());
+    });
+
     c.bench_function("SourceMapBuilder::add_name_add_source_and_content", |b| {
         let mut builder = SourceMapBuilder::default();
         b.iter(|| {
