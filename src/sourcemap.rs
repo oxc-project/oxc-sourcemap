@@ -168,13 +168,20 @@ impl SourceMap {
     }
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
-    pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
+    pub fn generate_lookup_table<'a>(&'a self) -> Vec<LineLookupTable<'a>> {
         // The dst line/dst col always has increasing order.
         if let Some(last_token) = self.tokens.last() {
-            let mut table = vec![vec![]; last_token.dst_line as usize + 1];
+            let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
+            let mut prev_start_idx = 0u32;
+            let mut prev_dst_line = 0u32;
             for (idx, token) in self.tokens.iter().enumerate() {
-                table[token.dst_line as usize].push((token.dst_line, token.dst_col, idx as u32));
+                if token.dst_line != prev_dst_line {
+                    table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..idx];
+                    prev_start_idx = idx as u32;
+                    prev_dst_line = token.dst_line;
+                }
             }
+            table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..];
             table
         } else {
             vec![]
@@ -192,10 +199,10 @@ impl SourceMap {
         if line >= lookup_table.len() as u32 {
             return None;
         }
-        let table = greatest_lower_bound(&lookup_table[line as usize], &(line, col), |table| {
-            (table.0, table.1)
+        let token = greatest_lower_bound(lookup_table[line as usize], &(line, col), |token| {
+            (token.dst_line, token.dst_col)
         })?;
-        self.get_token(table.2)
+        Some(*token)
     }
 
     /// Lookup a token by line and column, it will used at remapping. See `SourceViewToken`.
@@ -209,7 +216,7 @@ impl SourceMap {
     }
 }
 
-type LineLookupTable = Vec<(u32, u32, u32)>;
+type LineLookupTable<'a> = &'a [Token];
 
 fn greatest_lower_bound<'a, T, K: Ord, F: Fn(&'a T) -> K>(
     slice: &'a [T],
