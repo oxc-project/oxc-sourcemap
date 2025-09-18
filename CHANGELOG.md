@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.2](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.1...v4.1.2) - 2025-09-18
+
+### Other
+
+- simplify LineLookupTable structure ([#151](https://github.com/oxc-project/oxc-sourcemap/pull/151))
+- remove sort in generate_lookup_table ([#150](https://github.com/oxc-project/oxc-sourcemap/pull/150))
+
 ## [4.1.1](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.0...v4.1.1) - 2025-09-11
 
 ### Other
