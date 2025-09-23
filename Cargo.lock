@@ -322,9 +322,9 @@ dependencies = [
 
 [[package]]
 name = "json-escape-simd"
-version = "1.0.3"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2caef4ae952a2569397d6567f506f66a24d8444501f4ee4012ccaf2571c0be24"
+checksum = "0fc1cc6a0d3d3e002739c6c2bef8944614100173c4a5c1af0c2e5ee36bf3b5a3"
 dependencies = [
  "anyhow",
 ]
