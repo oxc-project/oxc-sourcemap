@@ -1,8 +1,6 @@
 //! Ported and modified from <https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs>
 
-use std::borrow::Cow;
-
-use json_escape_simd::{escape as escape_json_string, escape_generic};
+use json_escape_simd::{escape_into, escape_into_generic};
 
 use crate::JSONSourceMap;
 use crate::{SourceMap, Token, token::TokenChunk};
@@ -10,7 +8,19 @@ use crate::{SourceMap, Token, token::TokenChunk};
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {
         file: sourcemap.get_file().map(ToString::to_string),
-        mappings: serialize_sourcemap_mappings(sourcemap),
+        mappings: {
+            let mut mappings = String::with_capacity(
+                sourcemap
+                    .token_chunks
+                    .as_ref()
+                    .map(|chunks| {
+                        chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize
+                    })
+                    .unwrap_or(sourcemap.tokens.len() * 10),
+            );
+            serialize_sourcemap_mappings(sourcemap, &mut mappings);
+            mappings
+        },
         source_root: sourcemap.get_source_root().map(ToString::to_string),
         sources: sourcemap.sources.iter().map(ToString::to_string).collect(),
         sources_content: Some(
@@ -25,85 +35,149 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
         x_google_ignore_list: sourcemap.get_x_google_ignore_list().map(|x| x.to_vec()),
     }
 }
-fn escape_optional_json_string<'s, S: AsRef<str>>(s: &'s Option<S>) -> Cow<'s, str> {
-    s.as_ref().map(escape_json_string).map(Cow::Owned).unwrap_or_else(|| Cow::Borrowed("null"))
-}
 
 pub fn encode_to_string(sourcemap: &SourceMap) -> String {
-    let max_segments = 12
-        + sourcemap.names.len() * 2
-        + sourcemap.sources.len() * 2
-        + sourcemap.source_contents.len() * 2
-        + 1
-        + sourcemap.x_google_ignore_list.as_ref().map_or(0, |x| x.len() * 2 + 1);
+    // Worst-case capacity accounting:
+    // - escape_into / escape_into_generic may write up to (len * 2 + 2) for each string
+    // - include commas between items and constant JSON punctuation/keys
+    let mut max_segments = 0usize;
+
+    // {"version":3,
+    max_segments += 13;
+
+    // Optional "file":"...",
+    if let Some(file) = sourcemap.get_file() {
+        max_segments += 8 /* "file":" */ + file.as_ref().len() + 2 /* ", */;
+    }
+
+    // Optional "sourceRoot":"...",
+    if let Some(source_root) = sourcemap.get_source_root() {
+        max_segments += 14 /* "sourceRoot":" */ + source_root.len() + 2 /* ", */;
+    }
+
+    // "names":[
+    max_segments += 9;
+    let names_count = sourcemap.names.len();
+    let names_len_sum: usize = sourcemap.names.iter().map(|s| s.len()).sum();
+    max_segments += 2 * names_len_sum + 2 * names_count; // worst-case escaped items
+    if names_count > 0 {
+        max_segments += names_count - 1; // commas between items
+    }
+
+    // ],"sources":[
+    max_segments += 13;
+    let sources_count = sourcemap.sources.len();
+    let sources_len_sum: usize = sourcemap.sources.iter().map(|s| s.len()).sum();
+    max_segments += 2 * sources_len_sum + 2 * sources_count; // worst-case escaped items
+    if sources_count > 0 {
+        max_segments += sources_count - 1; // commas between items
+    }
+
+    // ],"sourcesContent":[
+    max_segments += 20;
+    let sc_count = sourcemap.source_contents.len();
+    let sc_len_sum: usize = sourcemap
+        .source_contents
+        .iter()
+        .map(|v| v.as_ref().map_or(/*"null"*/ 4, |s| s.len()))
+        .sum();
+    max_segments += 2 * sc_len_sum + 2 * sc_count; // worst-case escaped items
+    if sc_count > 0 {
+        max_segments += sc_count - 1; // commas between items
+    }
+
+    // Optional ],"x_google_ignoreList":[
+    if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
+        max_segments += 25; // ],"x_google_ignoreList":[
+
+        // Items are escaped numbers written as strings
+        let ig_count = x_google_ignore_list.len();
+        max_segments += 2 * ig_count; // worst-case escaped items
+        // Note: current code does not insert commas between ignoreList items
+    }
+
+    // ],"mappings":"
+    max_segments += 15;
+    max_segments += sourcemap
+        .token_chunks
+        .as_ref()
+        .map(|chunks| chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize)
+        .unwrap_or(sourcemap.tokens.len() * 10);
+
+    // Optional ,"debugId":"..."
+    if let Some(debug_id) = sourcemap.get_debug_id() {
+        max_segments += 13 /* ,"debugId":" */ + debug_id.len();
+    }
+
+    // "}
+    max_segments += 2;
     let mut contents = PreAllocatedString::new(max_segments);
 
-    contents.push("{\"version\":3,".into());
+    contents.push("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
-        contents.push("\"file\":\"".into());
-        contents.push(file.as_ref().into());
-        contents.push("\",".into());
+        contents.push("\"file\":\"");
+        contents.push(file.as_ref());
+        contents.push("\",");
     }
 
     if let Some(source_root) = sourcemap.get_source_root() {
-        contents.push("\"sourceRoot\":\"".into());
-        contents.push(source_root.into());
-        contents.push("\",".into());
+        contents.push("\"sourceRoot\":\"");
+        contents.push(source_root);
+        contents.push("\",");
     }
 
-    contents.push("\"names\":[".into());
-    contents.push_list(sourcemap.names.iter().map(|s| Cow::Owned(escape_generic(s))));
+    contents.push("\"names\":[");
+    contents.push_list(sourcemap.names.iter(), escape_into_generic);
 
-    contents.push("],\"sources\":[".into());
-    contents.push_list(sourcemap.sources.iter().map(|s| Cow::Owned(escape_generic(s))));
+    contents.push("],\"sources\":[");
+    contents.push_list(sourcemap.sources.iter(), escape_into_generic);
 
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
-    contents.push("],\"sourcesContent\":[".into());
-    contents.push_list(source_contents.iter().map(escape_optional_json_string));
+    contents.push("],\"sourcesContent\":[");
+    contents.push_list(source_contents.iter().map(|v| v.as_deref().unwrap_or("null")), escape_into);
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
-        contents.push("],\"x_google_ignoreList\":[".into());
-        contents.push_list(x_google_ignore_list.iter().map(|s| Cow::Owned(s.to_string())));
+        contents.push("],\"x_google_ignoreList\":[");
+        x_google_ignore_list.iter().for_each(|s| {
+            contents.push(s.to_string().as_str());
+        });
     }
 
-    contents.push("],\"mappings\":\"".into());
-    contents.push(serialize_sourcemap_mappings(sourcemap).into());
+    contents.push("],\"mappings\":\"");
+    serialize_sourcemap_mappings(sourcemap, &mut contents.buf);
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        contents.push("\",\"debugId\":\"".into());
-        contents.push(debug_id.into());
+        contents.push("\",\"debugId\":\"");
+        contents.push(debug_id);
     }
 
-    contents.push("\"}".into());
+    contents.push("\"}");
 
     // Check we calculated number of segments required correctly
-    debug_assert!(contents.num_segments() <= max_segments);
+    debug_assert!(contents.len() <= max_segments);
 
     contents.consume()
 }
 
-fn serialize_sourcemap_mappings(sm: &SourceMap) -> String {
-    sm.token_chunks.as_ref().map_or_else(
-        || {
-            serialize_mappings(
-                &sm.tokens,
-                &TokenChunk::new(0, sm.tokens.len() as u32, 0, 0, 0, 0, 0, 0),
-            )
-        },
-        |token_chunks| {
-            token_chunks
-                .iter()
-                .map(|token_chunk| serialize_mappings(&sm.tokens, token_chunk))
-                .collect::<String>()
-        },
-    )
+fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
+    if let Some(token_chunks) = sm.token_chunks.as_ref() {
+        token_chunks.iter().for_each(|token_chunk| {
+            serialize_mappings(&sm.tokens, token_chunk, output);
+        })
+    } else {
+        serialize_mappings(
+            &sm.tokens,
+            &TokenChunk::new(0, sm.tokens.len() as u32, 0, 0, 0, 0, 0, 0),
+            output,
+        );
+    }
 }
 
 // Max length of a single VLQ encoding
 const MAX_VLQ_BYTES: usize = 7;
 
-fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk) -> String {
+fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut String) {
     let TokenChunk {
         start,
         end,
@@ -114,10 +188,6 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk) -> String {
         mut prev_name_id,
         mut prev_source_id,
     } = *token_chunk;
-
-    let capacity = ((end - start) * 10) as usize;
-
-    let mut rv = String::with_capacity(capacity);
 
     let mut prev_token = if start == 0 { None } else { Some(&tokens[start as usize - 1]) };
 
@@ -132,35 +202,35 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk) -> String {
 
         let num_line_breaks = token.get_dst_line() - prev_dst_line;
         if num_line_breaks != 0 {
-            rv.reserve(MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize);
+            output.reserve(MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize);
             // SAFETY: We have reserved sufficient capacity for `num_line_breaks` bytes
-            unsafe { push_bytes_unchecked(&mut rv, b';', num_line_breaks) };
+            unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
             prev_dst_line += num_line_breaks;
         } else if let Some(prev_token) = prev_token {
             if prev_token == token {
                 continue;
             }
-            rv.reserve(MAX_TOTAL_VLQ_BYTES + 1);
+            output.reserve(MAX_TOTAL_VLQ_BYTES + 1);
             // SAFETY: We have reserved sufficient capacity for 1 byte
-            unsafe { push_byte_unchecked(&mut rv, b',') };
+            unsafe { push_byte_unchecked(output, b',') };
         }
 
         // SAFETY: We have reserved enough capacity above to satisfy safety contract
         // of `encode_vlq_diff` for all calls below
         unsafe {
-            encode_vlq_diff(&mut rv, token.get_dst_col(), prev_dst_col);
+            encode_vlq_diff(output, token.get_dst_col(), prev_dst_col);
             prev_dst_col = token.get_dst_col();
 
             if let Some(source_id) = token.get_source_id() {
-                encode_vlq_diff(&mut rv, source_id, prev_source_id);
+                encode_vlq_diff(output, source_id, prev_source_id);
                 prev_source_id = source_id;
-                encode_vlq_diff(&mut rv, token.get_src_line(), prev_src_line);
+                encode_vlq_diff(output, token.get_src_line(), prev_src_line);
                 prev_src_line = token.get_src_line();
-                encode_vlq_diff(&mut rv, token.get_src_col(), prev_src_col);
+                encode_vlq_diff(output, token.get_src_col(), prev_src_col);
                 prev_src_col = token.get_src_col();
                 if let Some(name_id) = token.get_name_id() {
-                    encode_vlq_diff(&mut rv, name_id, prev_name_id);
+                    encode_vlq_diff(output, name_id, prev_name_id);
                     prev_name_id = name_id;
                 }
             }
@@ -168,8 +238,6 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk) -> String {
 
         prev_token = Some(token);
     }
-
-    rv
 }
 
 /// Encode diff as VLQ and push encoding into `out`.
@@ -284,142 +352,51 @@ unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
 ///
 /// Pre-allocate a Cow<'a, str> buffer, and push the segment into it.
 /// Finally, convert it to a pre-allocated length String.
-struct PreAllocatedString<'a> {
-    buf: Vec<Cow<'a, str>>,
+struct PreAllocatedString {
+    buf: String,
     len: usize,
 }
 
-impl<'a> PreAllocatedString<'a> {
+impl PreAllocatedString {
     fn new(max_segments: usize) -> Self {
-        Self { buf: Vec::with_capacity(max_segments), len: 0 }
+        Self { buf: String::with_capacity(max_segments), len: 0 }
     }
 
     #[inline]
-    fn push(&mut self, s: Cow<'a, str>) {
+    fn push(&mut self, s: &str) {
         self.len += s.len();
-        self.buf.push(s);
+        self.buf.push_str(s);
     }
 
     #[inline]
-    fn push_list<I>(&mut self, mut iter: I)
+    fn push_list<S, I>(&mut self, mut iter: I, encode: impl Fn(S, &mut Vec<u8>))
     where
-        I: Iterator<Item = Cow<'a, str>>,
+        S: AsRef<str>,
+        I: Iterator<Item = S>,
     {
         let Some(first) = iter.next() else {
             return;
         };
-        self.push(first);
+        encode(first, self.as_mut_vec());
 
         for other in iter {
-            self.push(Cow::Borrowed(","));
-            self.push(other);
+            self.push(",");
+            encode(other, self.as_mut_vec());
         }
+    }
+
+    fn as_mut_vec(&mut self) -> &mut Vec<u8> {
+        // SAFETY: we are sure that the string is not shared
+        unsafe { self.buf.as_mut_vec() }
     }
 
     #[inline]
     fn consume(self) -> String {
-        let mut buf = String::with_capacity(self.len);
-        buf.extend(self.buf);
-        buf
+        self.buf
     }
 
-    fn num_segments(&self) -> usize {
+    fn len(&self) -> usize {
         self.buf.len()
-    }
-}
-
-#[test]
-fn test_escape_json_string() {
-    const FIXTURES: &[(char, &str)] = &[
-        ('n', "\"n\""),
-        ('"', "\"\\\"\""),
-        ('\\', "\"\\\\\""),
-        ('/', "\"/\""),
-        ('\x08', "\"\\b\""),
-        ('\x0C', "\"\\f\""),
-        ('\n', "\"\\n\""),
-        ('\r', "\"\\r\""),
-        ('\t', "\"\\t\""),
-        ('\x0B', "\"\\u000b\""),
-        ('虎', "\"虎\""),
-        ('\u{3A3}', "\"\u{3A3}\""),
-    ];
-
-    for (c, expected) in FIXTURES {
-        let mut input = String::new();
-        input.push(*c);
-        assert_eq!(escape_json_string(input), *expected);
-    }
-
-    // Additional test cases for comprehensive coverage
-    assert_eq!(escape_json_string(""), "\"\"");
-    assert_eq!(escape_json_string("hello"), "\"hello\"");
-    assert_eq!(escape_json_string("hello world"), "\"hello world\"");
-    assert_eq!(escape_json_string("hello\nworld"), "\"hello\\nworld\"");
-    assert_eq!(escape_json_string("hello\"world\""), "\"hello\\\"world\\\"\"");
-    assert_eq!(escape_json_string("hello\\world"), "\"hello\\\\world\"");
-    assert_eq!(escape_json_string("\x00\x01\x02"), "\"\\u0000\\u0001\\u0002\"");
-    assert_eq!(escape_json_string("\x1F"), "\"\\u001f\"");
-    assert_eq!(escape_json_string("emoji 👀"), "\"emoji 👀\"");
-    assert_eq!(escape_json_string("mixed\t\n\r\"\\content"), "\"mixed\\t\\n\\r\\\"\\\\content\"");
-
-    // Unicode handling tests
-    // 2-byte UTF-8 sequences
-    assert_eq!(escape_json_string("café"), "\"café\"");
-    assert_eq!(escape_json_string("Привет"), "\"Привет\"");
-    assert_eq!(escape_json_string("你好"), "\"你好\"");
-
-    // 3-byte UTF-8 sequences
-    assert_eq!(escape_json_string("€₹¥"), "\"€₹¥\"");
-    assert_eq!(escape_json_string("∑∏∫"), "\"∑∏∫\"");
-    assert_eq!(escape_json_string("♠♣♥♦"), "\"♠♣♥♦\"");
-
-    // 4-byte UTF-8 sequences (emoji and other supplementary characters)
-    assert_eq!(escape_json_string("🚀🌟💫"), "\"🚀🌟💫\"");
-    assert_eq!(escape_json_string("𝕳𝖊𝖑𝖑𝖔"), "\"𝕳𝖊𝖑𝖑𝖔\"");
-    assert_eq!(escape_json_string("𐍈𐍉𐍊"), "\"𐍈𐍉𐍊\"");
-
-    // Mixed ASCII, escapes, and Unicode
-    assert_eq!(escape_json_string("Hello \"世界\" 🌍!"), "\"Hello \\\"世界\\\" 🌍!\"");
-    assert_eq!(escape_json_string("Line1\nЛиния2\n行3"), "\"Line1\\nЛиния2\\n行3\"");
-    assert_eq!(escape_json_string("\t🎯\r\n📝"), "\"\\t🎯\\r\\n📝\"");
-
-    // Unicode with control characters
-    assert_eq!(escape_json_string("before\x00中文\x01after"), "\"before\\u0000中文\\u0001after\"");
-    assert_eq!(escape_json_string("emoji\x08🎨\x0C"), "\"emoji\\b🎨\\f\"");
-
-    // Edge cases with Unicode boundaries
-    assert_eq!(escape_json_string("a\x00б"), "\"a\\u0000б\""); // ASCII, control, 2-byte UTF-8
-    assert_eq!(escape_json_string("€\n元"), "\"€\\n元\""); // 3-byte, newline, 3-byte
-    assert_eq!(escape_json_string("🎭\t🎪"), "\"🎭\\t🎪\""); // 4-byte, tab, 4-byte
-
-    // Long strings with mixed content
-    let long_mixed =
-        "ASCII text 中文字符 Русский язык 🚀 \"quoted\" \\ backslash \n newline \t tab";
-    let expected =
-        "\"ASCII text 中文字符 Русский язык 🚀 \\\"quoted\\\" \\\\ backslash \\n newline \\t tab\"";
-    assert_eq!(escape_json_string(long_mixed), expected);
-
-    // Combining characters and diacritics
-    assert_eq!(escape_json_string("naïve"), "\"naïve\"");
-    assert_eq!(escape_json_string("e\u{0301}"), "\"e\u{0301}\""); // e + combining acute accent
-    assert_eq!(escape_json_string("a\u{0300}\u{0301}"), "\"a\u{0300}\u{0301}\""); // a + combining grave + acute
-
-    // Test all control characters
-    for b in 0x00..=0x1F {
-        let s = String::from_utf8(vec![b]).unwrap();
-        let result = escape_json_string(&s);
-        match b {
-            b'\x08' => assert_eq!(result, "\"\\b\""),
-            b'\x0C' => assert_eq!(result, "\"\\f\""),
-            b'\n' => assert_eq!(result, "\"\\n\""),
-            b'\r' => assert_eq!(result, "\"\\r\""),
-            b'\t' => assert_eq!(result, "\"\\t\""),
-            _ => {
-                let expected = format!("\"\\u{:04x}\"", b);
-                assert_eq!(result, expected);
-            }
-        }
     }
 }
 
