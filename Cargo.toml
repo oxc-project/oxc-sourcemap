@@ -77,3 +77,7 @@ insta = { version = "1.43.1", features = ["glob"] }
 default = []
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 codspeed = ["criterion2/codspeed"]
+
+[profile.bench]
+lto = true
+codegen-units = 1
