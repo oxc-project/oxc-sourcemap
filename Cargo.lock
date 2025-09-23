@@ -321,6 +321,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-escape-simd"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa42361900384cecaf801a0d7923ca809874152e042de21b43ba3dc90869ed8"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -462,6 +471,7 @@ dependencies = [
  "base64-simd",
  "criterion2",
  "insta",
+ "json-escape-simd",
  "napi",
  "napi-build",
  "napi-derive",
