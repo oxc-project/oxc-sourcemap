@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use json_escape_simd::{escape as escape_json_string, escape_generic};
+use json_escape_simd::escape_generic as escape_json_string;
 
 use crate::JSONSourceMap;
 use crate::{SourceMap, Token, token::TokenChunk};
@@ -52,10 +52,10 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     contents.push("\"names\":[".into());
-    contents.push_list(sourcemap.names.iter().map(escape_generic));
+    contents.push_list(sourcemap.names.iter().map(escape_json_string));
 
     contents.push("],\"sources\":[".into());
-    contents.push_list(sourcemap.sources.iter().map(escape_generic));
+    contents.push_list(sourcemap.sources.iter().map(escape_json_string));
 
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
