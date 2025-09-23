@@ -60,6 +60,7 @@ ignored = ["napi"]
 
 [dependencies]
 base64-simd = "0.8"
+json-escape-simd = "1"
 napi = { version = "3", optional = true }
 napi-derive = { version = "3", optional = true }
 rustc-hash = "2"
