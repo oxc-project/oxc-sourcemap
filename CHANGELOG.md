@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.4](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.3...v4.1.4) - 2025-09-24
+
+### Other
+
+- reduce string allocation in sourcemap encoding ([#163](https://github.com/oxc-project/oxc-sourcemap/pull/163))
+
 ## [4.1.3](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.2...v4.1.3) - 2025-09-23
 
 ### Other
