@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- use simd optimzed json string escape impl ([#158](https://github.com/oxc-project/oxc-sourcemap/pull/158))
+- use simd optimized json string escape impl ([#158](https://github.com/oxc-project/oxc-sourcemap/pull/158))
 - enable fat lto in bench profile ([#161](https://github.com/oxc-project/oxc-sourcemap/pull/161))
 
 ## [4.1.2](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.1...v4.1.2) - 2025-09-18
