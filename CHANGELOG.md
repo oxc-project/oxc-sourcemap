@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.5](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.4...v4.1.5) - 2025-09-24
+
+### Fixed
+
+- x_google_ignoreList encode format ([#165](https://github.com/oxc-project/oxc-sourcemap/pull/165))
+
 ## [4.1.4](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.3...v4.1.4) - 2025-09-24
 
 ### Other
