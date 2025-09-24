@@ -90,10 +90,9 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         max_segments += 25; // ],"x_google_ignoreList":[
 
-        // Items are escaped numbers written as strings
         let ig_count = x_google_ignore_list.len();
-        max_segments += 2 * ig_count; // worst-case escaped items
-        // Note: current code does not insert commas between ignoreList items
+        // guess 4 bytes per item
+        max_segments += 4 * ig_count;
     }
 
     // ],"mappings":"
@@ -139,8 +138,8 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         contents.push("],\"x_google_ignoreList\":[");
-        x_google_ignore_list.iter().for_each(|s| {
-            contents.push(s.to_string().as_str());
+        contents.push_list(x_google_ignore_list.iter(), |s, output| {
+            output.extend_from_slice(s.to_string().as_bytes());
         });
     }
 
@@ -371,7 +370,6 @@ impl PreAllocatedString {
     #[inline]
     fn push_list<S, I>(&mut self, mut iter: I, encode: impl Fn(S, &mut Vec<u8>))
     where
-        S: AsRef<str>,
         I: Iterator<Item = S>,
     {
         let Some(first) = iter.next() else {
@@ -408,7 +406,7 @@ fn test_encode() {
         "sourceRoot": "x",
         "names": ["x","alert"],
         "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
-        "x_google_ignoreList": [0]
+        "x_google_ignoreList": [0, 1]
     }"#;
     let sm = SourceMap::from_json_string(input).unwrap();
     let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();
