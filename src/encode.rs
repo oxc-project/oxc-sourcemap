@@ -1,7 +1,5 @@
 //! Ported and modified from <https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs>
 
-use std::io::Write;
-
 use json_escape_simd::{escape_into, escape_into_generic};
 
 use crate::JSONSourceMap;
@@ -141,8 +139,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         contents.push("],\"x_google_ignoreList\":[");
         contents.push_list(x_google_ignore_list.iter(), |s, output| {
-            // Use `write!` to avoid allocating a new String
-            write!(output, "{}", s).expect("Output JSON buffer is not large enough");
+            output.extend_from_slice(s.to_string().as_bytes());
         });
     }
 
