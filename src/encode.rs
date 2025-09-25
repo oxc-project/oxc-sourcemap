@@ -9,15 +9,7 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {
         file: sourcemap.get_file().map(ToString::to_string),
         mappings: {
-            let mut mappings = String::with_capacity(
-                sourcemap
-                    .token_chunks
-                    .as_ref()
-                    .map(|chunks| {
-                        chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize
-                    })
-                    .unwrap_or(sourcemap.tokens.len() * 10),
-            );
+            let mut mappings = String::with_capacity(estimate_mappings_length(sourcemap));
             serialize_sourcemap_mappings(sourcemap, &mut mappings);
             mappings
         },
@@ -96,12 +88,8 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     // ],"mappings":"
-    max_segments += 15;
-    max_segments += sourcemap
-        .token_chunks
-        .as_ref()
-        .map(|chunks| chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize)
-        .unwrap_or(sourcemap.tokens.len() * 10);
+    max_segments += 14;
+    max_segments += estimate_mappings_length(sourcemap);
 
     // Optional ,"debugId":"..."
     if let Some(debug_id) = sourcemap.get_debug_id() {
@@ -157,6 +145,19 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     debug_assert!(contents.len() <= max_segments);
 
     contents.consume()
+}
+
+fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
+    sourcemap
+        .token_chunks
+        .as_ref()
+        .map(|chunks| {
+            chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize
+                + chunks.last().map_or(0, |t| t.prev_dst_line as usize)
+        })
+        .unwrap_or_else(|| {
+            sourcemap.tokens.len() * 10 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
+        })
 }
 
 fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
@@ -408,6 +409,34 @@ fn test_encode() {
         "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
         "x_google_ignoreList": [0, 1]
     }"#;
+    let sm = SourceMap::from_json_string(input).unwrap();
+    let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();
+
+    for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
+        assert_eq!(tok1, tok2);
+    }
+
+    // spellchecker:off
+    let input = r#"{
+        "version": 3,
+        "file": "index.js",
+        "names": [
+            "text",
+            "text"
+        ],
+        "sources": [
+            "../../hmr.js",
+            "../../main.js",
+            "../../index.html"
+        ],
+        "sourcesContent": [
+            "export const foo = 'hello'\n\ntext('.hmr', foo)\n\nfunction text(el, text) {\n  document.querySelector(el).textContent = text\n}\n\nimport.meta.hot?.accept((mod) =\u003E {\n  if (mod) {\n    text('.hmr', mod.foo)\n  }\n})\n",
+            "import './hmr.js'\n\ntext('.app', 'hello')\n\nfunction text(el, text) {\n  document.querySelector(el).textContent = text\n}\n",
+            "\u003Ch1\u003EHMR Full Bundle Mode\u003C/h1\u003E\n\n\u003Cdiv class=\"app\"\u003E\u003C/div\u003E\n\u003Cdiv class=\"hmr\"\u003E\u003C/div\u003E\n\n\u003Cscript type=\"module\" src=\"./main.js\"\u003E\u003C/script\u003E\n"
+        ],
+        "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA,MAAa,MAAM;AAEnBA,OAAK,QAAQ,IAAI;AAEjB,SAASA,OAAK,IAAI,QAAM;AACtB,UAAS,cAAc,GAAG,CAAC,cAAcA;;SAG1B,QAAQ,QAAQ;AAC/B,KAAI,KAAK;AACP,SAAK,QAAQ,IAAI,IAAI;;EAEvB;;;;;;;ACVF,KAAK,QAAQ,QAAQ;AAErB,SAAS,KAAK,IAAI,QAAM;AACtB,UAAS,cAAc,GAAG,CAAC,cAAcC"
+    }"#;
+    // spellchecker:on
     let sm = SourceMap::from_json_string(input).unwrap();
     let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();
 
