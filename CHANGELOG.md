@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.6](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.5...v4.1.6) - 2025-09-25
+
+### Fixed
+
+- take `;` into account when estimating mappings length ([#167](https://github.com/oxc-project/oxc-sourcemap/pull/167))
+
+### Other
+
+- tweak `x_google_ignore_list` comment and add assertion ([#168](https://github.com/oxc-project/oxc-sourcemap/pull/168))
+
 ## [4.1.5](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.4...v4.1.5) - 2025-09-24
 
 ### Fixed
