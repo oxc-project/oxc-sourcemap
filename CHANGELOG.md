@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.6...v4.2.0) - 2025-09-26
+
+### Added
+
+- reduce peak memory usage with `.shrink_to_fit()` ([#172](https://github.com/oxc-project/oxc-sourcemap/pull/172))
+
 ## [4.1.6](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.5...v4.1.6) - 2025-09-25
 
 ### Fixed
