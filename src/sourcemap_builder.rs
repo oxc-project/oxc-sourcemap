@@ -76,7 +76,19 @@ impl SourceMapBuilder {
         self.token_chunks = Some(token_chunks);
     }
 
-    pub fn into_sourcemap(self) -> SourceMap {
+    pub fn into_sourcemap(mut self) -> SourceMap {
+        // Trade performance for memory.
+        // The tokens array take enormously large amount of data,
+        // which is not ideal for large applications.
+        self.names_map.shrink_to_fit();
+        self.names.shrink_to_fit();
+        self.sources.shrink_to_fit();
+        self.sources_map.shrink_to_fit();
+        // For checker.ts, capacity for `tokens` before and after are 262144 and 171174 respectively.
+        self.tokens.shrink_to_fit();
+        if let Some(c) = self.token_chunks.as_mut() {
+            c.shrink_to_fit()
+        }
         SourceMap::new(
             self.file,
             self.names,
