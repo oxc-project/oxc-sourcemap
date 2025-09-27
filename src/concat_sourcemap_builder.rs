@@ -146,7 +146,7 @@ impl ConcatSourceMapBuilder {
             None,
             self.sources,
             self.source_contents,
-            self.tokens,
+            self.tokens.into_boxed_slice(),
             Some(self.token_chunks),
         )
     }
@@ -179,7 +179,7 @@ where
         None,
         vec!["foo.js".into()],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
+        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
         None,
     );
     let sm2 = SourceMap::new(
@@ -188,7 +188,7 @@ where
         None,
         vec!["bar.js".into()],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
+        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
         None,
     );
     let sm3 = SourceMap::new(
@@ -197,7 +197,7 @@ where
         None,
         vec!["abc.js".into()],
         vec![],
-        vec![Token::new(1, 2, 2, 2, Some(0), Some(0))],
+        vec![Token::new(1, 2, 2, 2, Some(0), Some(0))].into_boxed_slice(),
         None,
     );
 
@@ -213,7 +213,8 @@ where
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
             Token::new(3, 1, 1, 1, Some(1), Some(2)),
             Token::new(3, 2, 2, 2, Some(2), Some(3)),
-        ],
+        ]
+        .into_boxed_slice(),
         None,
     );
     let concat_sm = builder.into_sourcemap();
