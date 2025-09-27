@@ -87,12 +87,7 @@ impl CompressedTokens {
     /// Create compressed tokens from a slice of tokens
     pub fn from_tokens(tokens: &[Token]) -> Self {
         if tokens.is_empty() {
-            return Self {
-                first_token: None,
-                data: Box::new([]),
-                count: 0,
-                index: Box::new([]),
-            };
+            return Self { first_token: None, data: Box::new([]), count: 0, index: Box::new([]) };
         }
 
         let first_token = tokens[0];
@@ -100,10 +95,7 @@ impl CompressedTokens {
         let mut index = Vec::with_capacity((tokens.len() / INDEX_INTERVAL) + 1);
 
         // Add first index entry
-        index.push(IndexEntry {
-            offset: 0,
-            token: first_token,
-        });
+        index.push(IndexEntry { offset: 0, token: first_token });
 
         let mut prev_token = first_token;
 
@@ -111,10 +103,7 @@ impl CompressedTokens {
         for (i, &token) in tokens.iter().enumerate().skip(1) {
             // Create index entry every INDEX_INTERVAL tokens
             if i % INDEX_INTERVAL == 0 {
-                index.push(IndexEntry {
-                    offset: data.len() as u32,
-                    token,
-                });
+                index.push(IndexEntry { offset: data.len() as u32, token });
             }
 
             // Compress token as delta from previous
@@ -161,7 +150,8 @@ impl CompressedTokens {
 
         // Decompress tokens from index entry to target
         for _ in start_token_index..index {
-            let (next_token, bytes_read) = decompress_token_delta(&self.data[data_pos..], current_token);
+            let (next_token, bytes_read) =
+                decompress_token_delta(&self.data[data_pos..], current_token);
             current_token = next_token;
             data_pos += bytes_read;
         }
@@ -274,32 +264,20 @@ fn decompress_token_delta(data: &[u8], prev: Token) -> (Token, usize) {
     pos += 1;
 
     // Decode fields
-    let (dst_line, bytes) = decode_field_delta(
-        &data[pos..],
-        prev.get_dst_line(),
-        header.dst_line_format()
-    );
+    let (dst_line, bytes) =
+        decode_field_delta(&data[pos..], prev.get_dst_line(), header.dst_line_format());
     pos += bytes;
 
-    let (dst_col, bytes) = decode_field_delta(
-        &data[pos..],
-        prev.get_dst_col(),
-        header.dst_col_format()
-    );
+    let (dst_col, bytes) =
+        decode_field_delta(&data[pos..], prev.get_dst_col(), header.dst_col_format());
     pos += bytes;
 
-    let (src_line, bytes) = decode_field_delta(
-        &data[pos..],
-        prev.get_src_line(),
-        header.src_line_format()
-    );
+    let (src_line, bytes) =
+        decode_field_delta(&data[pos..], prev.get_src_line(), header.src_line_format());
     pos += bytes;
 
-    let (src_col, bytes) = decode_field_delta(
-        &data[pos..],
-        prev.get_src_col(),
-        header.src_col_format()
-    );
+    let (src_col, bytes) =
+        decode_field_delta(&data[pos..], prev.get_src_col(), header.src_col_format());
     pos += bytes;
 
     // Decode optional IDs
@@ -422,7 +400,6 @@ fn decode_optional_id_delta(data: &[u8], prev: Option<u32>) -> (Option<u32>, usi
         _ => unreachable!(),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

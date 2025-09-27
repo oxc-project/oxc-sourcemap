@@ -32,7 +32,7 @@ impl SourceMap {
         source_root: Option<String>,
         sources: Vec<Arc<str>>,
         source_contents: Vec<Option<Arc<str>>>,
-        tokens: Box<[Token]>,  // Keep original API for now
+        tokens: Box<[Token]>, // Keep original API for now
         token_chunks: Option<Vec<TokenChunk>>,
     ) -> Self {
         Self {
