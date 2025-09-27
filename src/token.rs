@@ -135,7 +135,11 @@ impl<'a> SourceViewToken<'a> {
     }
 
     pub fn get_name(&self) -> Option<&Arc<str>> {
-        if self.token.name_id == INVALID_ID { None } else { self.sourcemap.get_name(self.token.name_id) }
+        if self.token.name_id == INVALID_ID {
+            None
+        } else {
+            self.sourcemap.get_name(self.token.name_id)
+        }
     }
 
     pub fn get_source(&self) -> Option<&Arc<str>> {
