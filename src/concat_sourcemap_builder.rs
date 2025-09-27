@@ -213,7 +213,8 @@ where
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
             Token::new(3, 1, 1, 1, Some(1), Some(2)),
             Token::new(3, 2, 2, 2, Some(2), Some(3)),
-        ].into_boxed_slice(),
+        ]
+        .into_boxed_slice(),
         None,
     );
     let concat_sm = builder.into_sourcemap();

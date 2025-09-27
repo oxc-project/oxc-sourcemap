@@ -28,7 +28,8 @@ fn invalid_token_position() {
             Token::new(0, 0, 0, 0, Some(0), None),
             Token::new(0, 10, 0, 0, Some(0), None),
             Token::new(0, 0, 0, 10, Some(0), None),
-        ].into_boxed_slice(),
+        ]
+        .into_boxed_slice(),
         None,
     );
     let js = "abc\ndef\n";
