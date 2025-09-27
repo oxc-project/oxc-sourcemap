@@ -2,6 +2,7 @@ mod concat_sourcemap_builder;
 mod decode;
 mod encode;
 mod error;
+mod soa_tokens;
 mod sourcemap;
 mod sourcemap_builder;
 mod sourcemap_visualizer;

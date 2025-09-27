@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::soa_tokens::SoaTokens;
 use crate::{
     SourceViewToken,
     decode::{JSONSourceMap, decode, decode_from_string},
@@ -15,7 +16,7 @@ pub struct SourceMap {
     pub(crate) source_root: Option<String>,
     pub(crate) sources: Vec<Arc<str>>,
     pub(crate) source_contents: Vec<Option<Arc<str>>>,
-    pub(crate) tokens: Box<[Token]>,
+    pub(crate) tokens: SoaTokens,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
     /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
@@ -40,7 +41,7 @@ impl SourceMap {
             source_root,
             sources,
             source_contents,
-            tokens,
+            tokens: SoaTokens::from_tokens(&tokens),
             token_chunks,
             x_google_ignore_list: None,
             debug_id: None,
@@ -132,21 +133,21 @@ impl SourceMap {
     }
 
     pub fn get_token(&self, index: u32) -> Option<Token> {
-        self.tokens.get(index as usize).copied()
+        self.tokens.get(index as usize)
     }
 
     pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_>> {
-        self.tokens.get(index as usize).copied().map(|token| SourceViewToken::new(token, self))
+        self.tokens.get(index as usize).map(|token| SourceViewToken::new(token, self))
     }
 
     /// Get raw tokens.
-    pub fn get_tokens(&self) -> impl Iterator<Item = Token> {
-        self.tokens.iter().copied()
+    pub fn get_tokens(&self) -> impl Iterator<Item = Token> + '_ {
+        self.tokens.iter()
     }
 
     /// Get source view tokens. See [`SourceViewToken`] for more information.
     pub fn get_source_view_tokens(&self) -> impl Iterator<Item = SourceViewToken<'_>> {
-        self.tokens.iter().map(|&token| SourceViewToken::new(token, self))
+        self.tokens.iter().map(move |token| SourceViewToken::new(token, self))
     }
 
     pub fn get_name(&self, id: u32) -> Option<&Arc<str>> {
@@ -168,20 +169,16 @@ impl SourceMap {
     }
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
-    pub fn generate_lookup_table<'a>(&'a self) -> Vec<LineLookupTable<'a>> {
+    pub fn generate_lookup_table(&self) -> Vec<Vec<Token>> {
         // The dst line/dst col always has increasing order.
+        // SoA doesn't support slicing, so we build Vec<Token> for each line
         if let Some(last_token) = self.tokens.last() {
-            let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
-            let mut prev_start_idx = 0u32;
-            let mut prev_dst_line = 0u32;
-            for (idx, token) in self.tokens.iter().enumerate() {
-                if token.dst_line != prev_dst_line {
-                    table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..idx];
-                    prev_start_idx = idx as u32;
-                    prev_dst_line = token.dst_line;
-                }
+            let mut table = vec![Vec::new(); last_token.get_dst_line() as usize + 1];
+
+            for token in self.tokens.iter() {
+                table[token.get_dst_line() as usize].push(token);
             }
-            table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..];
+
             table
         } else {
             vec![]
@@ -199,8 +196,8 @@ impl SourceMap {
         if line >= lookup_table.len() as u32 {
             return None;
         }
-        let token = greatest_lower_bound(lookup_table[line as usize], &(line, col), |token| {
-            (token.dst_line, token.dst_col)
+        let token = greatest_lower_bound(&lookup_table[line as usize], &(line, col), |token| {
+            (token.get_dst_line(), token.get_dst_col())
         })?;
         Some(*token)
     }
@@ -216,7 +213,7 @@ impl SourceMap {
     }
 }
 
-type LineLookupTable<'a> = &'a [Token];
+type LineLookupTable = Vec<Token>;
 
 fn greatest_lower_bound<'a, T, K: Ord, F: Fn(&'a T) -> K>(
     slice: &'a [T],

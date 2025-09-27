@@ -39,7 +39,8 @@ impl<'a> SourcemapVisualizer<'a> {
 
         let output_lines = Self::generate_line_utf16_tables(self.code);
 
-        let tokens = &self.sourcemap.tokens;
+        // Convert SoA tokens to Vec for visualization
+        let tokens: Vec<crate::Token> = self.sourcemap.tokens.iter().collect();
 
         let mut last_source: Option<&str> = None;
         for i in 0..tokens.len() {
@@ -60,18 +61,18 @@ impl<'a> SourcemapVisualizer<'a> {
             }
 
             // validate token position
-            let dst_invalid = t.dst_line as usize >= output_lines.len()
-                || (t.dst_col as usize) >= output_lines[t.dst_line as usize].len();
-            let src_invalid = t.src_line as usize >= source_lines.len()
-                || (t.src_col as usize) >= source_lines[t.src_line as usize].len();
+            let dst_invalid = t.get_dst_line() as usize >= output_lines.len()
+                || (t.get_dst_col() as usize) >= output_lines[t.get_dst_line() as usize].len();
+            let src_invalid = t.get_src_line() as usize >= source_lines.len()
+                || (t.get_src_col() as usize) >= source_lines[t.get_src_line() as usize].len();
             if dst_invalid || src_invalid {
                 s.push_str(&format!(
                     "({}:{}){} --> ({}:{}){}\n",
-                    t.src_line,
-                    t.src_col,
+                    t.get_src_line(),
+                    t.get_src_col(),
                     if src_invalid { " [invalid]" } else { "" },
-                    t.dst_line,
-                    t.dst_col,
+                    t.get_dst_line(),
+                    t.get_dst_col(),
                     if dst_invalid { " [invalid]" } else { "" },
                 ));
                 continue;
@@ -80,34 +81,46 @@ impl<'a> SourcemapVisualizer<'a> {
             // find next dst column or EOL
             let dst_end_col = {
                 match tokens.get(i + 1) {
-                    Some(t2) if t2.dst_line == t.dst_line => t2.dst_col,
-                    _ => output_lines[t.dst_line as usize].len() as u32,
+                    Some(t2) if t2.get_dst_line() == t.get_dst_line() => t2.get_dst_col(),
+                    _ => output_lines[t.get_dst_line() as usize].len() as u32,
                 }
             };
 
             // find next src column or EOL
             let src_end_col = 'result: {
                 for t2 in &tokens[i + 1..] {
-                    if t2.get_source_id() == t.get_source_id() && t2.src_line == t.src_line {
+                    if t2.get_source_id() == t.get_source_id()
+                        && t2.get_src_line() == t.get_src_line()
+                    {
                         // skip duplicate or backward
-                        if t2.src_col <= t.src_col {
+                        if t2.get_src_col() <= t.get_src_col() {
                             continue;
                         }
-                        break 'result t2.src_col;
+                        break 'result t2.get_src_col();
                     }
                     break;
                 }
-                source_lines[t.src_line as usize].len() as u32
+                source_lines[t.get_src_line() as usize].len() as u32
             };
 
             s.push_str(&format!(
                 "({}:{}) {:?} --> ({}:{}) {:?}\n",
-                t.src_line,
-                t.src_col,
-                Self::str_slice_by_token(source_lines, t.src_line, t.src_col, src_end_col),
-                t.dst_line,
-                t.dst_col,
-                Self::str_slice_by_token(&output_lines, t.dst_line, t.dst_col, dst_end_col)
+                t.get_src_line(),
+                t.get_src_col(),
+                Self::str_slice_by_token(
+                    source_lines,
+                    t.get_src_line(),
+                    t.get_src_col(),
+                    src_end_col
+                ),
+                t.get_dst_line(),
+                t.get_dst_col(),
+                Self::str_slice_by_token(
+                    &output_lines,
+                    t.get_dst_line(),
+                    t.get_dst_col(),
+                    dst_end_col
+                )
             ));
         }
 

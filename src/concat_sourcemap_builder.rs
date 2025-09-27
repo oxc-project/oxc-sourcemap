@@ -219,7 +219,8 @@ where
     );
     let concat_sm = builder.into_sourcemap();
 
-    assert_eq!(concat_sm.tokens, sm.tokens);
+    // Compare tokens by converting to vec
+    assert_eq!(concat_sm.tokens.iter().collect::<Vec<_>>(), sm.tokens.iter().collect::<Vec<_>>());
     assert_eq!(concat_sm.sources, sm.sources);
     assert_eq!(concat_sm.names, sm.names);
     assert_eq!(
