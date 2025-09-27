@@ -1,3 +1,4 @@
+mod compressed_tokens;
 mod concat_sourcemap_builder;
 mod decode;
 mod encode;

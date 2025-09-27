@@ -44,7 +44,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
             .sources_content
             .map(|content| content.into_iter().map(|c| c.map(Arc::from)).collect())
             .unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
+        tokens: crate::compressed_tokens::CompressedTokens::from_tokens(&tokens),
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id,

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::SourceMap;
+use crate::{SourceMap, Token};
 
 /// The `SourcemapVisualizer` is a helper for sourcemap testing.
 /// It print the mapping of original content and final content tokens.
@@ -39,7 +39,8 @@ impl<'a> SourcemapVisualizer<'a> {
 
         let output_lines = Self::generate_line_utf16_tables(self.code);
 
-        let tokens = &self.sourcemap.tokens;
+        // Convert compressed tokens to vec for visualization
+        let tokens: Vec<Token> = self.sourcemap.tokens.iter().collect();
 
         let mut last_source: Option<&str> = None;
         for i in 0..tokens.len() {

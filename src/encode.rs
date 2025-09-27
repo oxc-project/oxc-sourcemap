@@ -152,6 +152,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 }
 
 fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
+    let token_count = sourcemap.tokens.len();
     sourcemap
         .token_chunks
         .as_ref()
@@ -160,19 +161,23 @@ fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
                 + chunks.last().map_or(0, |t| t.prev_dst_line as usize)
         })
         .unwrap_or_else(|| {
-            sourcemap.tokens.len() * 10 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
+            let last_token = sourcemap.tokens.get(token_count.saturating_sub(1));
+            token_count * 10 + last_token.map_or(0, |t| t.dst_line as usize)
         })
 }
 
 fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
+    // Convert compressed tokens to vec for encoding
+    let tokens: Vec<Token> = sm.tokens.iter().collect();
+
     if let Some(token_chunks) = sm.token_chunks.as_ref() {
         token_chunks.iter().for_each(|token_chunk| {
-            serialize_mappings(&sm.tokens, token_chunk, output);
+            serialize_mappings(&tokens, token_chunk, output);
         })
     } else {
         serialize_mappings(
-            &sm.tokens,
-            &TokenChunk::new(0, sm.tokens.len() as u32, 0, 0, 0, 0, 0, 0),
+            &tokens,
+            &TokenChunk::new(0, tokens.len() as u32, 0, 0, 0, 0, 0, 0),
             output,
         );
     }
