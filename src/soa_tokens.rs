@@ -87,11 +87,13 @@ impl SoaTokens {
     }
 
     /// Get destination line for a token (optimized for lookup table generation)
+    #[cfg(test)]
     pub fn get_dst_line(&self, index: usize) -> Option<u32> {
         if index >= self.len { None } else { Some(self.dst_lines[index]) }
     }
 
     /// Get destination line and column for a token (optimized for binary search)
+    #[cfg(test)]
     pub fn get_dst_pos(&self, index: usize) -> Option<(u32, u32)> {
         if index >= self.len { None } else { Some((self.dst_lines[index], self.dst_cols[index])) }
     }
@@ -101,28 +103,6 @@ impl SoaTokens {
         SoaTokenIterator { tokens: self, index: 0 }
     }
 
-    /// Get a slice of tokens (for compatibility)
-    /// Note: This allocates a new Vec, use sparingly
-    pub fn as_slice(&self) -> Vec<Token> {
-        self.iter().collect()
-    }
-
-    /// Direct access to dst_lines array (for optimized operations)
-    pub fn dst_lines(&self) -> &[u32] {
-        &self.dst_lines
-    }
-
-    /// Direct access to all arrays (for specialized operations)
-    pub fn arrays(&self) -> (&[u32], &[u32], &[u32], &[u32], &[u32], &[u32]) {
-        (
-            &self.dst_lines,
-            &self.dst_cols,
-            &self.src_lines,
-            &self.src_cols,
-            &self.source_ids,
-            &self.name_ids,
-        )
-    }
 }
 
 /// Iterator over SoA tokens

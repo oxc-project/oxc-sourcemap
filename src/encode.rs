@@ -3,7 +3,7 @@
 use json_escape_simd::{escape_into, escape_into_generic};
 
 use crate::JSONSourceMap;
-use crate::{SourceMap, Token, token::TokenChunk};
+use crate::{SourceMap, token::TokenChunk, soa_tokens::SoaTokens};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {
@@ -166,17 +166,14 @@ fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
 }
 
 fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
-    // Convert SoA tokens to Vec for encoding
-    let tokens: Vec<Token> = sm.tokens.iter().collect();
-
     if let Some(token_chunks) = sm.token_chunks.as_ref() {
         token_chunks.iter().for_each(|token_chunk| {
-            serialize_mappings(&tokens, token_chunk, output);
+            serialize_mappings(&sm.tokens, token_chunk, output);
         })
     } else {
         serialize_mappings(
-            &tokens,
-            &TokenChunk::new(0, tokens.len() as u32, 0, 0, 0, 0, 0, 0),
+            &sm.tokens,
+            &TokenChunk::new(0, sm.tokens.len() as u32, 0, 0, 0, 0, 0, 0),
             output,
         );
     }
@@ -185,7 +182,7 @@ fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
 // Max length of a single VLQ encoding
 const MAX_VLQ_BYTES: usize = 7;
 
-fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut String) {
+fn serialize_mappings(tokens: &SoaTokens, token_chunk: &TokenChunk, output: &mut String) {
     let TokenChunk {
         start,
         end,
@@ -197,9 +194,10 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
         mut prev_source_id,
     } = *token_chunk;
 
-    let mut prev_token = if start == 0 { None } else { Some(&tokens[start as usize - 1]) };
+    let mut prev_token = if start == 0 { None } else { tokens.get(start as usize - 1) };
 
-    for token in &tokens[start as usize..end as usize] {
+    for i in start as usize..end as usize {
+        let Some(token) = tokens.get(i) else { continue };
         // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq_diff` is 5.
         // Also need 1 byte for each line number difference, or 1 byte if no line num difference.
         // Reserve this amount of capacity in `rv` early, so can skip bounds checks in code below.
@@ -215,8 +213,8 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
             prev_dst_line += num_line_breaks;
-        } else if let Some(prev_token) = prev_token {
-            if prev_token == token {
+        } else if let Some(ref prev) = prev_token {
+            if *prev == token {
                 continue;
             }
             output.reserve(MAX_TOTAL_VLQ_BYTES + 1);

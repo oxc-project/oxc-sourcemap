@@ -39,12 +39,12 @@ impl<'a> SourcemapVisualizer<'a> {
 
         let output_lines = Self::generate_line_utf16_tables(self.code);
 
-        // Convert SoA tokens to Vec for visualization
-        let tokens: Vec<crate::Token> = self.sourcemap.tokens.iter().collect();
+        let tokens = &self.sourcemap.tokens;
+        let tokens_len = tokens.len();
 
         let mut last_source: Option<&str> = None;
-        for i in 0..tokens.len() {
-            let t = &tokens[i];
+        for i in 0..tokens_len {
+            let Some(t) = tokens.get(i) else { continue };
             let Some(source_id) = t.get_source_id() else {
                 continue;
             };
@@ -88,7 +88,8 @@ impl<'a> SourcemapVisualizer<'a> {
 
             // find next src column or EOL
             let src_end_col = 'result: {
-                for t2 in &tokens[i + 1..] {
+                for j in (i + 1)..tokens_len {
+                    let Some(t2) = tokens.get(j) else { break };
                     if t2.get_source_id() == t.get_source_id()
                         && t2.get_src_line() == t.get_src_line()
                     {
