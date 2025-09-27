@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.1](https://github.com/oxc-project/oxc-sourcemap/compare/v4.2.0...v4.2.1) - 2025-09-27
+
+### Other
+
+- reduce memory usage by replacing Vec<Token> with Box<[Token]>
+- replace !0 with INVALID_ID constant for better readability ([#175](https://github.com/oxc-project/oxc-sourcemap/pull/175))
+- remove outdated comment for `TokenChunk`
+
 ## [4.2.0](https://github.com/oxc-project/oxc-sourcemap/compare/v4.1.6...v4.2.0) - 2025-09-26
 
 ### Added
