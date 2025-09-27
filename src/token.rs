@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use crate::SourceMap;
 
+/// Sentinel value representing an invalid/missing ID for source or name.
+/// Used when a token doesn't have an associated source file or name.
+pub(crate) const INVALID_ID: u32 = u32::MAX;
+
 /// The `Token` is used to generate vlq `mappings`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Token {
@@ -27,8 +31,8 @@ impl Token {
             dst_col,
             src_line,
             src_col,
-            source_id: source_id.unwrap_or(!0),
-            name_id: name_id.unwrap_or(!0),
+            source_id: source_id.unwrap_or(INVALID_ID),
+            name_id: name_id.unwrap_or(INVALID_ID),
         }
     }
 
@@ -49,11 +53,11 @@ impl Token {
     }
 
     pub fn get_name_id(&self) -> Option<u32> {
-        if self.name_id == !0 { None } else { Some(self.name_id) }
+        if self.name_id == INVALID_ID { None } else { Some(self.name_id) }
     }
 
     pub fn get_source_id(&self) -> Option<u32> {
-        if self.source_id == !0 { None } else { Some(self.source_id) }
+        if self.source_id == INVALID_ID { None } else { Some(self.source_id) }
     }
 }
 
@@ -123,19 +127,19 @@ impl<'a> SourceViewToken<'a> {
     }
 
     pub fn get_name_id(&self) -> Option<u32> {
-        if self.token.name_id == !0 { None } else { Some(self.token.name_id) }
+        if self.token.name_id == INVALID_ID { None } else { Some(self.token.name_id) }
     }
 
     pub fn get_source_id(&self) -> Option<u32> {
-        if self.token.source_id == !0 { None } else { Some(self.token.source_id) }
+        if self.token.source_id == INVALID_ID { None } else { Some(self.token.source_id) }
     }
 
     pub fn get_name(&self) -> Option<&Arc<str>> {
-        if self.token.name_id == !0 { None } else { self.sourcemap.get_name(self.token.name_id) }
+        if self.token.name_id == INVALID_ID { None } else { self.sourcemap.get_name(self.token.name_id) }
     }
 
     pub fn get_source(&self) -> Option<&Arc<str>> {
-        if self.token.source_id == !0 {
+        if self.token.source_id == INVALID_ID {
             None
         } else {
             self.sourcemap.get_source(self.token.source_id)
@@ -143,7 +147,7 @@ impl<'a> SourceViewToken<'a> {
     }
 
     pub fn get_source_content(&self) -> Option<&Arc<str>> {
-        if self.token.source_id == !0 {
+        if self.token.source_id == INVALID_ID {
             None
         } else {
             self.sourcemap.get_source_content(self.token.source_id)
@@ -151,7 +155,7 @@ impl<'a> SourceViewToken<'a> {
     }
 
     pub fn get_source_and_content(&self) -> Option<(&Arc<str>, &Arc<str>)> {
-        if self.token.source_id == !0 {
+        if self.token.source_id == INVALID_ID {
             None
         } else {
             self.sourcemap.get_source_and_content(self.token.source_id)
