@@ -458,7 +458,7 @@ fn test_encode_escape_string() {
         None,
         vec!["\0".into()],
         vec![Some("emoji-👀-\0".into())],
-        vec![],
+        vec![].into_boxed_slice(),
         None,
     );
     sm.set_x_google_ignore_list(vec![0]);
