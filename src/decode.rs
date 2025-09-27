@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
+use crate::token::INVALID_ID;
 use crate::{SourceMap, Token};
 
 /// See <https://github.com/tc39/source-map/blob/1930e58ffabefe54038f7455759042c6e3dd590e/source-map-rev3.md>.
@@ -80,8 +81,8 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
             parse_vlq_segment_into(segment, &mut nums)?;
             dst_col = (i64::from(dst_col) + nums[0]) as u32;
 
-            let mut src = !0;
-            let mut name = !0;
+            let mut src = INVALID_ID;
+            let mut name = INVALID_ID;
 
             if nums.len() > 1 {
                 if nums.len() != 4 && nums.len() != 5 {
@@ -110,8 +111,8 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                 dst_col,
                 src_line,
                 src_col,
-                if src == !0 { None } else { Some(src) },
-                if name == !0 { None } else { Some(name) },
+                if src == INVALID_ID { None } else { Some(src) },
+                if name == INVALID_ID { None } else { Some(name) },
             ));
         }
     }
