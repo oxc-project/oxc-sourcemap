@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::{SourceMap, Token, token::TokenChunk};
+use crate::{SourceMap, token::{TokenChunk, Tokens}};
+#[cfg(test)]
+use crate::Token;
 
 /// The `ConcatSourceMapBuilder` is a helper to concat sourcemaps.
 #[derive(Debug, Default)]
@@ -8,7 +10,7 @@ pub struct ConcatSourceMapBuilder {
     pub(crate) names: Vec<Arc<str>>,
     pub(crate) sources: Vec<Arc<str>>,
     pub(crate) source_contents: Vec<Option<Arc<str>>>,
-    pub(crate) tokens: Vec<Token>,
+    pub(crate) tokens: Tokens,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
     pub(crate) token_chunk_prev_source_id: u32,
@@ -32,7 +34,7 @@ impl ConcatSourceMapBuilder {
             names: Vec::with_capacity(names_len),
             sources: Vec::with_capacity(sources_len),
             source_contents: Vec::with_capacity(sources_len),
-            tokens: Vec::with_capacity(tokens_len),
+            tokens: Tokens::with_capacity(tokens_len),
             token_chunks: Vec::with_capacity(token_chunks_len),
             token_chunk_prev_source_id: 0,
             token_chunk_prev_name_id: 0,
@@ -120,23 +122,24 @@ impl ConcatSourceMapBuilder {
 
         // Extend `tokens`.
         self.tokens.reserve(sourcemap.tokens.len());
-        let tokens = sourcemap.get_tokens().map(|token| {
-            Token::new(
+        for token in sourcemap.get_tokens() {
+            let source_id = token.get_source_id().map(|x| {
+                self.token_chunk_prev_source_id = x + source_offset;
+                self.token_chunk_prev_source_id
+            });
+            let name_id = token.get_name_id().map(|x| {
+                self.token_chunk_prev_name_id = x + name_offset;
+                self.token_chunk_prev_name_id
+            });
+            self.tokens.push_raw(
                 token.get_dst_line() + line_offset,
                 token.get_dst_col(),
                 token.get_src_line(),
                 token.get_src_col(),
-                token.get_source_id().map(|x| {
-                    self.token_chunk_prev_source_id = x + source_offset;
-                    self.token_chunk_prev_source_id
-                }),
-                token.get_name_id().map(|x| {
-                    self.token_chunk_prev_name_id = x + name_offset;
-                    self.token_chunk_prev_name_id
-                }),
-            )
-        });
-        self.tokens.extend(tokens);
+                source_id,
+                name_id,
+            );
+        }
     }
 
     pub fn into_sourcemap(self) -> SourceMap {
@@ -146,7 +149,7 @@ impl ConcatSourceMapBuilder {
             None,
             self.sources,
             self.source_contents,
-            self.tokens.into_boxed_slice(),
+            self.tokens,
             Some(self.token_chunks),
         )
     }
@@ -173,35 +176,46 @@ fn run_test<F>(create_builder: F)
 where
     F: Fn(&[(&SourceMap, u32)]) -> ConcatSourceMapBuilder,
 {
+    let mut tokens1 = Tokens::new();
+    tokens1.push(Token::new(1, 1, 1, 1, Some(0), Some(0)));
     let sm1 = SourceMap::new(
         None,
         vec!["foo".into(), "foo2".into()],
         None,
         vec!["foo.js".into()],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+        tokens1,
         None,
     );
+    let mut tokens2 = Tokens::new();
+    tokens2.push(Token::new(1, 1, 1, 1, Some(0), Some(0)));
     let sm2 = SourceMap::new(
         None,
         vec!["bar".into()],
         None,
         vec!["bar.js".into()],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+        tokens2,
         None,
     );
+    let mut tokens3 = Tokens::new();
+    tokens3.push(Token::new(1, 2, 2, 2, Some(0), Some(0)));
     let sm3 = SourceMap::new(
         None,
         vec!["abc".into()],
         None,
         vec!["abc.js".into()],
         vec![],
-        vec![Token::new(1, 2, 2, 2, Some(0), Some(0))].into_boxed_slice(),
+        tokens3,
         None,
     );
 
     let builder = create_builder(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
+
+    let mut expected_tokens = Tokens::new();
+    expected_tokens.push(Token::new(1, 1, 1, 1, Some(0), Some(0)));
+    expected_tokens.push(Token::new(3, 1, 1, 1, Some(1), Some(2)));
+    expected_tokens.push(Token::new(3, 2, 2, 2, Some(2), Some(3)));
 
     let sm = SourceMap::new(
         None,
@@ -209,17 +223,12 @@ where
         None,
         vec!["foo.js".into(), "bar.js".into(), "abc.js".into()],
         vec![],
-        vec![
-            Token::new(1, 1, 1, 1, Some(0), Some(0)),
-            Token::new(3, 1, 1, 1, Some(1), Some(2)),
-            Token::new(3, 2, 2, 2, Some(2), Some(3)),
-        ]
-        .into_boxed_slice(),
+        expected_tokens.clone(),
         None,
     );
     let concat_sm = builder.into_sourcemap();
 
-    assert_eq!(concat_sm.tokens, sm.tokens);
+    assert_eq!(concat_sm.tokens, expected_tokens);
     assert_eq!(concat_sm.sources, sm.sources);
     assert_eq!(concat_sm.names, sm.names);
     assert_eq!(

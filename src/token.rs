@@ -6,6 +6,145 @@ use crate::SourceMap;
 /// Used when a token doesn't have an associated source file or name.
 pub(crate) const INVALID_ID: u32 = u32::MAX;
 
+/// Struct of Arrays storage for tokens, improving memory locality
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tokens {
+    pub(crate) dst_lines: Vec<u32>,
+    pub(crate) dst_cols: Vec<u32>,
+    pub(crate) src_lines: Vec<u32>,
+    pub(crate) src_cols: Vec<u32>,
+    pub(crate) source_ids: Vec<u32>,
+    pub(crate) name_ids: Vec<u32>,
+}
+
+impl Tokens {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            dst_lines: Vec::with_capacity(capacity),
+            dst_cols: Vec::with_capacity(capacity),
+            src_lines: Vec::with_capacity(capacity),
+            src_cols: Vec::with_capacity(capacity),
+            source_ids: Vec::with_capacity(capacity),
+            name_ids: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn push(&mut self, token: Token) {
+        self.dst_lines.push(token.dst_line);
+        self.dst_cols.push(token.dst_col);
+        self.src_lines.push(token.src_line);
+        self.src_cols.push(token.src_col);
+        self.source_ids.push(token.source_id);
+        self.name_ids.push(token.name_id);
+    }
+
+    pub fn push_raw(
+        &mut self,
+        dst_line: u32,
+        dst_col: u32,
+        src_line: u32,
+        src_col: u32,
+        source_id: Option<u32>,
+        name_id: Option<u32>,
+    ) {
+        self.dst_lines.push(dst_line);
+        self.dst_cols.push(dst_col);
+        self.src_lines.push(src_line);
+        self.src_cols.push(src_col);
+        self.source_ids.push(source_id.unwrap_or(INVALID_ID));
+        self.name_ids.push(name_id.unwrap_or(INVALID_ID));
+    }
+
+    pub fn get(&self, index: usize) -> Option<Token> {
+        if index >= self.len() {
+            return None;
+        }
+        Some(Token {
+            dst_line: self.dst_lines[index],
+            dst_col: self.dst_cols[index],
+            src_line: self.src_lines[index],
+            src_col: self.src_cols[index],
+            source_id: self.source_ids[index],
+            name_id: self.name_ids[index],
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.dst_lines.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.dst_lines.is_empty()
+    }
+
+    pub fn iter(&self) -> TokensIter<'_> {
+        TokensIter { tokens: self, index: 0 }
+    }
+
+    pub fn last(&self) -> Option<Token> {
+        if self.is_empty() {
+            None
+        } else {
+            self.get(self.len() - 1)
+        }
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.dst_lines.reserve(additional);
+        self.dst_cols.reserve(additional);
+        self.src_lines.reserve(additional);
+        self.src_cols.reserve(additional);
+        self.source_ids.reserve(additional);
+        self.name_ids.reserve(additional);
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.dst_lines.shrink_to_fit();
+        self.dst_cols.shrink_to_fit();
+        self.src_lines.shrink_to_fit();
+        self.src_cols.shrink_to_fit();
+        self.source_ids.shrink_to_fit();
+        self.name_ids.shrink_to_fit();
+    }
+
+    pub fn extend_from_slice(&mut self, tokens: &[Token]) {
+        self.reserve(tokens.len());
+        for token in tokens {
+            self.push(*token);
+        }
+    }
+}
+
+pub struct TokensIter<'a> {
+    tokens: &'a Tokens,
+    index: usize,
+}
+
+impl<'a> Iterator for TokensIter<'a> {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let token = self.tokens.get(self.index)?;
+        self.index += 1;
+        Some(token)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.tokens.len() - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for TokensIter<'a> {
+    fn len(&self) -> usize {
+        self.tokens.len() - self.index
+    }
+}
+
 /// The `Token` is used to generate vlq `mappings`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Token {

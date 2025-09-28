@@ -5,7 +5,7 @@ use crate::{
     decode::{JSONSourceMap, decode, decode_from_string},
     encode::{encode, encode_to_string},
     error::Result,
-    token::{Token, TokenChunk},
+    token::{Token, TokenChunk, Tokens},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -15,7 +15,7 @@ pub struct SourceMap {
     pub(crate) source_root: Option<String>,
     pub(crate) sources: Vec<Arc<str>>,
     pub(crate) source_contents: Vec<Option<Arc<str>>>,
-    pub(crate) tokens: Box<[Token]>,
+    pub(crate) tokens: Tokens,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
     /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
@@ -31,7 +31,7 @@ impl SourceMap {
         source_root: Option<String>,
         sources: Vec<Arc<str>>,
         source_contents: Vec<Option<Arc<str>>>,
-        tokens: Box<[Token]>,
+        tokens: Tokens,
         token_chunks: Option<Vec<TokenChunk>>,
     ) -> Self {
         Self {
@@ -132,21 +132,21 @@ impl SourceMap {
     }
 
     pub fn get_token(&self, index: u32) -> Option<Token> {
-        self.tokens.get(index as usize).copied()
+        self.tokens.get(index as usize)
     }
 
     pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_>> {
-        self.tokens.get(index as usize).copied().map(|token| SourceViewToken::new(token, self))
+        self.tokens.get(index as usize).map(|token| SourceViewToken::new(token, self))
     }
 
     /// Get raw tokens.
-    pub fn get_tokens(&self) -> impl Iterator<Item = Token> {
-        self.tokens.iter().copied()
+    pub fn get_tokens(&self) -> impl Iterator<Item = Token> + '_ {
+        self.tokens.iter()
     }
 
     /// Get source view tokens. See [`SourceViewToken`] for more information.
     pub fn get_source_view_tokens(&self) -> impl Iterator<Item = SourceViewToken<'_>> {
-        self.tokens.iter().map(|&token| SourceViewToken::new(token, self))
+        self.tokens.iter().map(|token| SourceViewToken::new(token, self))
     }
 
     pub fn get_name(&self, id: u32) -> Option<&Arc<str>> {
@@ -168,20 +168,29 @@ impl SourceMap {
     }
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
-    pub fn generate_lookup_table<'a>(&'a self) -> Vec<LineLookupTable<'a>> {
+    pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
         // The dst line/dst col always has increasing order.
         if let Some(last_token) = self.tokens.last() {
-            let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
+            let mut table = vec![LineLookupTable { tokens: &self.tokens, start: 0, end: 0 }; last_token.dst_line as usize + 1];
             let mut prev_start_idx = 0u32;
             let mut prev_dst_line = 0u32;
-            for (idx, token) in self.tokens.iter().enumerate() {
-                if token.dst_line != prev_dst_line {
-                    table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..idx];
+            for idx in 0..self.tokens.len() {
+                let dst_line = self.tokens.dst_lines[idx];
+                if dst_line != prev_dst_line {
+                    table[prev_dst_line as usize] = LineLookupTable {
+                        tokens: &self.tokens,
+                        start: prev_start_idx as usize,
+                        end: idx,
+                    };
                     prev_start_idx = idx as u32;
-                    prev_dst_line = token.dst_line;
+                    prev_dst_line = dst_line;
                 }
             }
-            table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..];
+            table[prev_dst_line as usize] = LineLookupTable {
+                tokens: &self.tokens,
+                start: prev_start_idx as usize,
+                end: self.tokens.len(),
+            };
             table
         } else {
             vec![]
@@ -199,10 +208,8 @@ impl SourceMap {
         if line >= lookup_table.len() as u32 {
             return None;
         }
-        let token = greatest_lower_bound(lookup_table[line as usize], &(line, col), |token| {
-            (token.dst_line, token.dst_col)
-        })?;
-        Some(*token)
+        let table_entry = lookup_table[line as usize];
+        greatest_lower_bound_token(table_entry.tokens, table_entry.start, table_entry.end, (line, col))
     }
 
     /// Lookup a token by line and column, it will used at remapping. See `SourceViewToken`.
@@ -216,33 +223,51 @@ impl SourceMap {
     }
 }
 
-type LineLookupTable<'a> = &'a [Token];
+#[derive(Debug, Clone, Copy)]
+pub struct LineLookupTable<'a> {
+    tokens: &'a Tokens,
+    start: usize,
+    end: usize,
+}
 
-fn greatest_lower_bound<'a, T, K: Ord, F: Fn(&'a T) -> K>(
-    slice: &'a [T],
-    key: &K,
-    map: F,
-) -> Option<&'a T> {
-    let mut idx = match slice.binary_search_by_key(key, &map) {
-        Ok(index) => index,
-        Err(index) => {
-            // If there is no match, then we know for certain that the index is where we should
-            // insert a new token, and that the token directly before is the greatest lower bound.
-            return slice.get(index.checked_sub(1)?);
-        }
-    };
+fn greatest_lower_bound_token(
+    tokens: &Tokens,
+    start: usize,
+    end: usize,
+    key: (u32, u32),
+) -> Option<Token> {
+    if start >= end {
+        return None;
+    }
 
-    // If we get an exact match, then we need to continue looking at previous tokens to see if
-    // they also match. We use a linear search because the number of exact matches is generally
-    // very small, and almost certainly smaller than the number of tokens before the index.
-    for i in (0..idx).rev() {
-        if map(&slice[i]) == *key {
-            idx = i;
-        } else {
-            break;
+    // Binary search for the key
+    let mut left = start;
+    let mut right = end;
+
+    while left < right {
+        let mid = left + (right - left) / 2;
+        let mid_key = (tokens.dst_lines[mid], tokens.dst_cols[mid]);
+
+        match mid_key.cmp(&key) {
+            std::cmp::Ordering::Less => left = mid + 1,
+            std::cmp::Ordering::Greater => right = mid,
+            std::cmp::Ordering::Equal => {
+                // Found exact match, but we need the first occurrence
+                right = mid;
+                while right > start && (tokens.dst_lines[right - 1], tokens.dst_cols[right - 1]) == key {
+                    right -= 1;
+                }
+                return tokens.get(right);
+            }
         }
     }
-    slice.get(idx)
+
+    // No exact match, return the greatest lower bound
+    if left > start {
+        tokens.get(left - 1)
+    } else {
+        None
+    }
 }
 
 #[test]
@@ -280,13 +305,15 @@ fn test_sourcemap_lookup_token() {
 
 #[test]
 fn test_sourcemap_source_view_token() {
+    let mut tokens = Tokens::new();
+    tokens.push(Token::new(1, 1, 1, 1, Some(0), Some(0)));
     let sm = SourceMap::new(
         None,
         vec!["foo".into()],
         None,
         vec!["foo.js".into()],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+        tokens,
         None,
     );
     let mut source_view_tokens = sm.get_source_view_tokens();

@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     SourceMap,
-    token::{Token, TokenChunk},
+    token::{TokenChunk, Tokens},
 };
 
 /// The `SourceMapBuilder` is a helper to generate sourcemap.
@@ -16,7 +16,7 @@ pub struct SourceMapBuilder {
     pub(crate) sources: Vec<Arc<str>>,
     pub(crate) sources_map: FxHashMap<Arc<str>, u32>,
     pub(crate) source_contents: Vec<Option<Arc<str>>>,
-    pub(crate) tokens: Vec<Token>,
+    pub(crate) tokens: Tokens,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
 
@@ -64,7 +64,7 @@ impl SourceMapBuilder {
         src_id: Option<u32>,
         name_id: Option<u32>,
     ) {
-        self.tokens.push(Token::new(dst_line, dst_col, src_line, src_col, src_id, name_id));
+        self.tokens.push_raw(dst_line, dst_col, src_line, src_col, src_id, name_id);
     }
 
     pub fn set_file(&mut self, file: &str) {
@@ -95,7 +95,7 @@ impl SourceMapBuilder {
             None,
             self.sources,
             self.source_contents,
-            self.tokens.into_boxed_slice(),
+            self.tokens,
             self.token_chunks,
         )
     }

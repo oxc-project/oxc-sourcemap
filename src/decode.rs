@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
-use crate::token::INVALID_ID;
+use crate::token::{INVALID_ID, Tokens};
 use crate::{SourceMap, Token};
 
 /// See <https://github.com/tc39/source-map/blob/1930e58ffabefe54038f7455759042c6e3dd590e/source-map-rev3.md>.
@@ -44,7 +44,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
             .sources_content
             .map(|content| content.into_iter().map(|c| c.map(Arc::from)).collect())
             .unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
+        tokens,
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id,
@@ -55,8 +55,8 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap> {
     decode(serde_json::from_str(value)?)
 }
 
-fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
-    let mut tokens = vec![];
+fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Tokens> {
+    let mut tokens = Tokens::new();
 
     let mut dst_col;
     let mut src_id = 0;

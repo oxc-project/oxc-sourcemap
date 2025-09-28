@@ -3,7 +3,7 @@
 use json_escape_simd::{escape_into, escape_into_generic};
 
 use crate::JSONSourceMap;
-use crate::{SourceMap, Token, token::TokenChunk};
+use crate::{SourceMap, token::{TokenChunk, Tokens}};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {
@@ -181,7 +181,7 @@ fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
 // Max length of a single VLQ encoding
 const MAX_VLQ_BYTES: usize = 7;
 
-fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut String) {
+fn serialize_mappings(tokens: &Tokens, token_chunk: &TokenChunk, output: &mut String) {
     let TokenChunk {
         start,
         end,
@@ -193,9 +193,10 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
         mut prev_source_id,
     } = *token_chunk;
 
-    let mut prev_token = if start == 0 { None } else { Some(&tokens[start as usize - 1]) };
+    let mut prev_token = if start == 0 { None } else { tokens.get(start as usize - 1) };
 
-    for token in &tokens[start as usize..end as usize] {
+    for idx in start as usize..end as usize {
+        let token = tokens.get(idx).unwrap();
         // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq_diff` is 5.
         // Also need 1 byte for each line number difference, or 1 byte if no line num difference.
         // Reserve this amount of capacity in `rv` early, so can skip bounds checks in code below.
@@ -211,8 +212,8 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
             prev_dst_line += num_line_breaks;
-        } else if let Some(prev_token) = prev_token {
-            if prev_token == token {
+        } else if let Some(prev_token) = prev_token.as_ref() {
+            if *prev_token == token {
                 continue;
             }
             output.reserve(MAX_TOTAL_VLQ_BYTES + 1);
@@ -458,7 +459,7 @@ fn test_encode_escape_string() {
         None,
         vec!["\0".into()],
         vec![Some("emoji-👀-\0".into())],
-        vec![].into_boxed_slice(),
+        Tokens::new(),
         None,
     );
     sm.set_x_google_ignore_list(vec![0]);
