@@ -171,7 +171,10 @@ impl SourceMap {
     pub fn generate_lookup_table(&self) -> Vec<LineLookupTable> {
         // The dst line/dst col always has increasing order.
         if let Some(last_token) = self.tokens.last() {
-            let mut table = vec![LineLookupTable { tokens: &self.tokens, start: 0, end: 0 }; last_token.dst_line as usize + 1];
+            let mut table = vec![
+                LineLookupTable { tokens: &self.tokens, start: 0, end: 0 };
+                last_token.dst_line as usize + 1
+            ];
             let mut prev_start_idx = 0u32;
             let mut prev_dst_line = 0u32;
             for idx in 0..self.tokens.len() {
@@ -209,7 +212,12 @@ impl SourceMap {
             return None;
         }
         let table_entry = lookup_table[line as usize];
-        greatest_lower_bound_token(table_entry.tokens, table_entry.start, table_entry.end, (line, col))
+        greatest_lower_bound_token(
+            table_entry.tokens,
+            table_entry.start,
+            table_entry.end,
+            (line, col),
+        )
     }
 
     /// Lookup a token by line and column, it will used at remapping. See `SourceViewToken`.
@@ -254,7 +262,9 @@ fn greatest_lower_bound_token(
             std::cmp::Ordering::Equal => {
                 // Found exact match, but we need the first occurrence
                 right = mid;
-                while right > start && (tokens.dst_lines[right - 1], tokens.dst_cols[right - 1]) == key {
+                while right > start
+                    && (tokens.dst_lines[right - 1], tokens.dst_cols[right - 1]) == key
+                {
                     right -= 1;
                 }
                 return tokens.get(right);
@@ -263,11 +273,7 @@ fn greatest_lower_bound_token(
     }
 
     // No exact match, return the greatest lower bound
-    if left > start {
-        tokens.get(left - 1)
-    } else {
-        None
-    }
+    if left > start { tokens.get(left - 1) } else { None }
 }
 
 #[test]
@@ -307,15 +313,8 @@ fn test_sourcemap_lookup_token() {
 fn test_sourcemap_source_view_token() {
     let mut tokens = Tokens::new();
     tokens.push(Token::new(1, 1, 1, 1, Some(0), Some(0)));
-    let sm = SourceMap::new(
-        None,
-        vec!["foo".into()],
-        None,
-        vec!["foo.js".into()],
-        vec![],
-        tokens,
-        None,
-    );
+    let sm =
+        SourceMap::new(None, vec!["foo".into()], None, vec!["foo.js".into()], vec![], tokens, None);
     let mut source_view_tokens = sm.get_source_view_tokens();
     assert_eq!(
         source_view_tokens.next().unwrap().to_tuple(),

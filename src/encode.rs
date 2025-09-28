@@ -3,7 +3,10 @@
 use json_escape_simd::{escape_into, escape_into_generic};
 
 use crate::JSONSourceMap;
-use crate::{SourceMap, token::{TokenChunk, Tokens}};
+use crate::{
+    SourceMap,
+    token::{TokenChunk, Tokens},
+};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {

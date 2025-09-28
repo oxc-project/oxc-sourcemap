@@ -86,11 +86,7 @@ impl Tokens {
     }
 
     pub fn last(&self) -> Option<Token> {
-        if self.is_empty() {
-            None
-        } else {
-            self.get(self.len() - 1)
-        }
+        if self.is_empty() { None } else { self.get(self.len() - 1) }
     }
 
     pub fn reserve(&mut self, additional: usize) {
