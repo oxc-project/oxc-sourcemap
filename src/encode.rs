@@ -47,36 +47,36 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         max_segments += 14 /* "sourceRoot":" */ + source_root.len() + 2 /* ", */;
     }
 
-    // "names":[
-    max_segments += 9;
+    // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
-    let names_len_sum: usize = sourcemap.names.iter().map(|s| s.len()).sum();
-    max_segments += 2 * names_len_sum + 2 * names_count; // worst-case escaped items
-    if names_count > 0 {
-        max_segments += names_count - 1; // commas between items
-    }
-
-    // ],"sources":[
-    max_segments += 13;
     let sources_count = sourcemap.sources.len();
-    let sources_len_sum: usize = sourcemap.sources.iter().map(|s| s.len()).sum();
-    max_segments += 2 * sources_len_sum + 2 * sources_count; // worst-case escaped items
-    if sources_count > 0 {
-        max_segments += sources_count - 1; // commas between items
+    let sc_count = sourcemap.source_contents.len();
+
+    // Accumulate total string bytes across all collections
+    let mut total_string_bytes = 0usize;
+
+    for name in &sourcemap.names {
+        total_string_bytes += name.len();
     }
 
-    // ],"sourcesContent":[
-    max_segments += 20;
-    let sc_count = sourcemap.source_contents.len();
-    let sc_len_sum: usize = sourcemap
-        .source_contents
-        .iter()
-        .map(|v| v.as_ref().map_or(/*"null"*/ 4, |s| s.len()))
-        .sum();
-    max_segments += 2 * sc_len_sum + 2 * sc_count; // worst-case escaped items
-    if sc_count > 0 {
-        max_segments += sc_count - 1; // commas between items
+    for source in &sourcemap.sources {
+        total_string_bytes += source.len();
     }
+
+    for content in &sourcemap.source_contents {
+        total_string_bytes += content.as_ref().map_or(/*"null"*/ 4, |s| s.len());
+    }
+
+    // Calculate total capacity needed
+    max_segments += 9 + 13 + 20; // "names":[ + ],"sources":[ + ],"sourcesContent":[
+    max_segments += 2 * total_string_bytes; // worst-case escaping (* 2)
+    max_segments += 2 * (names_count + sources_count + sc_count); // quotes around each item
+
+    // Commas between array items
+    let comma_count = names_count.saturating_sub(1)
+                    + sources_count.saturating_sub(1)
+                    + sc_count.saturating_sub(1);
+    max_segments += comma_count;
 
     // Optional ],"x_google_ignoreList":[
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
@@ -156,11 +156,15 @@ fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
         .token_chunks
         .as_ref()
         .map(|chunks| {
-            chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize
-                + chunks.last().map_or(0, |t| t.prev_dst_line as usize)
+            // Increased from 10 to 12 to account for worst-case VLQ encoding and separators
+            // Add prev_dst_line for each chunk as those become semicolons
+            chunks
+                .iter()
+                .map(|t| (t.end - t.start) as usize * 12 + t.prev_dst_line as usize)
+                .sum::<usize>()
         })
         .unwrap_or_else(|| {
-            sourcemap.tokens.len() * 10 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
+            sourcemap.tokens.len() * 12 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
         })
 }
 
@@ -206,7 +210,10 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
 
         let num_line_breaks = token.get_dst_line() - prev_dst_line;
         if num_line_breaks != 0 {
-            output.reserve(MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize);
+            let required = MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize;
+            if output.capacity() - output.len() < required {
+                output.reserve(required);
+            }
             // SAFETY: We have reserved sufficient capacity for `num_line_breaks` bytes
             unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
@@ -215,7 +222,10 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             if prev_token == token {
                 continue;
             }
-            output.reserve(MAX_TOTAL_VLQ_BYTES + 1);
+            let required = MAX_TOTAL_VLQ_BYTES + 1;
+            if output.capacity() - output.len() < required {
+                output.reserve(required);
+            }
             // SAFETY: We have reserved sufficient capacity for 1 byte
             unsafe { push_byte_unchecked(output, b',') };
         }
