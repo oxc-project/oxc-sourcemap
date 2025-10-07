@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.2](https://github.com/oxc-project/oxc-sourcemap/compare/v4.2.1...v4.2.2) - 2025-10-07
+
+### Other
+
+- optimize VLQ decode and token comparison ([#186](https://github.com/oxc-project/oxc-sourcemap/pull/186))
+
 ## [4.2.1](https://github.com/oxc-project/oxc-sourcemap/compare/v4.2.0...v4.2.1) - 2025-09-27
 
 ### Other
