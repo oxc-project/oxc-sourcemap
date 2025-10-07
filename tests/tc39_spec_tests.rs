@@ -54,7 +54,8 @@ struct TestSuite {
 fn tc39_source_map_spec_tests() {
     let test_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/source-map-tests/source-map-spec-tests.json");
-    let resources_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/source-map-tests/resources");
+    let resources_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/source-map-tests/resources");
 
     // Skip test if tc39 tests haven't been cloned yet
     if !test_file.exists() {
@@ -62,7 +63,8 @@ fn tc39_source_map_spec_tests() {
         return;
     }
 
-    let test_suite: TestSuite = serde_json::from_str(&fs::read_to_string(test_file).unwrap()).unwrap();
+    let test_suite: TestSuite =
+        serde_json::from_str(&fs::read_to_string(test_file).unwrap()).unwrap();
 
     let mut passed = 0;
     let mut failed = 0;
@@ -70,7 +72,9 @@ fn tc39_source_map_spec_tests() {
 
     for test in test_suite.tests {
         // Skip tests with null sources - not supported in our API
-        if test.name == "sourcesAndSourcesContentBothNull" || test.name == "sourcesNullSourcesContentNonNull" {
+        if test.name == "sourcesAndSourcesContentBothNull"
+            || test.name == "sourcesNullSourcesContentNonNull"
+        {
             skipped += 1;
             continue;
         }
@@ -194,9 +198,8 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                 if let Some(indices) = ignore_list {
                     for source_name in present {
                         // Find the index of this source in the sources array
-                        let source_index = source_map
-                            .get_sources()
-                            .position(|s| s.as_ref() == source_name);
+                        let source_index =
+                            source_map.get_sources().position(|s| s.as_ref() == source_name);
 
                         if let Some(idx) = source_index {
                             if !indices.contains(&(idx as u32)) {
@@ -215,10 +218,7 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                         }
                     }
                 } else if !present.is_empty() {
-                    eprintln!(
-                        "✗ {}: ignore list check failed - no ignore list found",
-                        test.name
-                    );
+                    eprintln!("✗ {}: ignore list check failed - no ignore list found", test.name);
                     return false;
                 }
             }
