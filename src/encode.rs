@@ -74,8 +74,8 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     // Commas between array items
     let comma_count = names_count.saturating_sub(1)
-                    + sources_count.saturating_sub(1)
-                    + sc_count.saturating_sub(1);
+        + sources_count.saturating_sub(1)
+        + sc_count.saturating_sub(1);
     max_segments += comma_count;
 
     // Optional ],"x_google_ignoreList":[
@@ -218,10 +218,7 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
             prev_dst_line += num_line_breaks;
-        } else if let Some(prev_token) = prev_token {
-            if prev_token == token {
-                continue;
-            }
+        } else if prev_token.is_some() {
             let required = MAX_TOTAL_VLQ_BYTES + 1;
             if output.capacity() - output.len() < required {
                 output.reserve(required);
