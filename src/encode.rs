@@ -156,11 +156,12 @@ fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
         .token_chunks
         .as_ref()
         .map(|chunks| {
-            chunks.iter().map(|t| (t.end - t.start) * 10).sum::<u32>() as usize
-                + chunks.last().map_or(0, |t| t.prev_dst_line as usize)
+            // Increased from 10 to 12 to account for worst-case VLQ encoding and separators
+            // Add prev_dst_line for each chunk as those become semicolons
+            chunks.iter().map(|t| (t.end - t.start) as usize * 12 + t.prev_dst_line as usize).sum::<usize>()
         })
         .unwrap_or_else(|| {
-            sourcemap.tokens.len() * 10 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
+            sourcemap.tokens.len() * 12 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
         })
 }
 
@@ -206,7 +207,10 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
 
         let num_line_breaks = token.get_dst_line() - prev_dst_line;
         if num_line_breaks != 0 {
-            output.reserve(MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize);
+            let required = MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize;
+            if output.capacity() - output.len() < required {
+                output.reserve(required);
+            }
             // SAFETY: We have reserved sufficient capacity for `num_line_breaks` bytes
             unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
@@ -215,7 +219,10 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             if prev_token == token {
                 continue;
             }
-            output.reserve(MAX_TOTAL_VLQ_BYTES + 1);
+            let required = MAX_TOTAL_VLQ_BYTES + 1;
+            if output.capacity() - output.len() < required {
+                output.reserve(required);
+            }
             // SAFETY: We have reserved sufficient capacity for 1 byte
             unsafe { push_byte_unchecked(output, b',') };
         }
