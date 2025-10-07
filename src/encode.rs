@@ -74,8 +74,8 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     // Commas between array items
     let comma_count = names_count.saturating_sub(1)
-                    + sources_count.saturating_sub(1)
-                    + sc_count.saturating_sub(1);
+        + sources_count.saturating_sub(1)
+        + sc_count.saturating_sub(1);
     max_segments += comma_count;
 
     // Optional ],"x_google_ignoreList":[

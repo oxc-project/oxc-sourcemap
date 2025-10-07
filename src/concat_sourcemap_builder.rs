@@ -100,28 +100,31 @@ impl ConcatSourceMapBuilder {
 
         // Extend `tokens`.
         self.tokens.reserve(sourcemap.tokens.len());
-        let tokens: Vec<Token> = sourcemap.get_tokens().map(|token| {
-            Token::new(
-                token.get_dst_line() + line_offset,
-                token.get_dst_col(),
-                token.get_src_line(),
-                token.get_src_col(),
-                token.get_source_id().map(|x| {
-                    self.token_chunk_prev_source_id = x + source_offset;
-                    self.token_chunk_prev_source_id
-                }),
-                token.get_name_id().map(|x| {
-                    self.token_chunk_prev_name_id = x + name_offset;
-                    self.token_chunk_prev_name_id
-                }),
-            )
-        }).collect();
+        let tokens: Vec<Token> = sourcemap
+            .get_tokens()
+            .map(|token| {
+                Token::new(
+                    token.get_dst_line() + line_offset,
+                    token.get_dst_col(),
+                    token.get_src_line(),
+                    token.get_src_col(),
+                    token.get_source_id().map(|x| {
+                        self.token_chunk_prev_source_id = x + source_offset;
+                        self.token_chunk_prev_source_id
+                    }),
+                    token.get_name_id().map(|x| {
+                        self.token_chunk_prev_name_id = x + name_offset;
+                        self.token_chunk_prev_name_id
+                    }),
+                )
+            })
+            .collect();
 
         // Skip first token if it's identical to the last existing token to avoid duplicates
         let tokens_to_add = if let Some(last_token) = self.tokens.last() {
             if let Some(first_new) = tokens.first() {
                 if last_token == first_new {
-                    &tokens[1..]  // Skip duplicate
+                    &tokens[1..] // Skip duplicate
                 } else {
                     &tokens[..]
                 }
@@ -152,16 +155,7 @@ impl ConcatSourceMapBuilder {
             ));
         } else {
             // First sourcemap - use zeros
-            self.token_chunks.push(TokenChunk::new(
-                0,
-                end_token_idx,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ));
+            self.token_chunks.push(TokenChunk::new(0, end_token_idx, 0, 0, 0, 0, 0, 0));
         }
     }
 
@@ -277,11 +271,8 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
         None,
         vec!["file1.js".into()],
         vec![],
-        vec![
-            Token::new(1, 1, 1, 1, Some(0), Some(0)),
-            Token::new(2, 5, 2, 5, Some(0), Some(0)),
-        ]
-        .into_boxed_slice(),
+        vec![Token::new(1, 1, 1, 1, Some(0), Some(0)), Token::new(2, 5, 2, 5, Some(0), Some(0))]
+            .into_boxed_slice(),
         None,
     );
 
@@ -293,7 +284,7 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
         vec!["file2.js".into()],
         vec![],
         vec![
-            Token::new(2, 5, 2, 5, Some(0), Some(0)),  // Different source/name after offset
+            Token::new(2, 5, 2, 5, Some(0), Some(0)), // Different source/name after offset
             Token::new(3, 10, 3, 10, Some(0), Some(0)),
         ]
         .into_boxed_slice(),
