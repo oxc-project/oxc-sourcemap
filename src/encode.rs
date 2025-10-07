@@ -158,7 +158,10 @@ fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
         .map(|chunks| {
             // Increased from 10 to 12 to account for worst-case VLQ encoding and separators
             // Add prev_dst_line for each chunk as those become semicolons
-            chunks.iter().map(|t| (t.end - t.start) as usize * 12 + t.prev_dst_line as usize).sum::<usize>()
+            chunks
+                .iter()
+                .map(|t| (t.end - t.start) as usize * 12 + t.prev_dst_line as usize)
+                .sum::<usize>()
         })
         .unwrap_or_else(|| {
             sourcemap.tokens.len() * 12 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
