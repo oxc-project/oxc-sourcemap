@@ -7,6 +7,7 @@ use crate::{SourceMap, Token, token::TokenChunk};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     JSONSourceMap {
+        version: 3,
         file: sourcemap.get_file().map(ToString::to_string),
         mappings: {
             let mut mappings = String::with_capacity(estimate_mappings_length(sourcemap));
@@ -418,7 +419,7 @@ fn test_encode() {
         "sourceRoot": "x",
         "names": ["x","alert"],
         "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
-        "x_google_ignoreList": [0, 1]
+        "x_google_ignoreList": [0]
     }"#;
     let sm = SourceMap::from_json_string(input).unwrap();
     let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();

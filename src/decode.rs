@@ -7,33 +7,58 @@ use crate::token::INVALID_ID;
 use crate::{SourceMap, Token};
 
 /// See <https://github.com/tc39/source-map/blob/1930e58ffabefe54038f7455759042c6e3dd590e/source-map-rev3.md>.
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JSONSourceMap {
+    /// The version field, must be 3.
+    #[serde(deserialize_with = "deserialize_version")]
+    pub version: u32,
     /// An optional name of the generated code that this source map is associated with.
     pub file: Option<String>,
     /// A string with the encoded mapping data.
     pub mappings: String,
-    /// An optional source root, useful for relocating source files on a server or removing repeated values in the “sources” entry.
-    /// This value is prepended to the individual entries in the “source” field.
+    /// An optional source root, useful for relocating source files on a server or removing repeated values in the "sources" entry.
+    /// This value is prepended to the individual entries in the "source" field.
     pub source_root: Option<String>,
-    /// A list of original sources used by the “mappings” entry.
+    /// A list of original sources used by the "mappings" entry.
     pub sources: Vec<String>,
-    /// An optional list of source content, useful when the “source” can’t be hosted.
-    /// The contents are listed in the same order as the sources in line 5. “null” may be used if some original sources should be retrieved by name.
+    /// An optional list of source content, useful when the "source" can't be hosted.
+    /// The contents are listed in the same order as the sources in line 5. "null" may be used if some original sources should be retrieved by name.
     pub sources_content: Option<Vec<Option<String>>>,
-    /// A list of symbol names used by the “mappings” entry.
+    /// A list of symbol names used by the "mappings" entry.
+    #[serde(default)]
     pub names: Vec<String>,
     /// An optional field containing the debugId for this sourcemap.
     pub debug_id: Option<String>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
     /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
     /// When parsing the source map, developer tools can use this to determine sections of the code that the browser loads and runs that could be automatically ignore-listed.
-    #[serde(rename = "x_google_ignoreList")]
+    #[serde(rename = "x_google_ignoreList", alias = "ignoreList")]
     pub x_google_ignore_list: Option<Vec<u32>>,
 }
 
+fn deserialize_version<'de, D>(deserializer: D) -> std::result::Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let version = u32::deserialize(deserializer)?;
+    if version != 3 {
+        return Err(serde::de::Error::custom(format!("unsupported source map version: {version}")));
+    }
+    Ok(version)
+}
+
 pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
+    // Validate x_google_ignore_list indices
+    if let Some(ref ignore_list) = json.x_google_ignore_list {
+        for &idx in ignore_list {
+            if idx >= json.sources.len() as u32 {
+                return Err(Error::BadSourceReference(idx));
+            }
+        }
+    }
+
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
     Ok(SourceMap {
         file: json.file.map(Arc::from),
@@ -81,7 +106,16 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
 
             nums.clear();
             parse_vlq_segment_into(segment, &mut nums)?;
-            dst_col = (i64::from(dst_col) + nums[0]) as u32;
+
+            if nums.is_empty() {
+                return Err(Error::BadSegmentSize(0));
+            }
+
+            let new_dst_col = i64::from(dst_col) + nums[0];
+            if new_dst_col < 0 {
+                return Err(Error::BadSegmentSize(0)); // Negative column
+            }
+            dst_col = new_dst_col as u32;
 
             let mut src = INVALID_ID;
             let mut name = INVALID_ID;
@@ -90,14 +124,25 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                 if nums.len() != 4 && nums.len() != 5 {
                     return Err(Error::BadSegmentSize(nums.len() as u32));
                 }
-                src_id = (i64::from(src_id) + nums[1]) as u32;
-                if src_id >= sources_len as u32 {
+
+                let new_src_id = i64::from(src_id) + nums[1];
+                if new_src_id < 0 || new_src_id >= sources_len as i64 {
                     return Err(Error::BadSourceReference(src_id));
                 }
-
+                src_id = new_src_id as u32;
                 src = src_id;
-                src_line = (i64::from(src_line) + nums[2]) as u32;
-                src_col = (i64::from(src_col) + nums[3]) as u32;
+
+                let new_src_line = i64::from(src_line) + nums[2];
+                if new_src_line < 0 {
+                    return Err(Error::BadSegmentSize(0)); // Negative line
+                }
+                src_line = new_src_line as u32;
+
+                let new_src_col = i64::from(src_col) + nums[3];
+                if new_src_col < 0 {
+                    return Err(Error::BadSegmentSize(0)); // Negative column
+                }
+                src_col = new_src_col as u32;
 
                 if nums.len() > 4 {
                     name_id = (i64::from(name_id) + nums[4]) as u32;
@@ -130,15 +175,28 @@ struct Aligned64([i8; 256]);
 static B64: Aligned64 = Aligned64([ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 ]);
 
 fn parse_vlq_segment_into(segment: &str, rv: &mut Vec<i64>) -> Result<()> {
-    let mut cur = 0;
-    let mut shift = 0;
+    let mut cur = 0i64;
+    let mut shift = 0u32;
 
     for c in segment.bytes() {
         // SAFETY: B64 is a 256-element lookup table, and c is a u8 (0-255)
         let enc = unsafe { i64::from(*B64.0.get_unchecked(c as usize)) };
         let val = enc & 0b11111;
         let cont = enc >> 5;
-        cur += val.checked_shl(shift).ok_or(Error::VlqOverflow)?;
+
+        // Check if shift would overflow before applying
+        if shift >= 64 {
+            return Err(Error::VlqOverflow);
+        }
+
+        // For large shifts, check if the value would fit in 32 bits when decoded
+        if shift <= 62 {
+            cur = cur.wrapping_add(val << shift);
+        } else {
+            // Beyond 62 bits of shift, we'd overflow i64
+            return Err(Error::VlqOverflow);
+        }
+
         shift += 5;
 
         if cont == 0 {
@@ -194,6 +252,7 @@ fn test_decode_sourcemap() {
 #[test]
 fn test_decode_sourcemap_optional_filed() {
     let input = r#"{
+        "version": 3,
         "names": [],
         "sources": [],
         "sourcesContent": [null],
