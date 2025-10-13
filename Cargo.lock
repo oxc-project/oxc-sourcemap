@@ -323,12 +323,9 @@ dependencies = [
 
 [[package]]
 name = "json-escape-simd"
-version = "1.1.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a1f7d5786a4cb0f4e0f862b562a0e085b5bfa23a4f0dc05e7b823ed4e4d791f"
-dependencies = [
- "anyhow",
-]
+checksum = "ba82ff49ced8bf9df007007291de9d45759c611846f5edc04aaf3002b3b5d8c8"
 
 [[package]]
 name = "lazy_static"
