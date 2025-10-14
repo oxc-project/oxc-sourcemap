@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v4.2.1...v5.0.0) - 2025-10-14
+
+### Added
+
+- integrate tc39/source-map-tests for spec compliance testing ([#190](https://github.com/oxc-project/oxc-sourcemap/pull/190))
+
+### Other
+
+- bump json-escape-simd ([#195](https://github.com/oxc-project/oxc-sourcemap/pull/195))
+- *(deps)* lock file maintenance rust crates ([#194](https://github.com/oxc-project/oxc-sourcemap/pull/194))
+- remove token equality check from encoding hot loop ([#189](https://github.com/oxc-project/oxc-sourcemap/pull/189))
+- optimize VLQ decode and capacity estimation
+
 ## [4.2.1](https://github.com/oxc-project/oxc-sourcemap/compare/v4.2.0...v4.2.1) - 2025-09-27
 
 ### Other
