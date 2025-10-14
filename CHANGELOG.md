@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - bump json-escape-simd ([#195](https://github.com/oxc-project/oxc-sourcemap/pull/195))
-- *(deps)* lock file maintenance rust crates ([#194](https://github.com/oxc-project/oxc-sourcemap/pull/194))
+- _(deps)_ lock file maintenance rust crates ([#194](https://github.com/oxc-project/oxc-sourcemap/pull/194))
 - remove token equality check from encoding hot loop ([#189](https://github.com/oxc-project/oxc-sourcemap/pull/189))
 - optimize VLQ decode and capacity estimation
 
