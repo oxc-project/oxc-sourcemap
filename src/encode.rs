@@ -1,6 +1,8 @@
 //! Ported and modified from <https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs>
 
-use json_escape_simd::{escape_into, escape_into_generic};
+use std::ops::{Deref, DerefMut};
+
+use json_escape_simd::escape_into;
 
 use crate::JSONSourceMap;
 use crate::{SourceMap, Token, token::TokenChunk};
@@ -31,7 +33,7 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
 
 pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     // Worst-case capacity accounting:
-    // - escape_into / escape_into_generic may write up to (len * 2 + 2) for each string
+    // - escape_into may write up to (len * 2 + 2) for each string
     // - include commas between items and constant JSON punctuation/keys
     let mut max_segments = 0usize;
 
@@ -70,7 +72,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     // Calculate total capacity needed
     max_segments += 9 + 13 + 20; // "names":[ + ],"sources":[ + ],"sourcesContent":[
-    max_segments += 2 * total_string_bytes; // worst-case escaping (* 2)
+    max_segments += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
     max_segments += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
     // Commas between array items
@@ -119,10 +121,10 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     contents.push("\"names\":[");
-    contents.push_list(sourcemap.names.iter(), escape_into_generic);
+    contents.push_list(sourcemap.names.iter(), escape_into);
 
     contents.push("],\"sources\":[");
-    contents.push_list(sourcemap.sources.iter(), escape_into_generic);
+    contents.push_list(sourcemap.sources.iter(), escape_into);
 
     // Quote `source_content` in parallel
     let source_contents = &sourcemap.source_contents;
@@ -137,7 +139,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     contents.push("],\"mappings\":\"");
-    serialize_sourcemap_mappings(sourcemap, &mut contents.buf);
+    serialize_sourcemap_mappings(sourcemap, &mut contents);
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
         contents.push("\",\"debugId\":\"");
@@ -364,20 +366,31 @@ unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
 ///
 /// Pre-allocate a Cow<'a, str> buffer, and push the segment into it.
 /// Finally, convert it to a pre-allocated length String.
-struct PreAllocatedString {
-    buf: String,
-    len: usize,
+#[repr(transparent)]
+struct PreAllocatedString(String);
+
+impl Deref for PreAllocatedString {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PreAllocatedString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl PreAllocatedString {
     fn new(max_segments: usize) -> Self {
-        Self { buf: String::with_capacity(max_segments), len: 0 }
+        Self(String::with_capacity(max_segments))
     }
 
     #[inline]
     fn push(&mut self, s: &str) {
-        self.len += s.len();
-        self.buf.push_str(s);
+        self.0.push_str(s);
     }
 
     #[inline]
@@ -391,23 +404,19 @@ impl PreAllocatedString {
         encode(first, self.as_mut_vec());
 
         for other in iter {
-            self.push(",");
+            self.0.push(',');
             encode(other, self.as_mut_vec());
         }
     }
 
     fn as_mut_vec(&mut self) -> &mut Vec<u8> {
         // SAFETY: we are sure that the string is not shared
-        unsafe { self.buf.as_mut_vec() }
+        unsafe { self.0.as_mut_vec() }
     }
 
     #[inline]
     fn consume(self) -> String {
-        self.buf
-    }
-
-    fn len(&self) -> usize {
-        self.buf.len()
+        self.0
     }
 }
 
