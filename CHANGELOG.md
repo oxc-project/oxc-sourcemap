@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v5.0.0...v5.0.1) - 2025-10-15
+
+### Fixed
+
+- remove debug_assert in sourcemap encoding ([#197](https://github.com/oxc-project/oxc-sourcemap/pull/197))
+
 ## [5.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v4.2.1...v5.0.0) - 2025-10-14
 
 ### Added
