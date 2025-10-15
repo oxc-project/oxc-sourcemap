@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v5.0.1...v6.0.0) - 2025-10-15
+
+### Other
+
+- loosen the type constraint on set_sources ([#199](https://github.com/oxc-project/oxc-sourcemap/pull/199))
+
 ## [5.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v5.0.0...v5.0.1) - 2025-10-15
 
 ### Fixed
