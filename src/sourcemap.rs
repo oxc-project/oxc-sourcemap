@@ -113,8 +113,8 @@ impl SourceMap {
     }
 
     /// Adjust `sources`.
-    pub fn set_sources(&mut self, sources: Vec<&str>) {
-        self.sources = sources.into_iter().map(Into::into).collect();
+    pub fn set_sources<S: AsRef<str>, I: IntoIterator<Item = S>>(&mut self, sources: I) {
+        self.sources = sources.into_iter().map(|s| s.as_ref().into()).collect();
     }
 
     pub fn get_sources(&self) -> impl Iterator<Item = &Arc<str>> {
