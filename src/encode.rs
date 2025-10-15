@@ -85,13 +85,9 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         max_segments += 25; // ],"x_google_ignoreList":[
 
-        debug_assert!(
-            x_google_ignore_list.iter().all(|&v| v < 10000),
-            "x_google_ignore_list values must be < 10000"
-        );
         let ig_count = x_google_ignore_list.len();
-        // guess 4 digits per item
-        max_segments += 4 * ig_count;
+        // guess 10 digits per item, 100_000_000 maximum per element
+        max_segments += 10 * ig_count;
     }
 
     // ],"mappings":"
