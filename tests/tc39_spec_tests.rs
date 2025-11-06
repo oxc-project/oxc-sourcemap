@@ -107,10 +107,11 @@ fn tc39_source_map_spec_tests() {
 
         // If the source map is valid, run test actions
         if let Ok(source_map) = result
-            && !run_test_actions(&test, &source_map, &resources_dir) {
-                failed += 1;
-                continue;
-            }
+            && !run_test_actions(&test, &source_map, &resources_dir)
+        {
+            failed += 1;
+            continue;
+        }
 
         passed += 1;
     }
@@ -165,13 +166,14 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
 
                     // Check line and column
                     if let (Some(exp_line), Some(exp_col)) = (original_line, original_column)
-                        && (src_line != *exp_line || src_col != *exp_col) {
-                            eprintln!(
-                                "✗ {}: mapping check failed - expected {}:{}, got {}:{}",
-                                test.name, exp_line, exp_col, src_line, src_col
-                            );
-                            return false;
-                        }
+                        && (src_line != *exp_line || src_col != *exp_col)
+                    {
+                        eprintln!(
+                            "✗ {}: mapping check failed - expected {}:{}, got {}:{}",
+                            test.name, exp_line, exp_col, src_line, src_col
+                        );
+                        return false;
+                    }
 
                     // Check name
                     let actual_name = name.map(|n| n.as_ref());
