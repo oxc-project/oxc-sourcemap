@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v6.0.0...v6.0.1) - 2025-11-06
+
+### Other
+
+- *(deps)* bump napi; bump msrv to 1.88.0 for napi ([#213](https://github.com/oxc-project/oxc-sourcemap/pull/213))
+
 ## [6.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v5.0.1...v6.0.0) - 2025-10-15
 
 ### Other
