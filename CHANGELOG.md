@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- *(decode)* single-pass mapping parser ([#268](https://github.com/oxc-project/oxc-sourcemap/pull/268))
+- _(decode)_ single-pass mapping parser ([#268](https://github.com/oxc-project/oxc-sourcemap/pull/268))
 - improve simple benchmark representativeness ([#266](https://github.com/oxc-project/oxc-sourcemap/pull/266))
 
 ## [6.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v6.0.0...v6.0.1) - 2025-11-06
