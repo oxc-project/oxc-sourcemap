@@ -99,6 +99,16 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
     let mut src_col = 0;
     let mut name_id = 0;
 
+    // Source map segments are delta-encoded and interpreted relative to previous values.
+    //
+    // Segment arity:
+    // * 1 field: generated column
+    // * 4 fields: generated column, source id, source line, source column
+    // * 5 fields: 4-field segment + name id
+    //
+    // Delimiters:
+    // * `,` separates segments on the same generated line
+    // * `;` advances generated line and resets generated column
     let mut cursor = 0usize;
     let mut nums = [0i64; 5];
     while cursor < mapping.len() {
@@ -116,6 +126,7 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
             _ => {
                 let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
 
+                // `nums[0]` is always generated column delta.
                 let new_dst_col = i64::from(dst_col) + nums[0];
                 if new_dst_col < 0 {
                     return Err(Error::BadSegmentSize(0)); // Negative column
@@ -130,6 +141,7 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                         return Err(Error::BadSegmentSize(nums_len as u32));
                     }
 
+                    // Source/name fields are also delta-encoded.
                     let new_src_id = i64::from(src_id) + nums[1];
                     if new_src_id < 0 || new_src_id >= sources_len as i64 {
                         return Err(Error::BadSourceReference(src_id));
@@ -180,6 +192,12 @@ struct Aligned64([i8; 256]);
 #[rustfmt::skip]
 static B64: Aligned64 = Aligned64([ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 ]);
 
+/// Parse one VLQ segment at `cursor` and stop at `,` / `;` / end-of-input.
+///
+/// Returns the number of decoded values in the segment. Values are written into
+/// `rv` for the first 5 fields (the maximum valid segment size). If the segment
+/// contains more than 5 fields, we keep counting in `rv_len` so caller can reject
+/// it with `BadSegmentSize`.
 fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5]) -> Result<usize> {
     let mut cur = 0i64;
     let mut shift = 0u32;
@@ -213,6 +231,7 @@ fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5])
         shift += 5;
 
         if cont == 0 {
+            // VLQ stores sign in low bit; remaining bits are the magnitude.
             let sign = cur & 1;
             cur >>= 1;
             if sign != 0 {
