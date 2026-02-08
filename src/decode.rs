@@ -81,86 +81,92 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap> {
 }
 
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
-    // Estimate initial capacity: average ~5 chars per token (4 VLQ values + comma/semicolon)
-    let estimated_tokens = mapping.len() / 5;
+    let mapping = mapping.as_bytes();
+
+    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
+    let mut estimated_tokens = 1usize;
+    for &byte in mapping {
+        if byte == b',' || byte == b';' {
+            estimated_tokens += 1;
+        }
+    }
     let mut tokens = Vec::with_capacity(estimated_tokens);
 
-    let mut dst_col;
+    let mut dst_line = 0u32;
+    let mut dst_col = 0u32;
     let mut src_id = 0;
     let mut src_line = 0;
     let mut src_col = 0;
     let mut name_id = 0;
-    let mut nums = Vec::with_capacity(6);
 
-    for (dst_line, line) in mapping.split(';').enumerate() {
-        if line.is_empty() {
-            continue;
-        }
-
-        dst_col = 0;
-
-        for segment in line.split(',') {
-            if segment.is_empty() {
-                continue;
+    let mut cursor = 0usize;
+    let mut nums = [0i64; 5];
+    while cursor < mapping.len() {
+        match mapping[cursor] {
+            b',' => {
+                // Empty segment, skip.
+                cursor += 1;
             }
-
-            nums.clear();
-            parse_vlq_segment_into(segment, &mut nums)?;
-
-            if nums.is_empty() {
-                return Err(Error::BadSegmentSize(0));
+            b';' => {
+                // New destination line. Destination columns are line-relative.
+                dst_line = dst_line.wrapping_add(1);
+                dst_col = 0;
+                cursor += 1;
             }
+            _ => {
+                let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
 
-            let new_dst_col = i64::from(dst_col) + nums[0];
-            if new_dst_col < 0 {
-                return Err(Error::BadSegmentSize(0)); // Negative column
-            }
-            dst_col = new_dst_col as u32;
-
-            let mut src = INVALID_ID;
-            let mut name = INVALID_ID;
-
-            if nums.len() > 1 {
-                if nums.len() != 4 && nums.len() != 5 {
-                    return Err(Error::BadSegmentSize(nums.len() as u32));
-                }
-
-                let new_src_id = i64::from(src_id) + nums[1];
-                if new_src_id < 0 || new_src_id >= sources_len as i64 {
-                    return Err(Error::BadSourceReference(src_id));
-                }
-                src_id = new_src_id as u32;
-                src = src_id;
-
-                let new_src_line = i64::from(src_line) + nums[2];
-                if new_src_line < 0 {
-                    return Err(Error::BadSegmentSize(0)); // Negative line
-                }
-                src_line = new_src_line as u32;
-
-                let new_src_col = i64::from(src_col) + nums[3];
-                if new_src_col < 0 {
+                let new_dst_col = i64::from(dst_col) + nums[0];
+                if new_dst_col < 0 {
                     return Err(Error::BadSegmentSize(0)); // Negative column
                 }
-                src_col = new_src_col as u32;
+                dst_col = new_dst_col as u32;
 
-                if nums.len() > 4 {
-                    name_id = (i64::from(name_id) + nums[4]) as u32;
-                    if name_id >= names_len as u32 {
-                        return Err(Error::BadNameReference(name_id));
+                let mut src = INVALID_ID;
+                let mut name = INVALID_ID;
+
+                if nums_len > 1 {
+                    if nums_len != 4 && nums_len != 5 {
+                        return Err(Error::BadSegmentSize(nums_len as u32));
                     }
-                    name = name_id;
-                }
-            }
 
-            tokens.push(Token::new(
-                dst_line as u32,
-                dst_col,
-                src_line,
-                src_col,
-                if src == INVALID_ID { None } else { Some(src) },
-                if name == INVALID_ID { None } else { Some(name) },
-            ));
+                    let new_src_id = i64::from(src_id) + nums[1];
+                    if new_src_id < 0 || new_src_id >= sources_len as i64 {
+                        return Err(Error::BadSourceReference(src_id));
+                    }
+                    src_id = new_src_id as u32;
+                    src = src_id;
+
+                    let new_src_line = i64::from(src_line) + nums[2];
+                    if new_src_line < 0 {
+                        return Err(Error::BadSegmentSize(0)); // Negative line
+                    }
+                    src_line = new_src_line as u32;
+
+                    let new_src_col = i64::from(src_col) + nums[3];
+                    if new_src_col < 0 {
+                        return Err(Error::BadSegmentSize(0)); // Negative column
+                    }
+                    src_col = new_src_col as u32;
+
+                    if nums_len > 4 {
+                        name_id = (i64::from(name_id) + nums[4]) as u32;
+                        if name_id >= names_len as u32 {
+                            return Err(Error::BadNameReference(name_id));
+                        }
+                        name = name_id;
+                    }
+                }
+
+                tokens.push(Token::new(
+                    dst_line,
+                    dst_col,
+                    src_line,
+                    src_col,
+                    if src == INVALID_ID { None } else { Some(src) },
+                    if name == INVALID_ID { None } else { Some(name) },
+                ));
+            }
         }
     }
 
@@ -174,11 +180,17 @@ struct Aligned64([i8; 256]);
 #[rustfmt::skip]
 static B64: Aligned64 = Aligned64([ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 ]);
 
-fn parse_vlq_segment_into(segment: &str, rv: &mut Vec<i64>) -> Result<()> {
+fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5]) -> Result<usize> {
     let mut cur = 0i64;
     let mut shift = 0u32;
+    let mut rv_len = 0usize;
 
-    for c in segment.bytes() {
+    while *cursor < mapping.len() {
+        let c = mapping[*cursor];
+        if c == b',' || c == b';' {
+            break;
+        }
+
         // SAFETY: B64 is a 256-element lookup table, and c is a u8 (0-255)
         let enc = unsafe { i64::from(*B64.0.get_unchecked(c as usize)) };
         let val = enc & 0b11111;
@@ -197,6 +209,7 @@ fn parse_vlq_segment_into(segment: &str, rv: &mut Vec<i64>) -> Result<()> {
             return Err(Error::VlqOverflow);
         }
 
+        *cursor += 1;
         shift += 5;
 
         if cont == 0 {
@@ -205,7 +218,10 @@ fn parse_vlq_segment_into(segment: &str, rv: &mut Vec<i64>) -> Result<()> {
             if sign != 0 {
                 cur = -cur;
             }
-            rv.push(cur);
+            if rv_len < rv.len() {
+                rv[rv_len] = cur;
+            }
+            rv_len += 1;
             cur = 0;
             shift = 0;
         }
@@ -213,10 +229,10 @@ fn parse_vlq_segment_into(segment: &str, rv: &mut Vec<i64>) -> Result<()> {
 
     if cur != 0 || shift != 0 {
         Err(Error::VlqLeftover)
-    } else if rv.is_empty() {
+    } else if rv_len == 0 {
         Err(Error::VlqNoValues)
     } else {
-        Ok(())
+        Ok(rv_len)
     }
 }
 
@@ -259,4 +275,32 @@ fn test_decode_sourcemap_optional_filed() {
         "mappings": ""
     }"#;
     SourceMap::from_json_string(input).expect("should success");
+}
+
+#[test]
+fn test_decode_mapping_bad_segment_size() {
+    let input = r#"{
+        "version": 3,
+        "names": [],
+        "sources": [],
+        "sourcesContent": [],
+        "mappings": "AA"
+    }"#;
+
+    let err = SourceMap::from_json_string(input).unwrap_err();
+    assert!(matches!(err, Error::BadSegmentSize(2)));
+}
+
+#[test]
+fn test_decode_mapping_vlq_leftover() {
+    let input = r#"{
+        "version": 3,
+        "names": [],
+        "sources": [],
+        "sourcesContent": [],
+        "mappings": "g"
+    }"#;
+
+    let err = SourceMap::from_json_string(input).unwrap_err();
+    assert!(matches!(err, Error::VlqLeftover));
 }
