@@ -16,6 +16,17 @@
 
 Forked version of [rust-sourcemap](https://github.com/getsentry/rust-sourcemap), modified for Oxc.
 
+## Benchmarking
+
+Run benchmarks with:
+
+```bash
+cargo bench --bench simple
+```
+
+`benches/simple.rs` contains grouped benchmarks for parse, serialize, lookup table generation, and
+concat workflows. Fixture-driven benchmarks load maps from `tests/fixtures/perf/*.map`.
+
 [discord-badge]: https://img.shields.io/discord/1079625926024900739?logo=discord&label=Discord
 [discord-url]: https://discord.gg/9uXCAwqQZW
 [license-badge]: https://img.shields.io/badge/license-MIT-blue.svg
