@@ -48,7 +48,6 @@ infinite_loop = "warn"
 undocumented_unsafe_blocks = "allow"
 
 [lib]
-doctest = false
 crate-type = ["lib", "cdylib"]
 
 [[bench]]
