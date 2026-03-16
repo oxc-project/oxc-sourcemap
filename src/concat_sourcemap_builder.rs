@@ -45,7 +45,11 @@ impl ConcatSourceMapBuilder {
     /// and then adding sourcemaps individually with `add_sourcemap`.
     ///
     /// # Example
-    /// ```
+    /// ```no_run
+    /// # use oxc_sourcemap::ConcatSourceMapBuilder;
+    /// # use oxc_sourcemap::SourceMap;
+    /// # let sourcemap1 = SourceMap::default();
+    /// # let sourcemap2 = SourceMap::default();
     /// let builder = ConcatSourceMapBuilder::from_sourcemaps(&[
     ///   (&sourcemap1, 0),
     ///   (&sourcemap2, 100),
