@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0](https://github.com/oxc-project/oxc-sourcemap/compare/v6.0.2...v6.1.0) - 2026-03-20
+
+### Added
+
+- omit `sourcesContent` if all of the values are null ([#287](https://github.com/oxc-project/oxc-sourcemap/pull/287))
+
+### Fixed
+
+- encode `sourcesContent` null as raw `null` instead of quoted string ([#291](https://github.com/oxc-project/oxc-sourcemap/pull/291))
+
+### Other
+
+- avoid temporary `Vec` in `ConcatSourceMapBuilder::add_sourcemap` ([#290](https://github.com/oxc-project/oxc-sourcemap/pull/290))
+- combine `source_contents` scans in `encode_to_string` ([#289](https://github.com/oxc-project/oxc-sourcemap/pull/289))
+- avoid double Arc allocation in `add_source_and_content` ([#288](https://github.com/oxc-project/oxc-sourcemap/pull/288))
+- apply cargo shear --fix ([#285](https://github.com/oxc-project/oxc-sourcemap/pull/285))
+
 ## [6.0.2](https://github.com/oxc-project/oxc-sourcemap/compare/v6.0.1...v6.0.2) - 2026-02-08
 
 ### Other
