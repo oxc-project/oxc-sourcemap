@@ -138,8 +138,10 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     if has_source_contents {
         let source_contents = &sourcemap.source_contents;
         contents.push("],\"sourcesContent\":[");
-        contents
-            .push_list(source_contents.iter().map(|v| v.as_deref().unwrap_or("null")), escape_into);
+        contents.push_list(source_contents.iter(), |v, output| match v {
+            Some(s) => escape_into(s.as_ref(), output),
+            None => output.extend_from_slice(b"null"),
+        });
     }
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
@@ -578,6 +580,10 @@ fn test_encode_all_sources_content_null() {
     assert!(
         json.contains("sourcesContent"),
         "sourcesContent should be present when at least one item is Some"
+    );
+    assert!(
+        json.contains(r#""sourcesContent":["content",null]"#),
+        "None source_contents should be encoded as raw null, not quoted \"null\""
     );
 
     let json_map = encode(&sm);
