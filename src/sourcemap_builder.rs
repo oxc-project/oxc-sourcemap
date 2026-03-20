@@ -36,13 +36,15 @@ impl SourceMapBuilder {
     /// Add item to `SourceMap::sources` and `SourceMap::source_contents`.
     /// If `source` maybe duplicate, please use it.
     pub fn add_source_and_content(&mut self, source: &str, source_content: &str) -> u32 {
-        let count = self.sources.len() as u32;
-        let id = *self.sources_map.entry(source.into()).or_insert(count);
-        if id == count {
-            self.sources.push(source.into());
-            self.source_contents.push(Some(source_content.into()));
+        if let Some(&id) = self.sources_map.get(source) {
+            return id;
         }
-        id
+        let count = self.sources.len() as u32;
+        let source = Arc::from(source);
+        self.sources_map.insert(Arc::clone(&source), count);
+        self.sources.push(source);
+        self.source_contents.push(Some(source_content.into()));
+        count
     }
 
     /// Add item to `SourceMap::sources` and `SourceMap::source_contents`.
