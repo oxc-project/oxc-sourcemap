@@ -102,44 +102,28 @@ impl ConcatSourceMapBuilder {
         self.names.reserve(sourcemap.names.len());
         self.names.extend(sourcemap.get_names().map(Arc::clone));
 
-        // Extend `tokens`.
+        // Extend `tokens`, skipping the first token if it duplicates the last existing one.
         self.tokens.reserve(sourcemap.tokens.len());
-        let tokens: Vec<Token> = sourcemap
-            .get_tokens()
-            .map(|token| {
-                Token::new(
-                    token.get_dst_line() + line_offset,
-                    token.get_dst_col(),
-                    token.get_src_line(),
-                    token.get_src_col(),
-                    token.get_source_id().map(|x| {
-                        self.token_chunk_prev_source_id = x + source_offset;
-                        self.token_chunk_prev_source_id
-                    }),
-                    token.get_name_id().map(|x| {
-                        self.token_chunk_prev_name_id = x + name_offset;
-                        self.token_chunk_prev_name_id
-                    }),
-                )
-            })
-            .collect();
-
-        // Skip first token if it's identical to the last existing token to avoid duplicates
-        let tokens_to_add = if let Some(last_token) = self.tokens.last() {
-            if let Some(first_new) = tokens.first() {
-                if last_token == first_new {
-                    &tokens[1..] // Skip duplicate
-                } else {
-                    &tokens[..]
-                }
-            } else {
-                &tokens[..]
+        for (i, token) in sourcemap.get_tokens().enumerate() {
+            let new_token = Token::new(
+                token.get_dst_line() + line_offset,
+                token.get_dst_col(),
+                token.get_src_line(),
+                token.get_src_col(),
+                token.get_source_id().map(|x| {
+                    self.token_chunk_prev_source_id = x + source_offset;
+                    self.token_chunk_prev_source_id
+                }),
+                token.get_name_id().map(|x| {
+                    self.token_chunk_prev_name_id = x + name_offset;
+                    self.token_chunk_prev_name_id
+                }),
+            );
+            if i == 0 && self.tokens.last() == Some(&new_token) {
+                continue;
             }
-        } else {
-            &tokens[..]
-        };
-
-        self.tokens.extend_from_slice(tokens_to_add);
+            self.tokens.push(new_token);
+        }
 
         // Add `token_chunks` after tokens are added so we know the actual end index
         let end_token_idx = self.tokens.len() as u32;
