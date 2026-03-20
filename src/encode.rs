@@ -8,6 +8,7 @@ use crate::JSONSourceMap;
 use crate::{SourceMap, Token, token::TokenChunk};
 
 pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
+    let has_source_contents = sourcemap.source_contents.iter().any(|v| v.is_some());
     JSONSourceMap {
         version: 3,
         file: sourcemap.get_file().map(ToString::to_string),
@@ -18,13 +19,17 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
         },
         source_root: sourcemap.get_source_root().map(ToString::to_string),
         sources: sourcemap.sources.iter().map(ToString::to_string).collect(),
-        sources_content: Some(
-            sourcemap
-                .source_contents
-                .iter()
-                .map(|v| v.as_ref().map(|item| item.to_string()))
-                .collect(),
-        ),
+        sources_content: if has_source_contents {
+            Some(
+                sourcemap
+                    .source_contents
+                    .iter()
+                    .map(|v| v.as_ref().map(|item| item.to_string()))
+                    .collect(),
+            )
+        } else {
+            None
+        },
         names: sourcemap.names.iter().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
         x_google_ignore_list: sourcemap.get_x_google_ignore_list().map(|x| x.to_vec()),
@@ -53,7 +58,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
     let sources_count = sourcemap.sources.len();
-    let sc_count = sourcemap.source_contents.len();
+    let has_source_contents = sourcemap.source_contents.iter().any(|v| v.is_some());
 
     // Accumulate total string bytes across all collections
     let mut total_string_bytes = 0usize;
@@ -66,12 +71,19 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         total_string_bytes += source.len();
     }
 
-    for content in &sourcemap.source_contents {
-        total_string_bytes += content.as_ref().map_or(/*"null"*/ 4, |s| s.len());
+    let mut sc_count = 0usize;
+    if has_source_contents {
+        sc_count = sourcemap.source_contents.len();
+        for content in &sourcemap.source_contents {
+            total_string_bytes += content.as_ref().map_or(/*"null"*/ 4, |s| s.len());
+        }
     }
 
     // Calculate total capacity needed
-    max_segments += 9 + 13 + 20; // "names":[ + ],"sources":[ + ],"sourcesContent":[
+    max_segments += 9 + 13; // "names":[ + ],"sources":[
+    if has_source_contents {
+        max_segments += 20; // ],"sourcesContent":[
+    }
     max_segments += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
     max_segments += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
@@ -122,10 +134,12 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     contents.push("],\"sources\":[");
     contents.push_list(sourcemap.sources.iter(), escape_into);
 
-    // Quote `source_content` in parallel
-    let source_contents = &sourcemap.source_contents;
-    contents.push("],\"sourcesContent\":[");
-    contents.push_list(source_contents.iter().map(|v| v.as_deref().unwrap_or("null")), escape_into);
+    if has_source_contents {
+        let source_contents = &sourcemap.source_contents;
+        contents.push("],\"sourcesContent\":[");
+        contents
+            .push_list(source_contents.iter().map(|v| v.as_deref().unwrap_or("null")), escape_into);
+    }
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         contents.push("],\"x_google_ignoreList\":[");
@@ -528,4 +542,43 @@ fn test_vlq_encode_diff() {
         unsafe { encode_vlq_diff(&mut out, a, b) };
         assert_eq!(&out, res);
     }
+}
+
+#[test]
+fn test_encode_all_sources_content_null() {
+    let sm = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec!["a.js".into(), "b.js".into()],
+        vec![None, None],
+        vec![].into_boxed_slice(),
+        None,
+    );
+    let json = sm.to_json_string();
+    assert!(
+        !json.contains("sourcesContent"),
+        "sourcesContent should be omitted when all items are None"
+    );
+
+    let json_map = encode(&sm);
+    assert!(json_map.sources_content.is_none());
+
+    let sm = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec!["a.js".into(), "b.js".into()],
+        vec![Some("content".into()), None],
+        vec![].into_boxed_slice(),
+        None,
+    );
+    let json = sm.to_json_string();
+    assert!(
+        json.contains("sourcesContent"),
+        "sourcesContent should be present when at least one item is Some"
+    );
+
+    let json_map = encode(&sm);
+    assert!(json_map.sources_content.is_some());
 }
