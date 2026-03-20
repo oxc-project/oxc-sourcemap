@@ -18,4 +18,4 @@ jobs:
     steps:
       - uses: oxc-project/release-plz@e2b12f55ad64a22af8e93634b94439c42913afca # v1.0.6
         with:
-          PAT: ${{ secrets.OXC_BOT_PAT }}
+          PAT: ${{ secrets.OXC_BOT_PAT }} # zizmor: ignore[secrets-outside-env] main-only release workflow intentionally uses a repo secret
