@@ -58,8 +58,6 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
     let sources_count = sourcemap.sources.len();
-    let has_source_contents = sourcemap.source_contents.iter().any(|v| v.is_some());
-
     // Accumulate total string bytes across all collections
     let mut total_string_bytes = 0usize;
 
@@ -71,13 +69,16 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         total_string_bytes += source.len();
     }
 
-    let mut sc_count = 0usize;
-    if has_source_contents {
-        sc_count = sourcemap.source_contents.len();
-        for content in &sourcemap.source_contents {
-            total_string_bytes += content.as_ref().map_or(/*"null"*/ 4, |s| s.len());
-        }
-    }
+    // Single pass over source_contents to check existence and accumulate byte lengths
+    let (has_source_contents, sc_bytes) = sourcemap.source_contents.iter().fold(
+        (false, 0usize),
+        |(has_some, bytes), content| match content {
+            Some(s) => (true, bytes + s.len()),
+            None => (has_some, bytes + 4), // "null"
+        },
+    );
+    total_string_bytes += sc_bytes;
+    let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
 
     // Calculate total capacity needed
     max_segments += 9 + 13; // "names":[ + ],"sources":[
