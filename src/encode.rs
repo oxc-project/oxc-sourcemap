@@ -70,13 +70,13 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     // Single pass over source_contents to check existence and accumulate byte lengths
-    let (has_source_contents, sc_bytes) = sourcemap.source_contents.iter().fold(
-        (false, 0usize),
-        |(has_some, bytes), content| match content {
-            Some(s) => (true, bytes + s.len()),
-            None => (has_some, bytes + 4), // "null"
-        },
-    );
+    let (has_source_contents, sc_bytes) =
+        sourcemap.source_contents.iter().fold((false, 0usize), |(has_some, bytes), content| {
+            match content {
+                Some(s) => (true, bytes + s.len()),
+                None => (has_some, bytes + 4), // "null"
+            }
+        });
     total_string_bytes += sc_bytes;
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
 
