@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.1](https://github.com/oxc-project/oxc-sourcemap/compare/v6.1.0...v6.1.1) - 2026-03-24
+
+### Fixed
+
+- escape `file` and `sourceRoot` fields ([#294](https://github.com/oxc-project/oxc-sourcemap/pull/294))
+
 ## [6.1.0](https://github.com/oxc-project/oxc-sourcemap/compare/v6.0.2...v6.1.0) - 2026-03-20
 
 ### Added
