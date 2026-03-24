@@ -47,12 +47,12 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     // Optional "file":"...",
     if let Some(file) = sourcemap.get_file() {
-        max_segments += 8 /* "file":" */ + file.as_ref().len() + 2 /* ", */;
+        max_segments += 8 /* "file": */ + file.as_ref().len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
     // Optional "sourceRoot":"...",
     if let Some(source_root) = sourcemap.get_source_root() {
-        max_segments += 14 /* "sourceRoot":" */ + source_root.len() + 2 /* ", */;
+        max_segments += 14 /* "sourceRoot": */ + source_root.len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
     // Calculate string lengths in a single pass for better cache locality
@@ -118,15 +118,15 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     contents.push("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
-        contents.push("\"file\":\"");
-        contents.push(file.as_ref());
-        contents.push("\",");
+        contents.push("\"file\":");
+        escape_into(file.as_ref(), contents.as_mut_vec());
+        contents.push(",");
     }
 
     if let Some(source_root) = sourcemap.get_source_root() {
-        contents.push("\"sourceRoot\":\"");
-        contents.push(source_root);
-        contents.push("\",");
+        contents.push("\"sourceRoot\":");
+        escape_into(source_root, contents.as_mut_vec());
+        contents.push(",");
     }
 
     contents.push("\"names\":[");
@@ -588,4 +588,28 @@ fn test_encode_all_sources_content_null() {
 
     let json_map = encode(&sm);
     assert!(json_map.sources_content.is_some());
+}
+
+#[test]
+fn test_encode_escape_file_and_source_root() {
+    let sm = SourceMap::new(
+        Some("file\0name.js".into()),
+        vec![],
+        Some("root\0path".into()),
+        vec![],
+        vec![],
+        vec![].into_boxed_slice(),
+        None,
+    );
+    let json = sm.to_json_string();
+    assert!(
+        json.contains(r#""file":"file\u0000name.js""#),
+        "file field should have \\0 escaped: {json}"
+    );
+    assert!(
+        json.contains(r#""sourceRoot":"root\u0000path""#),
+        "sourceRoot field should have \\0 escaped: {json}"
+    );
+    // Verify the output is valid JSON by round-tripping
+    SourceMap::from_json_string(&json).unwrap();
 }
