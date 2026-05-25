@@ -105,36 +105,88 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         self.names.reserve(sourcemap.names.len());
         self.names.extend(sourcemap.get_names().map(Cow::Borrowed));
 
-        // Extend `tokens`, skipping the first token if it duplicates the last existing one.
+        // Append every input token to `self.tokens`, translated by `line_offset`,
+        // `source_offset`, and `name_offset` so its references resolve against
+        // this builder's combined `sources` / `names` arrays.
         //
-        // Compute the offset-adjusted source/name ids BEFORE building the token,
-        // and only commit them to `self.token_chunk_prev_*` once we've decided
-        // to actually push the token. Updating the prev-id state for a token
-        // that gets skipped by the dedup `continue` below would pollute the
-        // next sourcemap's TokenChunk header.
+        // Two pieces of bookkeeping ride along:
+        //
+        //  1. **Boundary dedup.** If the first input token, after translation,
+        //     equals the last token already in `self.tokens`, we drop it. This
+        //     collapses the duplicate that appears when two adjacent input
+        //     sourcemaps name the same generated position. Only the first
+        //     iteration can match — every later token has a distinct
+        //     `dst_line` / `dst_col` — so the check is hoisted out of the main
+        //     loop into a separate `iter.next()` branch.
+        //
+        //  2. **Running prev-id state.** `self.token_chunk_prev_source_id` /
+        //     `_prev_name_id` track the last source/name id we *committed*, so
+        //     the next call's `TokenChunk` header can use them as the VLQ
+        //     delta baseline. We accumulate the updates in plain locals
+        //     (`last_source_id` / `last_name_id`) inside this call and write
+        //     them back to `self.*` once at the end — that keeps the hot loop
+        //     register-resident instead of doing `&mut self` stores per token.
+        //     Crucially, the locals are only updated when a token is actually
+        //     pushed; the dedup-dropped first token must not advance them, or
+        //     the next chunk's baseline would diverge from the tokens that
+        //     reached the output.
+        let mut last_source_id = self.token_chunk_prev_source_id;
+        let mut last_name_id = self.token_chunk_prev_name_id;
+
         self.tokens.reserve(sourcemap.tokens.len());
-        for (i, token) in sourcemap.get_tokens().enumerate() {
+
+        // First iteration: build the translated token, check it against
+        // `self.tokens.last()` for boundary dedup, and only on a successful
+        // push advance the running prev-id state.
+        let mut iter = sourcemap.get_tokens();
+        if let Some(first) = iter.next() {
+            let source_id_offset = first.get_source_id().map(|x| x + source_offset);
+            let name_id_offset = first.get_name_id().map(|x| x + name_offset);
+            let new_token = Token::new(
+                first.get_dst_line() + line_offset,
+                first.get_dst_col(),
+                first.get_src_line(),
+                first.get_src_col(),
+                source_id_offset,
+                name_id_offset,
+            );
+            if self.tokens.last() != Some(&new_token) {
+                if let Some(s) = source_id_offset {
+                    last_source_id = s;
+                }
+                if let Some(n) = name_id_offset {
+                    last_name_id = n;
+                }
+                self.tokens.push(new_token);
+            }
+        }
+
+        // Remaining tokens are always pushed (no dedup against the boundary),
+        // so the prev-id advance happens unconditionally for any token that
+        // carries a source/name id.
+        for token in iter {
             let source_id_offset = token.get_source_id().map(|x| x + source_offset);
             let name_id_offset = token.get_name_id().map(|x| x + name_offset);
-            let new_token = Token::new(
+            if let Some(s) = source_id_offset {
+                last_source_id = s;
+            }
+            if let Some(n) = name_id_offset {
+                last_name_id = n;
+            }
+            self.tokens.push(Token::new(
                 token.get_dst_line() + line_offset,
                 token.get_dst_col(),
                 token.get_src_line(),
                 token.get_src_col(),
                 source_id_offset,
                 name_id_offset,
-            );
-            if i == 0 && self.tokens.last() == Some(&new_token) {
-                continue;
-            }
-            if let Some(s) = source_id_offset {
-                self.token_chunk_prev_source_id = s;
-            }
-            if let Some(n) = name_id_offset {
-                self.token_chunk_prev_name_id = n;
-            }
-            self.tokens.push(new_token);
+            ));
         }
+
+        // Flush the locals back to `self` so the next `add_sourcemap` call
+        // sees the prev-id state from the tokens we actually committed.
+        self.token_chunk_prev_source_id = last_source_id;
+        self.token_chunk_prev_name_id = last_name_id;
 
         // Add `token_chunks` after tokens are added so we know the actual end index
         let end_token_idx = self.tokens.len() as u32;
