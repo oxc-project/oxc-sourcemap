@@ -104,6 +104,13 @@ impl SourceMapBuilder {
             self.token_chunks,
         )
     }
+
+    /// Same as [`Self::into_sourcemap`], but returns an [`OwnedSourceMap`]
+    /// so callers can store the result without spelling out `'static`.
+    #[inline]
+    pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
+        crate::OwnedSourceMap::new(self.into_sourcemap())
+    }
 }
 
 #[test]
