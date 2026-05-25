@@ -51,7 +51,8 @@ impl SourceMapBuilder {
         // SAFETY of the closure passed to insert_unique: rehasher receives
         // indices already in `self.names_index`, all of which point at valid
         // `self.names` entries (we never remove).
-        self.names_index.insert_unique(hash, count, |&idx| hash_str(self.names[idx as usize].as_ref()));
+        self.names_index
+            .insert_unique(hash, count, |&idx| hash_str(self.names[idx as usize].as_ref()));
         count
     }
 

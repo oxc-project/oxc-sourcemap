@@ -49,9 +49,8 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
                 continue;
             };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
-            let Some(source_lines) = source_contents_lines_map
-                .get(source_id as usize)
-                .and_then(|opt| opt.as_ref())
+            let Some(source_lines) =
+                source_contents_lines_map.get(source_id as usize).and_then(|opt| opt.as_ref())
             else {
                 // No content for this source; skip rather than panic.
                 continue;

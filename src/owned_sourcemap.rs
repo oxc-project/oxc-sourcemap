@@ -182,12 +182,7 @@ impl OwnedSourceMap {
         self.inner.generate_lookup_table()
     }
 
-    pub fn lookup_token(
-        &self,
-        lookup_table: &[&[Token]],
-        line: u32,
-        col: u32,
-    ) -> Option<Token> {
+    pub fn lookup_token(&self, lookup_table: &[&[Token]], line: u32, col: u32) -> Option<Token> {
         self.inner.lookup_token(lookup_table, line, col)
     }
 
