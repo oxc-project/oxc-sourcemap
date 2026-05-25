@@ -71,8 +71,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
     let source_root = intern_optional_string(&mut interner, json.source_root);
     let debug_id = intern_optional_string(&mut interner, json.debug_id);
 
-    let names: Box<[StrRef]> =
-        json.names.into_iter().map(|s| interner.intern_unique(&s)).collect();
+    let names: Box<[StrRef]> = json.names.into_iter().map(|s| interner.intern_unique(&s)).collect();
     let sources: Box<[StrRef]> =
         json.sources.into_iter().map(|s| interner.intern_unique(&s)).collect();
     let source_contents: Box<[OptionalStrRef]> = match json.sources_content {
@@ -156,8 +155,7 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap> {
     let source_root = intern_optional_cow(&mut interner, json.source_root);
     let debug_id = intern_optional_cow(&mut interner, json.debug_id);
 
-    let names: Box<[StrRef]> =
-        json.names.into_iter().map(|c| interner.intern_unique(&c)).collect();
+    let names: Box<[StrRef]> = json.names.into_iter().map(|c| interner.intern_unique(&c)).collect();
     let sources: Box<[StrRef]> =
         json.sources.into_iter().map(|c| interner.intern_unique(&c)).collect();
     let source_contents: Box<[OptionalStrRef]> = match json.sources_content {

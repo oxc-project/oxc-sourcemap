@@ -118,11 +118,9 @@ impl SourceMap {
     ) -> Self {
         let mut interner = crate::sourcemap_builder::StringInterner::default();
         let file = file.map(|s| interner.intern_unique(s)).map_or(OptionalStrRef::NONE, Into::into);
-        let source_root = source_root
-            .map(|s| interner.intern_unique(s))
-            .map_or(OptionalStrRef::NONE, Into::into);
-        let names: Box<[StrRef]> =
-            names.into_iter().map(|s| interner.intern_unique(s)).collect();
+        let source_root =
+            source_root.map(|s| interner.intern_unique(s)).map_or(OptionalStrRef::NONE, Into::into);
+        let names: Box<[StrRef]> = names.into_iter().map(|s| interner.intern_unique(s)).collect();
         let sources: Box<[StrRef]> =
             sources.into_iter().map(|s| interner.intern_unique(s)).collect();
         let source_contents: Box<[OptionalStrRef]> = source_contents

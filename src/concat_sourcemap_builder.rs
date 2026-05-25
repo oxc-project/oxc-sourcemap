@@ -87,11 +87,10 @@ impl ConcatSourceMapBuilder {
 
         // Copy each name/source/sources_content into the builder's buffer.
         self.sources.extend(sourcemap.get_sources().map(|s| self.interner.intern_unique(s)));
-        self.source_contents
-            .extend(sourcemap.get_source_contents().map(|opt| match opt {
-                Some(s) => self.interner.intern_unique(s).into(),
-                None => OptionalStrRef::NONE,
-            }));
+        self.source_contents.extend(sourcemap.get_source_contents().map(|opt| match opt {
+            Some(s) => self.interner.intern_unique(s).into(),
+            None => OptionalStrRef::NONE,
+        }));
         self.names.reserve(sourcemap.names.len());
         self.names.extend(sourcemap.get_names().map(|s| self.interner.intern_unique(s)));
 
@@ -262,11 +261,8 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
         None,
         vec!["file2.js"],
         vec![],
-        vec![
-            Token::new(2, 5, 2, 5, Some(0), Some(0)),
-            Token::new(3, 10, 3, 10, Some(0), Some(0)),
-        ]
-        .into_boxed_slice(),
+        vec![Token::new(2, 5, 2, 5, Some(0), Some(0)), Token::new(3, 10, 3, 10, Some(0), Some(0))]
+            .into_boxed_slice(),
         None,
     );
 
