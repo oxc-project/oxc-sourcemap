@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::SourceMap;
 
 /// Sentinel value representing an invalid/missing ID for source or name.
@@ -99,14 +97,19 @@ impl TokenChunk {
 }
 
 /// The `SourceViewToken` provider extra `source` and `source_content` value.
+///
+/// Two lifetimes:
+/// * `'sm` — the borrow of the [`SourceMap`] reference itself.
+/// * `'data` — the underlying string data inside the [`SourceMap`] (the input
+///   JSON buffer, for maps parsed via [`SourceMap::from_json_string`]).
 #[derive(Debug, Clone, Copy)]
-pub struct SourceViewToken<'a> {
+pub struct SourceViewToken<'sm, 'data> {
     pub(crate) token: Token,
-    pub(crate) sourcemap: &'a SourceMap,
+    pub(crate) sourcemap: &'sm SourceMap<'data>,
 }
 
-impl<'a> SourceViewToken<'a> {
-    pub fn new(token: Token, sourcemap: &'a SourceMap) -> Self {
+impl<'sm, 'data> SourceViewToken<'sm, 'data> {
+    pub fn new(token: Token, sourcemap: &'sm SourceMap<'data>) -> Self {
         Self { token, sourcemap }
     }
 
@@ -134,7 +137,7 @@ impl<'a> SourceViewToken<'a> {
         if self.token.source_id == INVALID_ID { None } else { Some(self.token.source_id) }
     }
 
-    pub fn get_name(&self) -> Option<&Arc<str>> {
+    pub fn get_name(&self) -> Option<&'sm str> {
         if self.token.name_id == INVALID_ID {
             None
         } else {
@@ -142,7 +145,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source(&self) -> Option<&Arc<str>> {
+    pub fn get_source(&self) -> Option<&'sm str> {
         if self.token.source_id == INVALID_ID {
             None
         } else {
@@ -150,7 +153,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_content(&self) -> Option<&Arc<str>> {
+    pub fn get_source_content(&self) -> Option<&'sm str> {
         if self.token.source_id == INVALID_ID {
             None
         } else {
@@ -158,7 +161,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_and_content(&self) -> Option<(&Arc<str>, &Arc<str>)> {
+    pub fn get_source_and_content(&self) -> Option<(&'sm str, &'sm str)> {
         if self.token.source_id == INVALID_ID {
             None
         } else {
@@ -166,7 +169,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn to_tuple(&self) -> (Option<&Arc<str>>, u32, u32, Option<&Arc<str>>) {
+    pub fn to_tuple(&self) -> (Option<&'sm str>, u32, u32, Option<&'sm str>) {
         (self.get_source(), self.get_src_line(), self.get_src_col(), self.get_name())
     }
 }

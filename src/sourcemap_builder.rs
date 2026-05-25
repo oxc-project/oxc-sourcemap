@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use rustc_hash::FxHashMap;
 
@@ -8,14 +8,17 @@ use crate::{
 };
 
 /// The `SourceMapBuilder` is a helper to generate sourcemap.
+///
+/// All strings added via the builder are owned by the builder; the resulting
+/// [`SourceMap`] is therefore [`SourceMap<'static>`].
 #[derive(Debug, Default)]
 pub struct SourceMapBuilder {
-    pub(crate) file: Option<Arc<str>>,
-    pub(crate) names_map: FxHashMap<Arc<str>, u32>,
-    pub(crate) names: Vec<Arc<str>>,
-    pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) sources_map: FxHashMap<Arc<str>, u32>,
-    pub(crate) source_contents: Vec<Option<Arc<str>>>,
+    pub(crate) file: Option<Cow<'static, str>>,
+    pub(crate) names_map: FxHashMap<Cow<'static, str>, u32>,
+    pub(crate) names: Vec<Cow<'static, str>>,
+    pub(crate) sources: Vec<Cow<'static, str>>,
+    pub(crate) sources_map: FxHashMap<Cow<'static, str>, u32>,
+    pub(crate) source_contents: Vec<Option<Cow<'static, str>>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
@@ -27,8 +30,8 @@ impl SourceMapBuilder {
             return id;
         }
         let count = self.names.len() as u32;
-        let name = Arc::from(name);
-        self.names_map.insert(Arc::clone(&name), count);
+        let name: Cow<'static, str> = Cow::Owned(name.to_owned());
+        self.names_map.insert(name.clone(), count);
         self.names.push(name);
         count
     }
@@ -40,10 +43,10 @@ impl SourceMapBuilder {
             return id;
         }
         let count = self.sources.len() as u32;
-        let source = Arc::from(source);
-        self.sources_map.insert(Arc::clone(&source), count);
+        let source: Cow<'static, str> = Cow::Owned(source.to_owned());
+        self.sources_map.insert(source.clone(), count);
         self.sources.push(source);
-        self.source_contents.push(Some(source_content.into()));
+        self.source_contents.push(Some(Cow::Owned(source_content.to_owned())));
         count
     }
 
@@ -51,8 +54,8 @@ impl SourceMapBuilder {
     /// If `source` hasn't duplicate，it will avoid extra hash calculation.
     pub fn set_source_and_content(&mut self, source: &str, source_content: &str) -> u32 {
         let count = self.sources.len() as u32;
-        self.sources.push(source.into());
-        self.source_contents.push(Some(source_content.into()));
+        self.sources.push(Cow::Owned(source.to_owned()));
+        self.source_contents.push(Some(Cow::Owned(source_content.to_owned())));
         count
     }
 
@@ -70,7 +73,7 @@ impl SourceMapBuilder {
     }
 
     pub fn set_file(&mut self, file: &str) {
-        self.file = Some(file.into());
+        self.file = Some(Cow::Owned(file.to_owned()));
     }
 
     /// Set the `SourceMap::token_chunks` to make the sourcemap to vlq mapping at parallel.
@@ -78,7 +81,7 @@ impl SourceMapBuilder {
         self.token_chunks = Some(token_chunks);
     }
 
-    pub fn into_sourcemap(mut self) -> SourceMap {
+    pub fn into_sourcemap(mut self) -> SourceMap<'static> {
         // Trade performance for memory.
         // The tokens array take enormously large amount of data,
         // which is not ideal for large applications.
@@ -111,9 +114,9 @@ fn test_sourcemap_builder() {
     builder.set_file("file");
 
     let sm = builder.into_sourcemap();
-    assert_eq!(sm.get_source(0).map(|s| s.as_ref()), Some("baz.js"));
-    assert_eq!(sm.get_name(0).map(|s| s.as_ref()), Some("x"));
-    assert_eq!(sm.get_file().map(|s| s.as_ref()), Some("file"));
+    assert_eq!(sm.get_source(0), Some("baz.js"));
+    assert_eq!(sm.get_name(0), Some("x"));
+    assert_eq!(sm.get_file(), Some("file"));
 
     let expected = r#"{"version":3,"file":"file","names":["x"],"sources":["baz.js"],"sourcesContent":[""],"mappings":""}"#;
     assert_eq!(expected, sm.to_json_string());

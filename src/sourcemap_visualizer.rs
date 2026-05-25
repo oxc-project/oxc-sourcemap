@@ -4,13 +4,13 @@ use crate::SourceMap;
 
 /// The `SourcemapVisualizer` is a helper for sourcemap testing.
 /// It print the mapping of original content and final content tokens.
-pub struct SourcemapVisualizer<'a> {
+pub struct SourcemapVisualizer<'a, 'sm> {
     code: &'a str,
-    sourcemap: &'a SourceMap,
+    sourcemap: &'a SourceMap<'sm>,
 }
 
-impl<'a> SourcemapVisualizer<'a> {
-    pub fn new(code: &'a str, sourcemap: &'a SourceMap) -> Self {
+impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
+    pub fn new(code: &'a str, sourcemap: &'a SourceMap<'sm>) -> Self {
         Self { code, sourcemap }
     }
 

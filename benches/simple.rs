@@ -152,15 +152,17 @@ pub fn bench(c: &mut Criterion) {
     }
     parse_group.finish();
 
-    let parsed_fixtures = fixtures
-        .into_iter()
+    // Keep `fixtures` alive: parsed `SourceMap`s borrow from each fixture's
+    // JSON string, so we can't consume `fixtures` with `into_iter()`.
+    let parsed_fixtures: Vec<(&str, u64, SourceMap<'_>)> = fixtures
+        .iter()
         .map(|fixture| {
             let bytes = fixture.bytes();
             let sourcemap = SourceMap::from_json_string(&fixture.json)
                 .unwrap_or_else(|err| panic!("invalid perf fixture {}: {err}", fixture.name));
-            (fixture.name, bytes, sourcemap)
+            (fixture.name.as_str(), bytes, sourcemap)
         })
-        .collect::<Vec<_>>();
+        .collect();
 
     let mut serialize_group = c.benchmark_group("serialize");
     for (name, bytes, sourcemap) in &parsed_fixtures {
