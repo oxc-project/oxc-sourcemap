@@ -87,21 +87,21 @@ struct BorrowedJSONSourceMap<'a> {
     #[serde(deserialize_with = "deserialize_version")]
     #[expect(dead_code)]
     version: u32,
-    #[serde(borrow, default)]
+    #[serde(borrow)]
     file: Option<Cow<'a, str>>,
     #[serde(borrow)]
     mappings: Cow<'a, str>,
-    #[serde(borrow, default)]
+    #[serde(borrow)]
     source_root: Option<Cow<'a, str>>,
-    #[serde(borrow, default)]
+    #[serde(borrow)]
     sources: Vec<Cow<'a, str>>,
-    #[serde(borrow, default)]
+    #[serde(borrow)]
     sources_content: Option<Vec<Option<Cow<'a, str>>>>,
     #[serde(borrow, default)]
     names: Vec<Cow<'a, str>>,
-    #[serde(borrow, default)]
+    #[serde(borrow)]
     debug_id: Option<Cow<'a, str>>,
-    #[serde(rename = "x_google_ignoreList", alias = "ignoreList", default)]
+    #[serde(rename = "x_google_ignoreList", alias = "ignoreList")]
     x_google_ignore_list: Option<Vec<u32>>,
 }
 
