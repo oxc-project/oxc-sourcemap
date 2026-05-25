@@ -1,6 +1,6 @@
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/decoder.rs
 /// It is a helper for decode vlq soucemap string to `SourceMap`.
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use crate::error::{Error, Result};
 use crate::token::INVALID_ID;
@@ -49,7 +49,7 @@ where
     Ok(version)
 }
 
-pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
+pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
     // Validate x_google_ignore_list indices
     if let Some(ref ignore_list) = json.x_google_ignore_list {
         for &idx in ignore_list {
@@ -61,23 +61,75 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
     Ok(SourceMap {
-        file: json.file.map(Arc::from),
-        names: json.names.into_iter().map(Arc::from).collect(),
-        source_root: json.source_root,
-        sources: json.sources.into_iter().map(Arc::from).collect(),
+        file: json.file.map(Cow::Owned),
+        names: json.names.into_iter().map(Cow::Owned).collect(),
+        source_root: json.source_root.map(Cow::Owned),
+        sources: json.sources.into_iter().map(Cow::Owned).collect(),
         source_contents: json
             .sources_content
-            .map(|content| content.into_iter().map(|c| c.map(Arc::from)).collect())
+            .map(|content| content.into_iter().map(|c| c.map(Cow::Owned)).collect())
             .unwrap_or_default(),
+        tokens: tokens.into_boxed_slice(),
+        token_chunks: None,
+        x_google_ignore_list: json.x_google_ignore_list,
+        debug_id: json.debug_id.map(Cow::Owned),
+    })
+}
+
+/// Private deserialization shape that borrows directly from the JSON input
+/// when no escapes are present. The lifetime `'a` is the input buffer's
+/// lifetime: each `Cow::Borrowed` is a zero-copy slice into that buffer, and
+/// only escaped strings (which serde_json must unescape into a fresh `String`)
+/// land in `Cow::Owned`.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BorrowedJSONSourceMap<'a> {
+    #[serde(deserialize_with = "deserialize_version")]
+    #[expect(dead_code)]
+    version: u32,
+    #[serde(borrow)]
+    file: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    mappings: Cow<'a, str>,
+    #[serde(borrow)]
+    source_root: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    sources: Vec<Cow<'a, str>>,
+    #[serde(borrow)]
+    sources_content: Option<Vec<Option<Cow<'a, str>>>>,
+    #[serde(borrow, default)]
+    names: Vec<Cow<'a, str>>,
+    #[serde(borrow)]
+    debug_id: Option<Cow<'a, str>>,
+    #[serde(rename = "x_google_ignoreList", alias = "ignoreList")]
+    x_google_ignore_list: Option<Vec<u32>>,
+}
+
+pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
+    let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
+
+    // Validate x_google_ignore_list indices
+    if let Some(ref ignore_list) = json.x_google_ignore_list {
+        for &idx in ignore_list {
+            if idx >= json.sources.len() as u32 {
+                return Err(Error::BadSourceReference(idx));
+            }
+        }
+    }
+
+    let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
+
+    Ok(SourceMap {
+        file: json.file,
+        names: json.names,
+        source_root: json.source_root,
+        sources: json.sources,
+        source_contents: json.sources_content.unwrap_or_default(),
         tokens: tokens.into_boxed_slice(),
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id,
     })
-}
-
-pub fn decode_from_string(value: &str) -> Result<SourceMap> {
-    decode(serde_json::from_str(value)?)
 }
 
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
@@ -269,18 +321,9 @@ fn test_decode_sourcemap() {
     assert_eq!(sm.get_source_root(), Some("x"));
     assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
     let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
-    assert_eq!(
-        iter.next().unwrap().to_tuple(),
-        (Some(&"coolstuff.js".into()), 0, 4, Some(&"x".into()))
-    );
-    assert_eq!(
-        iter.next().unwrap().to_tuple(),
-        (Some(&"coolstuff.js".into()), 1, 4, Some(&"x".into()))
-    );
-    assert_eq!(
-        iter.next().unwrap().to_tuple(),
-        (Some(&"coolstuff.js".into()), 2, 2, Some(&"alert".into()))
-    );
+    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
+    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
+    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 2, 2, Some("alert")));
     assert!(iter.next().is_none());
 }
 

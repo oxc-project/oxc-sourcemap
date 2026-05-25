@@ -7,7 +7,7 @@ use json_escape_simd::escape_into;
 use crate::JSONSourceMap;
 use crate::{SourceMap, Token, token::TokenChunk};
 
-pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
+pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
     let has_source_contents = sourcemap.source_contents.iter().any(|v| v.is_some());
     JSONSourceMap {
         version: 3,
@@ -36,7 +36,7 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
     }
 }
 
-pub fn encode_to_string(sourcemap: &SourceMap) -> String {
+pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     // Worst-case capacity accounting:
     // - escape_into may write up to (len * 2 + 2) for each string
     // - include commas between items and constant JSON punctuation/keys
@@ -47,7 +47,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     // Optional "file":"...",
     if let Some(file) = sourcemap.get_file() {
-        max_segments += 8 /* "file": */ + file.as_ref().len() * 6 + 2 /* quotes */ + 1 /* , */;
+        max_segments += 8 /* "file": */ + file.len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
     // Optional "sourceRoot":"...",
@@ -107,19 +107,19 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     max_segments += 14;
     max_segments += estimate_mappings_length(sourcemap);
 
-    // Optional ,"debugId":"..."
+    // Optional ,"debugId":<escaped>
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        max_segments += 13 /* ,"debugId":" */ + debug_id.len();
+        max_segments += 12 /* ,"debugId": */ + debug_id.len() * 6 + 2 /* quotes */;
     }
 
-    // "}
+    // "} (closing quote of mappings + closing brace)
     max_segments += 2;
     let mut contents = PreAllocatedString::new(max_segments);
 
     contents.push("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
         contents.push("\"file\":");
-        escape_into(file.as_ref(), contents.as_mut_vec());
+        escape_into(file, contents.as_mut_vec());
         contents.push(",");
     }
 
@@ -130,16 +130,16 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     contents.push("\"names\":[");
-    contents.push_list(sourcemap.names.iter(), escape_into);
+    contents.push_list(sourcemap.names.iter(), |s, out| escape_into(&**s, out));
 
     contents.push("],\"sources\":[");
-    contents.push_list(sourcemap.sources.iter(), escape_into);
+    contents.push_list(sourcemap.sources.iter(), |s, out| escape_into(&**s, out));
 
     if has_source_contents {
         let source_contents = &sourcemap.source_contents;
         contents.push("],\"sourcesContent\":[");
         contents.push_list(source_contents.iter(), |v, output| match v {
-            Some(s) => escape_into(s.as_ref(), output),
+            Some(s) => escape_into(&**s, output),
             None => output.extend_from_slice(b"null"),
         });
     }
@@ -153,13 +153,14 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     contents.push("],\"mappings\":\"");
     serialize_sourcemap_mappings(sourcemap, &mut contents);
+    contents.push("\"");
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        contents.push("\",\"debugId\":\"");
-        contents.push(debug_id);
+        contents.push(",\"debugId\":");
+        escape_into(debug_id, contents.as_mut_vec());
     }
 
-    contents.push("\"}");
+    contents.push("}");
 
     // Check we calculated number of segments required correctly
     debug_assert!(contents.len() <= max_segments);
@@ -167,7 +168,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     contents.consume()
 }
 
-fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
+fn estimate_mappings_length(sourcemap: &SourceMap<'_>) -> usize {
     sourcemap
         .token_chunks
         .as_ref()
@@ -184,7 +185,7 @@ fn estimate_mappings_length(sourcemap: &SourceMap) -> usize {
         })
 }
 
-fn serialize_sourcemap_mappings(sm: &SourceMap, output: &mut String) {
+fn serialize_sourcemap_mappings(sm: &SourceMap<'_>, output: &mut String) {
     if let Some(token_chunks) = sm.token_chunks.as_ref() {
         token_chunks.iter().for_each(|token_chunk| {
             serialize_mappings(&sm.tokens, token_chunk, output);
@@ -444,7 +445,8 @@ fn test_encode() {
         "x_google_ignoreList": [0]
     }"#;
     let sm = SourceMap::from_json_string(input).unwrap();
-    let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();
+    let encoded = sm.to_json_string();
+    let sm2 = SourceMap::from_json_string(&encoded).unwrap();
 
     for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
         assert_eq!(tok1, tok2);
@@ -472,7 +474,8 @@ fn test_encode() {
     }"#;
     // spellchecker:on
     let sm = SourceMap::from_json_string(input).unwrap();
-    let sm2 = SourceMap::from_json_string(&sm.to_json_string()).unwrap();
+    let encoded = sm.to_json_string();
+    let sm2 = SourceMap::from_json_string(&encoded).unwrap();
 
     for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
         assert_eq!(tok1, tok2);
@@ -612,4 +615,16 @@ fn test_encode_escape_file_and_source_root() {
     );
     // Verify the output is valid JSON by round-tripping
     SourceMap::from_json_string(&json).unwrap();
+}
+
+#[test]
+fn test_encode_escape_debug_id() {
+    let mut sm = SourceMap::default();
+    // A debug_id containing JSON-special characters must be escaped, otherwise
+    // the output is malformed JSON.
+    sm.set_debug_id("id-with-\"quote\"-and-\\backslash");
+    let json = sm.to_json_string();
+    // Round-trip must succeed (would fail if the quote isn't escaped).
+    let roundtripped = SourceMap::from_json_string(&json).unwrap();
+    assert_eq!(roundtripped.get_debug_id(), Some("id-with-\"quote\"-and-\\backslash"));
 }

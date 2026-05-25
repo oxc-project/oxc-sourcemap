@@ -29,8 +29,8 @@ pub struct SourceMap {
     pub x_google_ignorelist: Option<Vec<u32>>,
 }
 
-impl From<crate::SourceMap> for SourceMap {
-    fn from(source_map: crate::SourceMap) -> Self {
+impl From<crate::SourceMap<'_>> for SourceMap {
+    fn from(source_map: crate::SourceMap<'_>) -> Self {
         let json = source_map.to_json();
         Self {
             file: json.file,
@@ -42,7 +42,14 @@ impl From<crate::SourceMap> for SourceMap {
                 content.into_iter().map(Option::unwrap_or_default).collect::<Vec<_>>()
             }),
             version: 3,
-            x_google_ignorelist: None,
+            x_google_ignorelist: json.x_google_ignore_list,
         }
+    }
+}
+
+impl From<crate::OwnedSourceMap> for SourceMap {
+    #[inline]
+    fn from(source_map: crate::OwnedSourceMap) -> Self {
+        Self::from(source_map.into_inner())
     }
 }

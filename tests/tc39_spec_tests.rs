@@ -146,20 +146,17 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
 
                     // Check source
                     if let Some(expected_source) = original_source {
-                        if source.map(|s| s.as_ref()) != Some(expected_source.as_str()) {
+                        if source != Some(expected_source.as_str()) {
                             eprintln!(
                                 "✗ {}: mapping check failed - expected source '{}', got {:?}",
-                                test.name,
-                                expected_source,
-                                source.map(|s| s.as_ref())
+                                test.name, expected_source, source
                             );
                             return false;
                         }
                     } else if source.is_some() {
                         eprintln!(
                             "✗ {}: mapping check failed - expected no source, got {:?}",
-                            test.name,
-                            source.map(|s| s.as_ref())
+                            test.name, source
                         );
                         return false;
                     }
@@ -176,7 +173,7 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                     }
 
                     // Check name
-                    let actual_name = name.map(|n| n.as_ref());
+                    let actual_name = name;
                     let expected_name = mapped_name.as_ref().map(|s| s.as_str());
                     if actual_name != expected_name {
                         eprintln!(
@@ -198,8 +195,7 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                 if let Some(indices) = ignore_list {
                     for source_name in present {
                         // Find the index of this source in the sources array
-                        let source_index =
-                            source_map.get_sources().position(|s| s.as_ref() == source_name);
+                        let source_index = source_map.get_sources().position(|s| s == source_name);
 
                         if let Some(idx) = source_index {
                             if !indices.contains(&(idx as u32)) {

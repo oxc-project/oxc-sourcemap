@@ -1,13 +1,19 @@
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use crate::{SourceMap, Token, token::TokenChunk};
 
 /// The `ConcatSourceMapBuilder` is a helper to concat sourcemaps.
+///
+/// The lifetime `'a` is the lifetime of the input source maps borrowed during
+/// `add_sourcemap` / `from_sourcemaps`: every name/source/sourcesContent
+/// string in the concatenated result is a [`Cow::Borrowed`] view into one of
+/// the input maps, so concatenation does no string allocations at all. The
+/// resulting [`SourceMap<'a>`] cannot outlive its inputs.
 #[derive(Debug, Default)]
-pub struct ConcatSourceMapBuilder {
-    pub(crate) names: Vec<Arc<str>>,
-    pub(crate) sources: Vec<Arc<str>>,
-    pub(crate) source_contents: Vec<Option<Arc<str>>>,
+pub struct ConcatSourceMapBuilder<'a> {
+    pub(crate) names: Vec<Cow<'a, str>>,
+    pub(crate) sources: Vec<Cow<'a, str>>,
+    pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
@@ -15,7 +21,7 @@ pub struct ConcatSourceMapBuilder {
     pub(crate) token_chunk_prev_name_id: u32,
 }
 
-impl ConcatSourceMapBuilder {
+impl<'a> ConcatSourceMapBuilder<'a> {
     /// Create new `ConcatSourceMapBuilder` with pre-allocated capacity.
     ///
     /// Allocating capacity before adding sourcemaps with `add_sourcemap` avoids memory copies
@@ -56,7 +62,7 @@ impl ConcatSourceMapBuilder {
     /// ]);
     /// let combined_sourcemap = builder.into_sourcemap();
     /// ```
-    pub fn from_sourcemaps(sourcemap_and_line_offsets: &[(&SourceMap, u32)]) -> Self {
+    pub fn from_sourcemaps(sourcemap_and_line_offsets: &[(&'a SourceMap<'_>, u32)]) -> Self {
         // Calculate length of `Vec`s required
         let mut names_len = 0;
         let mut sources_len = 0;
@@ -81,7 +87,7 @@ impl ConcatSourceMapBuilder {
         builder
     }
 
-    pub fn add_sourcemap(&mut self, sourcemap: &SourceMap, line_offset: u32) {
+    pub fn add_sourcemap(&mut self, sourcemap: &'a SourceMap<'_>, line_offset: u32) {
         let source_offset = self.sources.len() as u32;
         let name_offset = self.names.len() as u32;
         let start_token_idx = self.tokens.len() as u32;
@@ -90,37 +96,42 @@ impl ConcatSourceMapBuilder {
         let chunk_prev_name_id = self.token_chunk_prev_name_id;
         let chunk_prev_source_id = self.token_chunk_prev_source_id;
 
-        // Extend `sources` and `source_contents`.
-        self.sources.extend(sourcemap.get_sources().map(Arc::clone));
-
-        // Clone `Arc` instead of generating a new `Arc` and copying string data because
-        // source texts are generally long strings. Cost of copying a large string is higher
-        // than cloning an `Arc`.
-        self.source_contents.extend(sourcemap.source_contents.iter().cloned());
-
-        // Extend `names`.
+        // Borrow strings directly from the input map — no allocations.
+        // The output `SourceMap`'s lifetime is tied to `'a`, so the
+        // borrow checker enforces that input maps outlive it.
+        self.sources.extend(sourcemap.get_sources().map(Cow::Borrowed));
+        self.source_contents
+            .extend(sourcemap.get_source_contents().map(|opt| opt.map(Cow::Borrowed)));
         self.names.reserve(sourcemap.names.len());
-        self.names.extend(sourcemap.get_names().map(Arc::clone));
+        self.names.extend(sourcemap.get_names().map(Cow::Borrowed));
 
         // Extend `tokens`, skipping the first token if it duplicates the last existing one.
+        //
+        // Compute the offset-adjusted source/name ids BEFORE building the token,
+        // and only commit them to `self.token_chunk_prev_*` once we've decided
+        // to actually push the token. Updating the prev-id state for a token
+        // that gets skipped by the dedup `continue` below would pollute the
+        // next sourcemap's TokenChunk header.
         self.tokens.reserve(sourcemap.tokens.len());
         for (i, token) in sourcemap.get_tokens().enumerate() {
+            let source_id_offset = token.get_source_id().map(|x| x + source_offset);
+            let name_id_offset = token.get_name_id().map(|x| x + name_offset);
             let new_token = Token::new(
                 token.get_dst_line() + line_offset,
                 token.get_dst_col(),
                 token.get_src_line(),
                 token.get_src_col(),
-                token.get_source_id().map(|x| {
-                    self.token_chunk_prev_source_id = x + source_offset;
-                    self.token_chunk_prev_source_id
-                }),
-                token.get_name_id().map(|x| {
-                    self.token_chunk_prev_name_id = x + name_offset;
-                    self.token_chunk_prev_name_id
-                }),
+                source_id_offset,
+                name_id_offset,
             );
             if i == 0 && self.tokens.last() == Some(&new_token) {
                 continue;
+            }
+            if let Some(s) = source_id_offset {
+                self.token_chunk_prev_source_id = s;
+            }
+            if let Some(n) = name_id_offset {
+                self.token_chunk_prev_name_id = n;
             }
             self.tokens.push(new_token);
         }
@@ -147,7 +158,7 @@ impl ConcatSourceMapBuilder {
         }
     }
 
-    pub fn into_sourcemap(self) -> SourceMap {
+    pub fn into_sourcemap(self) -> SourceMap<'a> {
         SourceMap::new(
             None,
             self.names,
@@ -160,62 +171,51 @@ impl ConcatSourceMapBuilder {
     }
 }
 
-#[test]
-fn test_concat_sourcemap_builder() {
-    run_test(|sourcemap_and_line_offsets| {
-        let mut builder = ConcatSourceMapBuilder::default();
-        for (sourcemap, line_offset) in sourcemap_and_line_offsets.iter().copied() {
-            builder.add_sourcemap(sourcemap, line_offset);
-        }
-        builder
-    });
-}
-
-#[test]
-fn test_concat_sourcemap_builder_from_sourcemaps() {
-    run_test(ConcatSourceMapBuilder::from_sourcemaps);
+#[cfg(test)]
+fn build_test_inputs() -> [SourceMap<'static>; 3] {
+    [
+        SourceMap::new(
+            None,
+            vec![Cow::Borrowed("foo"), Cow::Borrowed("foo2")],
+            None,
+            vec![Cow::Borrowed("foo.js")],
+            vec![],
+            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+            None,
+        ),
+        SourceMap::new(
+            None,
+            vec![Cow::Borrowed("bar")],
+            None,
+            vec![Cow::Borrowed("bar.js")],
+            vec![],
+            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+            None,
+        ),
+        SourceMap::new(
+            None,
+            vec![Cow::Borrowed("abc")],
+            None,
+            vec![Cow::Borrowed("abc.js")],
+            vec![],
+            vec![Token::new(1, 2, 2, 2, Some(0), Some(0))].into_boxed_slice(),
+            None,
+        ),
+    ]
 }
 
 #[cfg(test)]
-fn run_test<F>(create_builder: F)
-where
-    F: Fn(&[(&SourceMap, u32)]) -> ConcatSourceMapBuilder,
-{
-    let sm1 = SourceMap::new(
+fn assert_test_result(concat_sm: SourceMap<'_>) {
+    let expected = SourceMap::new(
         None,
-        vec!["foo".into(), "foo2".into()],
+        vec![
+            Cow::Borrowed("foo"),
+            Cow::Borrowed("foo2"),
+            Cow::Borrowed("bar"),
+            Cow::Borrowed("abc"),
+        ],
         None,
-        vec!["foo.js".into()],
-        vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
-        None,
-    );
-    let sm2 = SourceMap::new(
-        None,
-        vec!["bar".into()],
-        None,
-        vec!["bar.js".into()],
-        vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
-        None,
-    );
-    let sm3 = SourceMap::new(
-        None,
-        vec!["abc".into()],
-        None,
-        vec!["abc.js".into()],
-        vec![],
-        vec![Token::new(1, 2, 2, 2, Some(0), Some(0))].into_boxed_slice(),
-        None,
-    );
-
-    let builder = create_builder(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
-
-    let sm = SourceMap::new(
-        None,
-        vec!["foo".into(), "foo2".into(), "bar".into(), "abc".into()],
-        None,
-        vec!["foo.js".into(), "bar.js".into(), "abc.js".into()],
+        vec![Cow::Borrowed("foo.js"), Cow::Borrowed("bar.js"), Cow::Borrowed("abc.js")],
         vec![],
         vec![
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
@@ -225,11 +225,10 @@ where
         .into_boxed_slice(),
         None,
     );
-    let concat_sm = builder.into_sourcemap();
 
-    assert_eq!(concat_sm.tokens, sm.tokens);
-    assert_eq!(concat_sm.sources, sm.sources);
-    assert_eq!(concat_sm.names, sm.names);
+    assert_eq!(concat_sm.tokens, expected.tokens);
+    assert_eq!(concat_sm.sources, expected.sources);
+    assert_eq!(concat_sm.names, expected.names);
     assert_eq!(
         concat_sm.token_chunks,
         Some(vec![
@@ -239,7 +238,25 @@ where
         ])
     );
 
-    assert_eq!(sm.to_json().mappings, concat_sm.to_json().mappings);
+    assert_eq!(expected.to_json().mappings, concat_sm.to_json().mappings);
+}
+
+#[test]
+fn test_concat_sourcemap_builder() {
+    let [sm1, sm2, sm3] = build_test_inputs();
+    let inputs = [(&sm1, 0u32), (&sm2, 2), (&sm3, 2)];
+    let mut builder = ConcatSourceMapBuilder::default();
+    for (sourcemap, line_offset) in inputs.iter().copied() {
+        builder.add_sourcemap(sourcemap, line_offset);
+    }
+    assert_test_result(builder.into_sourcemap());
+}
+
+#[test]
+fn test_concat_sourcemap_builder_from_sourcemaps() {
+    let [sm1, sm2, sm3] = build_test_inputs();
+    let builder = ConcatSourceMapBuilder::from_sourcemaps(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
+    assert_test_result(builder.into_sourcemap());
 }
 
 #[test]
@@ -255,9 +272,9 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
     // no deduplication should happen (tokens are different)
     let sm1 = SourceMap::new(
         None,
-        vec!["name1".into()],
+        vec![Cow::Borrowed("name1")],
         None,
-        vec!["file1.js".into()],
+        vec![Cow::Borrowed("file1.js")],
         vec![],
         vec![Token::new(1, 1, 1, 1, Some(0), Some(0)), Token::new(2, 5, 2, 5, Some(0), Some(0))]
             .into_boxed_slice(),
@@ -267,9 +284,9 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
     // sm2 has different source_id/name_id after offset, so won't deduplicate
     let sm2 = SourceMap::new(
         None,
-        vec!["name2".into()],
+        vec![Cow::Borrowed("name2")],
         None,
-        vec!["file2.js".into()],
+        vec![Cow::Borrowed("file2.js")],
         vec![],
         vec![
             Token::new(2, 5, 2, 5, Some(0), Some(0)), // Different source/name after offset
