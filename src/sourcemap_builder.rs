@@ -1,8 +1,6 @@
 use std::borrow::Cow;
-use std::hash::{BuildHasher, Hasher};
 
-use hashbrown::HashTable;
-use rustc_hash::FxBuildHasher;
+use rustc_hash::FxHashMap;
 
 use crate::{
     SourceMap,
@@ -13,63 +11,42 @@ use crate::{
 ///
 /// All strings added via the builder are owned by the builder; the resulting
 /// [`SourceMap`] is therefore [`SourceMap<'static>`].
-///
-/// Dedup is implemented with a `HashTable<u32>` of indices into `names` /
-/// `sources` rather than a `HashMap<Cow, u32>` keyed by the string itself.
-/// That collapses the old "1 String alloc for the Vec + 1 String alloc for the
-/// HashMap key" pattern down to a single allocation per unique entry.
 #[derive(Debug, Default)]
 pub struct SourceMapBuilder {
     pub(crate) file: Option<Cow<'static, str>>,
+    pub(crate) names_map: FxHashMap<Cow<'static, str>, u32>,
     pub(crate) names: Vec<Cow<'static, str>>,
-    pub(crate) names_index: HashTable<u32>,
     pub(crate) sources: Vec<Cow<'static, str>>,
-    pub(crate) sources_index: HashTable<u32>,
+    pub(crate) sources_map: FxHashMap<Cow<'static, str>, u32>,
     pub(crate) source_contents: Vec<Option<Cow<'static, str>>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
 
-#[inline]
-fn hash_str(s: &str) -> u64 {
-    let mut hasher = FxBuildHasher.build_hasher();
-    hasher.write(s.as_bytes());
-    hasher.finish()
-}
-
 impl SourceMapBuilder {
     /// Add item to `SourceMap::name`.
     pub fn add_name(&mut self, name: &str) -> u32 {
-        let hash = hash_str(name);
-        if let Some(&id) =
-            self.names_index.find(hash, |&idx| self.names[idx as usize].as_ref() == name)
-        {
+        if let Some(&id) = self.names_map.get(name) {
             return id;
         }
         let count = self.names.len() as u32;
-        self.names.push(Cow::Owned(name.to_owned()));
-        // SAFETY of the closure passed to insert_unique: rehasher receives
-        // indices already in `self.names_index`, all of which point at valid
-        // `self.names` entries (we never remove).
-        self.names_index
-            .insert_unique(hash, count, |&idx| hash_str(self.names[idx as usize].as_ref()));
+        let name: Cow<'static, str> = Cow::Owned(name.to_owned());
+        self.names_map.insert(name.clone(), count);
+        self.names.push(name);
         count
     }
 
     /// Add item to `SourceMap::sources` and `SourceMap::source_contents`.
     /// If `source` maybe duplicate, please use it.
     pub fn add_source_and_content(&mut self, source: &str, source_content: &str) -> u32 {
-        let hash = hash_str(source);
-        if let Some(&id) =
-            self.sources_index.find(hash, |&idx| self.sources[idx as usize].as_ref() == source)
-        {
+        if let Some(&id) = self.sources_map.get(source) {
             return id;
         }
         let count = self.sources.len() as u32;
-        self.sources.push(Cow::Owned(source.to_owned()));
+        let source: Cow<'static, str> = Cow::Owned(source.to_owned());
+        self.sources_map.insert(source.clone(), count);
+        self.sources.push(source);
         self.source_contents.push(Some(Cow::Owned(source_content.to_owned())));
-        self.sources_index
-            .insert_unique(hash, count, |&idx| hash_str(self.sources[idx as usize].as_ref()));
         count
     }
 
@@ -115,9 +92,6 @@ impl SourceMapBuilder {
         if let Some(c) = self.token_chunks.as_mut() {
             c.shrink_to_fit()
         }
-        // Dedup indexes hold only u32s; just drop them.
-        drop(self.names_index);
-        drop(self.sources_index);
         SourceMap::new(
             self.file,
             self.names,
