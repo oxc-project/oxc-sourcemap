@@ -32,7 +32,7 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
         // Build a 1:1 map: index N in the result corresponds to source_id N.
         // `None` entries are preserved so indexing by source_id stays correct
         // even when some sources have no content (the previous filter_map
-        // dropped them, mis-aligning all later indices).
+        // dropped them, which misaligned all later indices).
         let source_contents_lines_map: Vec<Option<Vec<Vec<u16>>>> = source_contents
             .iter()
             .map(|content| content.as_ref().map(|c| Self::generate_line_utf16_tables(c)))
