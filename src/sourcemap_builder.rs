@@ -129,7 +129,7 @@ impl SourceMapBuilder {
         )
     }
 
-    /// Same as [`Self::into_sourcemap`], but returns an [`OwnedSourceMap`]
+    /// Same as [`Self::into_sourcemap`], but returns an [`crate::OwnedSourceMap`]
     /// so callers can store the result without spelling out `'static`.
     #[inline]
     pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
