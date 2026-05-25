@@ -328,7 +328,11 @@ unsafe fn encode_vlq(out: &mut String, num: i64) {
                 break;
             }
 
-            let b = B64_CHARS.0[digit as usize + 32];
+            // SAFETY: `digit = num & 0b11111` is in 0..=31, so `digit + 32` is in
+            // 32..=63 — well within the 64-element table. `get_unchecked` here
+            // saves a bounds-check that the optimizer doesn't reliably elide
+            // across the loop break.
+            let b = *B64_CHARS.0.get_unchecked(digit as usize + 32);
             // SAFETY:
             // * This loop can execute a maximum of 7 times, and on last turn will exit before getting here.
             //   Caller promises there are at least 7 bytes spare capacity in `out` at start. We only
@@ -337,7 +341,8 @@ unsafe fn encode_vlq(out: &mut String, num: i64) {
             push_byte_unchecked(out, b);
         }
 
-        let b = B64_CHARS.0[digit as usize];
+        // SAFETY: same range argument as above; `digit` is in 0..=31.
+        let b = *B64_CHARS.0.get_unchecked(digit as usize);
         // SAFETY:
         // * The loop above pushes max 6 bytes. Caller promises there are at least 7 bytes spare capacity
         //   in `out` at start. So guaranteed there is at least 1 byte capacity in `out` here.

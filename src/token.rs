@@ -16,6 +16,7 @@ pub struct Token {
 }
 
 impl Token {
+    #[inline]
     pub fn new(
         dst_line: u32,
         dst_col: u32,
@@ -34,26 +35,48 @@ impl Token {
         }
     }
 
+    /// Construct a `Token` directly from raw u32 ids using `INVALID_ID`
+    /// (`u32::MAX`) to mean "absent". Skips the `Option<u32> → u32`
+    /// roundtrip from [`Token::new`] for hot decode/concat loops that
+    /// already track the sentinel value directly.
+    #[inline]
+    pub(crate) fn new_raw(
+        dst_line: u32,
+        dst_col: u32,
+        src_line: u32,
+        src_col: u32,
+        source_id: u32,
+        name_id: u32,
+    ) -> Self {
+        Self { dst_line, dst_col, src_line, src_col, source_id, name_id }
+    }
+
+    #[inline]
     pub fn get_dst_line(&self) -> u32 {
         self.dst_line
     }
 
+    #[inline]
     pub fn get_dst_col(&self) -> u32 {
         self.dst_col
     }
 
+    #[inline]
     pub fn get_src_line(&self) -> u32 {
         self.src_line
     }
 
+    #[inline]
     pub fn get_src_col(&self) -> u32 {
         self.src_col
     }
 
+    #[inline]
     pub fn get_name_id(&self) -> Option<u32> {
         if self.name_id == INVALID_ID { None } else { Some(self.name_id) }
     }
 
+    #[inline]
     pub fn get_source_id(&self) -> Option<u32> {
         if self.source_id == INVALID_ID { None } else { Some(self.source_id) }
     }

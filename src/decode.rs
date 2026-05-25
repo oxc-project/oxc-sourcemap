@@ -222,14 +222,9 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                     }
                 }
 
-                tokens.push(Token::new(
-                    dst_line,
-                    dst_col,
-                    src_line,
-                    src_col,
-                    if src == INVALID_ID { None } else { Some(src) },
-                    if name == INVALID_ID { None } else { Some(name) },
-                ));
+                // `src` / `name` already use `INVALID_ID` to mean "absent",
+                // so skip the `u32 → Option<u32> → u32` roundtrip.
+                tokens.push(Token::new_raw(dst_line, dst_col, src_line, src_col, src, name));
             }
         }
     }
