@@ -96,6 +96,9 @@ impl<'a> SourceMap<'a> {
     /// needs to outlive the JSON input it was parsed from, or when the
     /// borrow lifetime from a concat builder is shorter than where you
     /// want to use the result.
+    ///
+    /// `Cow::Owned` entries are moved without copying; `Cow::Borrowed`
+    /// entries allocate.
     pub fn into_owned(self) -> SourceMap<'static> {
         SourceMap {
             file: self.file.map(|c| Cow::Owned(c.into_owned())),
@@ -111,6 +114,41 @@ impl<'a> SourceMap<'a> {
             token_chunks: self.token_chunks,
             x_google_ignore_list: self.x_google_ignore_list,
             debug_id: self.debug_id.map(|c| Cow::Owned(c.into_owned())),
+        }
+    }
+
+    /// Decompose this `SourceMap` into its constituent owned parts.
+    ///
+    /// Useful for downstream code that wants to consume the map (e.g.
+    /// transform tokens, swap in a different `file` field) without
+    /// re-cloning every name/source string via accessors. Pair with
+    /// [`SourceMap::from_parts`] (or `From`) to reassemble.
+    pub fn into_parts(self) -> SourceMapParts<'a> {
+        SourceMapParts {
+            file: self.file,
+            names: self.names,
+            source_root: self.source_root,
+            sources: self.sources,
+            source_contents: self.source_contents,
+            tokens: self.tokens,
+            token_chunks: self.token_chunks,
+            x_google_ignore_list: self.x_google_ignore_list,
+            debug_id: self.debug_id,
+        }
+    }
+
+    /// Reassemble a `SourceMap` from its parts. See [`SourceMap::into_parts`].
+    pub fn from_parts(parts: SourceMapParts<'a>) -> Self {
+        Self {
+            file: parts.file,
+            names: parts.names,
+            source_root: parts.source_root,
+            sources: parts.sources,
+            source_contents: parts.source_contents,
+            tokens: parts.tokens,
+            token_chunks: parts.token_chunks,
+            x_google_ignore_list: parts.x_google_ignore_list,
+            debug_id: parts.debug_id,
         }
     }
 
@@ -248,6 +286,31 @@ impl<'a> SourceMap<'a> {
         col: u32,
     ) -> Option<SourceViewToken<'_, 'a>> {
         self.lookup_token(lookup_table, line, col).map(|token| SourceViewToken::new(token, self))
+    }
+}
+
+/// Owned destructured parts of a [`SourceMap`].
+///
+/// Returned by [`SourceMap::into_parts`] for downstream code that wants to
+/// take ownership of the internal `Vec<Cow<'_, str>>` storage without going
+/// through accessors (which only return `&str` and force a clone to take
+/// ownership).
+#[derive(Debug, Clone, Default)]
+pub struct SourceMapParts<'a> {
+    pub file: Option<Cow<'a, str>>,
+    pub names: Vec<Cow<'a, str>>,
+    pub source_root: Option<Cow<'a, str>>,
+    pub sources: Vec<Cow<'a, str>>,
+    pub source_contents: Vec<Option<Cow<'a, str>>>,
+    pub tokens: Box<[Token]>,
+    pub token_chunks: Option<Vec<TokenChunk>>,
+    pub x_google_ignore_list: Option<Vec<u32>>,
+    pub debug_id: Option<Cow<'a, str>>,
+}
+
+impl<'a> From<SourceMapParts<'a>> for SourceMap<'a> {
+    fn from(parts: SourceMapParts<'a>) -> Self {
+        SourceMap::from_parts(parts)
     }
 }
 
