@@ -5,7 +5,7 @@ use std::{
 };
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap, SourceMapBuilder};
+use oxc_sourcemap::{BorrowedSourceMap, ConcatSourceMapBuilder, SourceMap, SourceMapBuilder};
 
 #[derive(Debug, Clone)]
 struct Fixture {
@@ -151,6 +151,25 @@ pub fn bench(c: &mut Criterion) {
         );
     }
     parse_group.finish();
+
+    let mut borrowed_group = c.benchmark_group("parse_borrowed");
+    for fixture in &fixtures {
+        borrowed_group.throughput(Throughput::Bytes(fixture.bytes()));
+        borrowed_group.bench_with_input(
+            BenchmarkId::from_parameter(&fixture.name),
+            fixture,
+            |b, fixture| {
+                b.iter(|| {
+                    let parsed = BorrowedSourceMap::from_json_string(black_box(&fixture.json))
+                        .unwrap_or_else(|err| {
+                            panic!("failed to parse fixture {}: {err}", fixture.name)
+                        });
+                    black_box(parsed);
+                });
+            },
+        );
+    }
+    borrowed_group.finish();
 
     let parsed_fixtures = fixtures
         .into_iter()

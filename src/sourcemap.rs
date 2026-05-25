@@ -1,6 +1,8 @@
+use std::borrow::Cow;
+
 use crate::{
     SourceViewToken,
-    decode::{JSONSourceMap, decode, decode_from_string},
+    decode::{JSONSourceMap, decode, decode_from_string, decode_from_string_borrowed},
     encode::{encode, encode_to_string},
     error::Result,
     token::{Token, TokenChunk},
@@ -416,6 +418,149 @@ fn reintern_optional(
     match r.resolve(buf) {
         Some(s) => builder.intern(s).into(),
         None => OptionalStrRef::NONE,
+    }
+}
+
+/// A zero-copy parsed source map, holding `Cow` views into an input JSON
+/// buffer.
+///
+/// Most usage should prefer the owned [`SourceMap`] — it has no lifetime
+/// parameter and packs all strings into a single buffer. `BorrowedSourceMap`
+/// exists for the niche case where you want to parse a sourcemap and
+/// immediately read from it without paying for a string-copy into the
+/// owned representation:
+///
+/// ```
+/// # use oxc_sourcemap::BorrowedSourceMap;
+/// # fn read(_: &str) {}
+/// let json = r#"{"version":3,"sources":[],"names":[],"mappings":""}"#;
+/// let borrowed = BorrowedSourceMap::from_json_string(json).unwrap();
+/// for token in borrowed.get_tokens() {
+///     // ... read tokens, no string allocations beyond what serde_json did ...
+/// }
+/// // Promote to owned if you need to store it past `json`'s lifetime:
+/// let owned = borrowed.into_owned();
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct BorrowedSourceMap<'a> {
+    pub(crate) file: Option<Cow<'a, str>>,
+    pub(crate) source_root: Option<Cow<'a, str>>,
+    pub(crate) debug_id: Option<Cow<'a, str>>,
+    pub(crate) names: Vec<Cow<'a, str>>,
+    pub(crate) sources: Vec<Cow<'a, str>>,
+    pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
+    pub(crate) tokens: Box<[Token]>,
+    pub(crate) token_chunks: Option<Vec<TokenChunk>>,
+    pub(crate) x_google_ignore_list: Option<Vec<u32>>,
+}
+
+impl<'a> BorrowedSourceMap<'a> {
+    /// Parse a sourcemap JSON string without copying strings into an owned
+    /// buffer. Each name / source / sourcesContent entry becomes a
+    /// `Cow::Borrowed` view into `value` when no JSON escapes are present,
+    /// or a `Cow::Owned` `String` when serde_json had to unescape.
+    ///
+    /// # Errors
+    /// Returns `serde_json` and VLQ decode errors.
+    pub fn from_json_string(value: &'a str) -> Result<Self> {
+        decode_from_string_borrowed(value)
+    }
+
+    /// Copy every string into a single owned [`SourceMap::buf`] and return
+    /// the owned form. `Cow::Owned` entries are moved without copying their
+    /// `String` data; only `Cow::Borrowed` entries trigger a `memcpy`.
+    pub fn into_owned(self) -> SourceMap {
+        let mut interner = crate::sourcemap_builder::StringInterner::default();
+        let file = match self.file {
+            Some(c) => interner.intern_unique(&c).into(),
+            None => OptionalStrRef::NONE,
+        };
+        let source_root = match self.source_root {
+            Some(c) => interner.intern_unique(&c).into(),
+            None => OptionalStrRef::NONE,
+        };
+        let debug_id = match self.debug_id {
+            Some(c) => interner.intern_unique(&c).into(),
+            None => OptionalStrRef::NONE,
+        };
+        let names: Box<[StrRef]> =
+            self.names.into_iter().map(|c| interner.intern_unique(&c)).collect();
+        let sources: Box<[StrRef]> =
+            self.sources.into_iter().map(|c| interner.intern_unique(&c)).collect();
+        let source_contents: Box<[OptionalStrRef]> = self
+            .source_contents
+            .into_iter()
+            .map(|opt| match opt {
+                Some(c) => interner.intern_unique(&c).into(),
+                None => OptionalStrRef::NONE,
+            })
+            .collect();
+        SourceMap {
+            buf: interner.into_buf(),
+            file,
+            source_root,
+            debug_id,
+            names,
+            sources,
+            source_contents,
+            tokens: self.tokens,
+            token_chunks: self.token_chunks,
+            x_google_ignore_list: self.x_google_ignore_list,
+        }
+    }
+
+    pub fn get_file(&self) -> Option<&str> {
+        self.file.as_deref()
+    }
+
+    pub fn get_source_root(&self) -> Option<&str> {
+        self.source_root.as_deref()
+    }
+
+    pub fn get_debug_id(&self) -> Option<&str> {
+        self.debug_id.as_deref()
+    }
+
+    pub fn get_x_google_ignore_list(&self) -> Option<&[u32]> {
+        self.x_google_ignore_list.as_deref()
+    }
+
+    pub fn get_name(&self, id: u32) -> Option<&str> {
+        self.names.get(id as usize).map(AsRef::as_ref)
+    }
+
+    pub fn get_source(&self, id: u32) -> Option<&str> {
+        self.sources.get(id as usize).map(AsRef::as_ref)
+    }
+
+    pub fn get_source_content(&self, id: u32) -> Option<&str> {
+        self.source_contents.get(id as usize).and_then(|opt| opt.as_deref())
+    }
+
+    pub fn get_source_and_content(&self, id: u32) -> Option<(&str, &str)> {
+        let source = self.get_source(id)?;
+        let content = self.get_source_content(id)?;
+        Some((source, content))
+    }
+
+    pub fn get_names(&self) -> impl Iterator<Item = &str> {
+        self.names.iter().map(AsRef::as_ref)
+    }
+
+    pub fn get_sources(&self) -> impl Iterator<Item = &str> {
+        self.sources.iter().map(AsRef::as_ref)
+    }
+
+    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&str>> {
+        self.source_contents.iter().map(|opt| opt.as_deref())
+    }
+
+    pub fn get_token(&self, index: u32) -> Option<Token> {
+        self.tokens.get(index as usize).copied()
+    }
+
+    pub fn get_tokens(&self) -> impl Iterator<Item = Token> {
+        self.tokens.iter().copied()
     }
 }
 

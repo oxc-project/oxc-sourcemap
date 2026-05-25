@@ -1,7 +1,9 @@
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/decoder.rs
 /// It is a helper for decode vlq soucemap string to `SourceMap`.
+use std::borrow::Cow;
+
 use crate::error::{Error, Result};
-use crate::sourcemap::{OptionalStrRef, StrRef};
+use crate::sourcemap::{BorrowedSourceMap, OptionalStrRef, StrRef};
 use crate::sourcemap_builder::StringInterner;
 use crate::token::INVALID_ID;
 use crate::{SourceMap, Token};
@@ -105,8 +107,123 @@ fn intern_optional_string(interner: &mut StringInterner, s: Option<String>) -> O
     }
 }
 
+/// Private deserialization shape that borrows from the JSON input via
+/// `#[serde(borrow)]`. Unescaped strings become `Cow::Borrowed` (no
+/// allocation); escaped strings become `Cow::Owned`.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BorrowedJSONSourceMap<'a> {
+    #[serde(deserialize_with = "deserialize_version")]
+    #[expect(dead_code)]
+    version: u32,
+    #[serde(borrow)]
+    file: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    mappings: Cow<'a, str>,
+    #[serde(borrow)]
+    source_root: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    sources: Vec<Cow<'a, str>>,
+    #[serde(borrow)]
+    sources_content: Option<Vec<Option<Cow<'a, str>>>>,
+    #[serde(borrow, default)]
+    names: Vec<Cow<'a, str>>,
+    #[serde(borrow)]
+    debug_id: Option<Cow<'a, str>>,
+    #[serde(rename = "x_google_ignoreList", alias = "ignoreList")]
+    x_google_ignore_list: Option<Vec<u32>>,
+}
+
 pub fn decode_from_string(value: &str) -> Result<SourceMap> {
-    decode(serde_json::from_str(value)?)
+    let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
+
+    if let Some(ref ignore_list) = json.x_google_ignore_list {
+        for &idx in ignore_list {
+            if idx >= json.sources.len() as u32 {
+                return Err(Error::BadSourceReference(idx));
+            }
+        }
+    }
+
+    let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
+
+    // Intern every borrowed/owned string into a single `Box<str>` buffer.
+    // The serde_json `String` allocations (only for the escaped variants of
+    // each `Cow`) get dropped as we walk; no per-string `Arc`/`Cow` lives in
+    // the final map.
+    let mut interner = StringInterner::default();
+    let file = intern_optional_cow(&mut interner, json.file);
+    let source_root = intern_optional_cow(&mut interner, json.source_root);
+    let debug_id = intern_optional_cow(&mut interner, json.debug_id);
+
+    let names: Box<[StrRef]> =
+        json.names.into_iter().map(|c| interner.intern_unique(&c)).collect();
+    let sources: Box<[StrRef]> =
+        json.sources.into_iter().map(|c| interner.intern_unique(&c)).collect();
+    let source_contents: Box<[OptionalStrRef]> = match json.sources_content {
+        Some(contents) => contents
+            .into_iter()
+            .map(|opt| match opt {
+                Some(c) => interner.intern_unique(&c).into(),
+                None => OptionalStrRef::NONE,
+            })
+            .collect(),
+        None => Box::new([]),
+    };
+
+    Ok(SourceMap {
+        buf: interner.into_buf(),
+        file,
+        source_root,
+        debug_id,
+        names,
+        sources,
+        source_contents,
+        tokens: tokens.into_boxed_slice(),
+        token_chunks: None,
+        x_google_ignore_list: json.x_google_ignore_list,
+    })
+}
+
+fn intern_optional_cow(interner: &mut StringInterner, c: Option<Cow<'_, str>>) -> OptionalStrRef {
+    match c {
+        Some(c) => interner.intern_unique(&c).into(),
+        None => OptionalStrRef::NONE,
+    }
+}
+
+/// Decode a sourcemap from a JSON string without copying its strings into
+/// an owned buffer. The returned [`BorrowedSourceMap`] holds [`Cow`] views
+/// — borrowed when the JSON had no escapes for that field, owned when it
+/// did. Suitable for the parse-and-immediately-read case; for storage,
+/// call [`BorrowedSourceMap::into_owned`] to produce a [`SourceMap`].
+///
+/// # Errors
+/// Returns `serde_json` and VLQ decode errors.
+pub fn decode_from_string_borrowed(value: &str) -> Result<BorrowedSourceMap<'_>> {
+    let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
+
+    if let Some(ref ignore_list) = json.x_google_ignore_list {
+        for &idx in ignore_list {
+            if idx >= json.sources.len() as u32 {
+                return Err(Error::BadSourceReference(idx));
+            }
+        }
+    }
+
+    let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
+
+    Ok(BorrowedSourceMap {
+        file: json.file,
+        source_root: json.source_root,
+        debug_id: json.debug_id,
+        names: json.names,
+        sources: json.sources,
+        source_contents: json.sources_content.unwrap_or_default(),
+        tokens: tokens.into_boxed_slice(),
+        token_chunks: None,
+        x_google_ignore_list: json.x_google_ignore_list,
+    })
 }
 
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
