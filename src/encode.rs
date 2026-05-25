@@ -18,19 +18,13 @@ pub fn encode(sourcemap: &SourceMap) -> JSONSourceMap {
             mappings
         },
         source_root: sourcemap.get_source_root().map(ToString::to_string),
-        sources: sourcemap.sources.iter().map(ToString::to_string).collect(),
+        sources: sourcemap.get_sources().map(ToString::to_string).collect(),
         sources_content: if has_source_contents {
-            Some(
-                sourcemap
-                    .source_contents
-                    .iter()
-                    .map(|v| v.as_ref().map(|item| item.to_string()))
-                    .collect(),
-            )
+            Some(sourcemap.get_source_contents().map(|v| v.map(ToString::to_string)).collect())
         } else {
             None
         },
-        names: sourcemap.names.iter().map(ToString::to_string).collect(),
+        names: sourcemap.get_names().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
         x_google_ignore_list: sourcemap.get_x_google_ignore_list().map(|x| x.to_vec()),
     }
@@ -47,7 +41,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
 
     // Optional "file":"...",
     if let Some(file) = sourcemap.get_file() {
-        max_segments += 8 /* "file": */ + file.as_ref().len() * 6 + 2 /* quotes */ + 1 /* , */;
+        max_segments += 8 /* "file": */ + file.len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
     // Optional "sourceRoot":"...",
@@ -55,29 +49,19 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         max_segments += 14 /* "sourceRoot": */ + source_root.len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
-    // Calculate string lengths in a single pass for better cache locality
+    // Calculate string lengths in a single pass for better cache locality.
+    // All strings live in `sourcemap.buf`, so its total byte length is an
+    // upper bound on the string bytes we'll write for `names` / `sources` /
+    // `sourcesContent` (the only fields we route through the buffer).
     let names_count = sourcemap.names.len();
     let sources_count = sourcemap.sources.len();
-    // Accumulate total string bytes across all collections
-    let mut total_string_bytes = 0usize;
+    let total_string_bytes = sourcemap.buf.len();
 
-    for name in &sourcemap.names {
-        total_string_bytes += name.len();
-    }
-
-    for source in &sourcemap.sources {
-        total_string_bytes += source.len();
-    }
-
-    // Single pass over source_contents to check existence and accumulate byte lengths
-    let (has_source_contents, sc_bytes) =
-        sourcemap.source_contents.iter().fold((false, 0usize), |(has_some, bytes), content| {
-            match content {
-                Some(s) => (true, bytes + s.len()),
-                None => (has_some, bytes + 4), // "null"
-            }
+    // Single pass over source_contents to check existence and count `null` entries.
+    let (has_source_contents, none_count) =
+        sourcemap.source_contents.iter().fold((false, 0usize), |(has_some, n_none), content| {
+            if content.is_some() { (true, n_none) } else { (has_some, n_none + 1) }
         });
-    total_string_bytes += sc_bytes;
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
 
     // Calculate total capacity needed
@@ -86,6 +70,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
         max_segments += 20; // ],"sourcesContent":[
     }
     max_segments += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
+    max_segments += 4 * none_count; // "null" for each None in source_contents
     max_segments += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
     // Commas between array items
@@ -119,7 +104,7 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     contents.push("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
         contents.push("\"file\":");
-        escape_into(file.as_ref(), contents.as_mut_vec());
+        escape_into(file, contents.as_mut_vec());
         contents.push(",");
     }
 
@@ -130,16 +115,15 @@ pub fn encode_to_string(sourcemap: &SourceMap) -> String {
     }
 
     contents.push("\"names\":[");
-    contents.push_list(sourcemap.names.iter(), escape_into);
+    contents.push_list(sourcemap.get_names(), escape_into);
 
     contents.push("],\"sources\":[");
-    contents.push_list(sourcemap.sources.iter(), escape_into);
+    contents.push_list(sourcemap.get_sources(), escape_into);
 
     if has_source_contents {
-        let source_contents = &sourcemap.source_contents;
         contents.push("],\"sourcesContent\":[");
-        contents.push_list(source_contents.iter(), |v, output| match v {
-            Some(s) => escape_into(s.as_ref(), output),
+        contents.push_list(sourcemap.get_source_contents(), |v, output| match v {
+            Some(s) => escape_into(s, output),
             None => output.extend_from_slice(b"null"),
         });
     }

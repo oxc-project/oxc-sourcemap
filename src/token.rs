@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::SourceMap;
 
 /// Sentinel value representing an invalid/missing ID for source or name.
@@ -134,7 +132,7 @@ impl<'a> SourceViewToken<'a> {
         if self.token.source_id == INVALID_ID { None } else { Some(self.token.source_id) }
     }
 
-    pub fn get_name(&self) -> Option<&Arc<str>> {
+    pub fn get_name(&self) -> Option<&str> {
         if self.token.name_id == INVALID_ID {
             None
         } else {
@@ -142,7 +140,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source(&self) -> Option<&Arc<str>> {
+    pub fn get_source(&self) -> Option<&str> {
         if self.token.source_id == INVALID_ID {
             None
         } else {
@@ -150,7 +148,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_content(&self) -> Option<&Arc<str>> {
+    pub fn get_source_content(&self) -> Option<&str> {
         if self.token.source_id == INVALID_ID {
             None
         } else {
@@ -158,7 +156,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn get_source_and_content(&self) -> Option<(&Arc<str>, &Arc<str>)> {
+    pub fn get_source_and_content(&self) -> Option<(&str, &str)> {
         if self.token.source_id == INVALID_ID {
             None
         } else {
@@ -166,7 +164,7 @@ impl<'a> SourceViewToken<'a> {
         }
     }
 
-    pub fn to_tuple(&self) -> (Option<&Arc<str>>, u32, u32, Option<&Arc<str>>) {
+    pub fn to_tuple(&self) -> (Option<&str>, u32, u32, Option<&str>) {
         (self.get_source(), self.get_src_line(), self.get_src_col(), self.get_name())
     }
 }

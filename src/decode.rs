@@ -1,8 +1,8 @@
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/decoder.rs
 /// It is a helper for decode vlq soucemap string to `SourceMap`.
-use std::sync::Arc;
-
 use crate::error::{Error, Result};
+use crate::sourcemap::{OptionalStrRef, StrRef};
+use crate::sourcemap_builder::StringInterner;
 use crate::token::INVALID_ID;
 use crate::{SourceMap, Token};
 
@@ -60,20 +60,49 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap> {
     }
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
+
+    // Single-buffer interning: copy every string into one `Box<str>`, record
+    // `(start, end)` offsets. Final SourceMap has O(1) string allocations
+    // regardless of `names.len() + sources.len() + sources_content.len()`.
+    let mut interner = StringInterner::default();
+    let file = intern_optional_string(&mut interner, json.file);
+    let source_root = intern_optional_string(&mut interner, json.source_root);
+    let debug_id = intern_optional_string(&mut interner, json.debug_id);
+
+    let names: Box<[StrRef]> =
+        json.names.into_iter().map(|s| interner.intern_unique(&s)).collect();
+    let sources: Box<[StrRef]> =
+        json.sources.into_iter().map(|s| interner.intern_unique(&s)).collect();
+    let source_contents: Box<[OptionalStrRef]> = match json.sources_content {
+        Some(contents) => contents
+            .into_iter()
+            .map(|opt| match opt {
+                Some(s) => interner.intern_unique(&s).into(),
+                None => OptionalStrRef::NONE,
+            })
+            .collect(),
+        None => Box::new([]),
+    };
+
     Ok(SourceMap {
-        file: json.file.map(Arc::from),
-        names: json.names.into_iter().map(Arc::from).collect(),
-        source_root: json.source_root,
-        sources: json.sources.into_iter().map(Arc::from).collect(),
-        source_contents: json
-            .sources_content
-            .map(|content| content.into_iter().map(|c| c.map(Arc::from)).collect())
-            .unwrap_or_default(),
+        buf: interner.into_buf(),
+        file,
+        source_root,
+        debug_id,
+        names,
+        sources,
+        source_contents,
         tokens: tokens.into_boxed_slice(),
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,
-        debug_id: json.debug_id,
     })
+}
+
+fn intern_optional_string(interner: &mut StringInterner, s: Option<String>) -> OptionalStrRef {
+    match s {
+        Some(s) => interner.intern_unique(&s).into(),
+        None => OptionalStrRef::NONE,
+    }
 }
 
 pub fn decode_from_string(value: &str) -> Result<SourceMap> {
@@ -269,18 +298,9 @@ fn test_decode_sourcemap() {
     assert_eq!(sm.get_source_root(), Some("x"));
     assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
     let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
-    assert_eq!(
-        iter.next().unwrap().to_tuple(),
-        (Some(&"coolstuff.js".into()), 0, 4, Some(&"x".into()))
-    );
-    assert_eq!(
-        iter.next().unwrap().to_tuple(),
-        (Some(&"coolstuff.js".into()), 1, 4, Some(&"x".into()))
-    );
-    assert_eq!(
-        iter.next().unwrap().to_tuple(),
-        (Some(&"coolstuff.js".into()), 2, 2, Some(&"alert".into()))
-    );
+    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
+    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
+    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 2, 2, Some("alert")));
     assert!(iter.next().is_none());
 }
 
