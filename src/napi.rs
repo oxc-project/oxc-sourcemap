@@ -46,3 +46,10 @@ impl From<crate::SourceMap<'_>> for SourceMap {
         }
     }
 }
+
+impl From<crate::OwnedSourceMap> for SourceMap {
+    #[inline]
+    fn from(source_map: crate::OwnedSourceMap) -> Self {
+        Self::from(source_map.into_inner())
+    }
+}
