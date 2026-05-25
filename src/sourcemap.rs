@@ -126,8 +126,7 @@ impl<'a> SourceMap<'a> {
 
     /// Adjust `sources`.
     pub fn set_sources<S: AsRef<str>, I: IntoIterator<Item = S>>(&mut self, sources: I) {
-        self.sources =
-            sources.into_iter().map(|s| Cow::Owned(s.as_ref().to_owned())).collect();
+        self.sources = sources.into_iter().map(|s| Cow::Owned(s.as_ref().to_owned())).collect();
     }
 
     pub fn get_sources(&self) -> impl Iterator<Item = &str> {
@@ -136,10 +135,8 @@ impl<'a> SourceMap<'a> {
 
     /// Adjust `source_content`.
     pub fn set_source_contents(&mut self, source_contents: Vec<Option<&str>>) {
-        self.source_contents = source_contents
-            .into_iter()
-            .map(|v| v.map(|s| Cow::Owned(s.to_owned())))
-            .collect();
+        self.source_contents =
+            source_contents.into_iter().map(|v| v.map(|s| Cow::Owned(s.to_owned()))).collect();
     }
 
     pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&str>> {
@@ -305,10 +302,7 @@ fn test_sourcemap_source_view_token() {
         None,
     );
     let mut source_view_tokens = sm.get_source_view_tokens();
-    assert_eq!(
-        source_view_tokens.next().unwrap().to_tuple(),
-        (Some("foo.js"), 1, 1, Some("foo"))
-    );
+    assert_eq!(source_view_tokens.next().unwrap().to_tuple(), (Some("foo.js"), 1, 1, Some("foo")));
 }
 
 #[test]

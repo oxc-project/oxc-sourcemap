@@ -19,10 +19,8 @@ fn concat_sourcemap_builder_with_empty() {
         .iter()
         .map(|f| fs::read_to_string(dir.join(f).with_extension("js.map")).unwrap())
         .collect();
-    let sourcemaps: Vec<SourceMap<'_>> = map_inputs
-        .iter()
-        .map(|m| SourceMap::from_json_string(m).unwrap())
-        .collect();
+    let sourcemaps: Vec<SourceMap<'_>> =
+        map_inputs.iter().map(|m| SourceMap::from_json_string(m).unwrap()).collect();
 
     let mut builder = ConcatSourceMapBuilder::default();
     let mut source = String::new();

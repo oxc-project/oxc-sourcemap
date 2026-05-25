@@ -195,8 +195,7 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                 if let Some(indices) = ignore_list {
                     for source_name in present {
                         // Find the index of this source in the sources array
-                        let source_index =
-                            source_map.get_sources().position(|s| s == source_name);
+                        let source_index = source_map.get_sources().position(|s| s == source_name);
 
                         if let Some(idx) = source_index {
                             if !indices.contains(&(idx as u32)) {
