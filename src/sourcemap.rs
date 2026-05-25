@@ -91,6 +91,29 @@ impl<'a> SourceMap<'a> {
         format!("data:application/json;charset=utf-8;base64,{base_64_str}")
     }
 
+    /// Detach this `SourceMap` from its input buffer by allocating owned
+    /// copies of any borrowed strings. Use this when the resulting map
+    /// needs to outlive the JSON input it was parsed from, or when the
+    /// borrow lifetime from a concat builder is shorter than where you
+    /// want to use the result.
+    pub fn into_owned(self) -> SourceMap<'static> {
+        SourceMap {
+            file: self.file.map(|c| Cow::Owned(c.into_owned())),
+            names: self.names.into_iter().map(|c| Cow::Owned(c.into_owned())).collect(),
+            source_root: self.source_root.map(|c| Cow::Owned(c.into_owned())),
+            sources: self.sources.into_iter().map(|c| Cow::Owned(c.into_owned())).collect(),
+            source_contents: self
+                .source_contents
+                .into_iter()
+                .map(|opt| opt.map(|c| Cow::Owned(c.into_owned())))
+                .collect(),
+            tokens: self.tokens,
+            token_chunks: self.token_chunks,
+            x_google_ignore_list: self.x_google_ignore_list,
+            debug_id: self.debug_id.map(|c| Cow::Owned(c.into_owned())),
+        }
+    }
+
     pub fn get_file(&self) -> Option<&str> {
         self.file.as_deref()
     }
