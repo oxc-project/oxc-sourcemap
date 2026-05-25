@@ -42,7 +42,7 @@ impl From<crate::SourceMap<'_>> for SourceMap {
                 content.into_iter().map(Option::unwrap_or_default).collect::<Vec<_>>()
             }),
             version: 3,
-            x_google_ignorelist: None,
+            x_google_ignorelist: json.x_google_ignore_list,
         }
     }
 }

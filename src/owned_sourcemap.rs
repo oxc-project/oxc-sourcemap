@@ -14,10 +14,10 @@ use crate::{
 /// [`SourceMap<'a>`] directly.
 ///
 /// ```
-/// use oxc_sourcemap::{OwnedSourceMap, SourceMap};
+/// use oxc_sourcemap::{OwnedSourceMap, SourceMap, SourceMapBuilder};
 ///
 /// // From a builder (always owned):
-/// let owned: OwnedSourceMap = oxc_sourcemap::SourceMapBuilder::default().into_owned_sourcemap();
+/// let owned: OwnedSourceMap = SourceMapBuilder::default().into_owned_sourcemap();
 ///
 /// // From a JSON string (zero-copy parse, then detach):
 /// let json = r#"{"version":3,"sources":[],"names":[],"mappings":""}"#;
@@ -27,9 +27,10 @@ use crate::{
 /// let _file: Option<&str> = owned.get_file();
 /// let _names: Vec<&str> = owned.get_names().collect();
 ///
-/// // Drop into the underlying SourceMap when an `&SourceMap<'_>` is needed
-/// // (e.g. for serialization, lookup tables, concat builders):
-/// let _json_str = owned.as_source_map().to_json_string();
+/// // Drop into the underlying `&SourceMap<'_>` when needed (e.g. for
+/// // serialization, lookup tables, concat builders):
+/// let _inner: &SourceMap<'_> = owned.as_source_map();
+/// let _json_str = owned.to_json_string();
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct OwnedSourceMap {
@@ -179,6 +180,24 @@ impl OwnedSourceMap {
 
     pub fn generate_lookup_table(&self) -> Vec<&[Token]> {
         self.inner.generate_lookup_table()
+    }
+
+    pub fn lookup_token(
+        &self,
+        lookup_table: &[&[Token]],
+        line: u32,
+        col: u32,
+    ) -> Option<Token> {
+        self.inner.lookup_token(lookup_table, line, col)
+    }
+
+    pub fn lookup_source_view_token(
+        &self,
+        lookup_table: &[&[Token]],
+        line: u32,
+        col: u32,
+    ) -> Option<SourceViewToken<'_, 'static>> {
+        self.inner.lookup_source_view_token(lookup_table, line, col)
     }
 
     // ---------- structural ----------

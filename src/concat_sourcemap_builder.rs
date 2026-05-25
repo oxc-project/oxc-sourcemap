@@ -106,24 +106,32 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         self.names.extend(sourcemap.get_names().map(Cow::Borrowed));
 
         // Extend `tokens`, skipping the first token if it duplicates the last existing one.
+        //
+        // Compute the offset-adjusted source/name ids BEFORE building the token,
+        // and only commit them to `self.token_chunk_prev_*` once we've decided
+        // to actually push the token. Updating the prev-id state for a token
+        // that gets skipped by the dedup `continue` below would pollute the
+        // next sourcemap's TokenChunk header.
         self.tokens.reserve(sourcemap.tokens.len());
         for (i, token) in sourcemap.get_tokens().enumerate() {
+            let source_id_offset = token.get_source_id().map(|x| x + source_offset);
+            let name_id_offset = token.get_name_id().map(|x| x + name_offset);
             let new_token = Token::new(
                 token.get_dst_line() + line_offset,
                 token.get_dst_col(),
                 token.get_src_line(),
                 token.get_src_col(),
-                token.get_source_id().map(|x| {
-                    self.token_chunk_prev_source_id = x + source_offset;
-                    self.token_chunk_prev_source_id
-                }),
-                token.get_name_id().map(|x| {
-                    self.token_chunk_prev_name_id = x + name_offset;
-                    self.token_chunk_prev_name_id
-                }),
+                source_id_offset,
+                name_id_offset,
             );
             if i == 0 && self.tokens.last() == Some(&new_token) {
                 continue;
+            }
+            if let Some(s) = source_id_offset {
+                self.token_chunk_prev_source_id = s;
+            }
+            if let Some(n) = name_id_offset {
+                self.token_chunk_prev_name_id = n;
             }
             self.tokens.push(new_token);
         }

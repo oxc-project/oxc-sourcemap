@@ -107,12 +107,12 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     max_segments += 14;
     max_segments += estimate_mappings_length(sourcemap);
 
-    // Optional ,"debugId":"..."
+    // Optional ,"debugId":<escaped>
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        max_segments += 13 /* ,"debugId":" */ + debug_id.len();
+        max_segments += 12 /* ,"debugId": */ + debug_id.len() * 6 + 2 /* quotes */;
     }
 
-    // "}
+    // "} (closing quote of mappings + closing brace)
     max_segments += 2;
     let mut contents = PreAllocatedString::new(max_segments);
 
@@ -153,13 +153,14 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 
     contents.push("],\"mappings\":\"");
     serialize_sourcemap_mappings(sourcemap, &mut contents);
+    contents.push("\"");
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        contents.push("\",\"debugId\":\"");
-        contents.push(debug_id);
+        contents.push(",\"debugId\":");
+        escape_into(debug_id, contents.as_mut_vec());
     }
 
-    contents.push("\"}");
+    contents.push("}");
 
     // Check we calculated number of segments required correctly
     debug_assert!(contents.len() <= max_segments);
@@ -614,4 +615,16 @@ fn test_encode_escape_file_and_source_root() {
     );
     // Verify the output is valid JSON by round-tripping
     SourceMap::from_json_string(&json).unwrap();
+}
+
+#[test]
+fn test_encode_escape_debug_id() {
+    let mut sm = SourceMap::default();
+    // A debug_id containing JSON-special characters must be escaped, otherwise
+    // the output is malformed JSON.
+    sm.set_debug_id("id-with-\"quote\"-and-\\backslash");
+    let json = sm.to_json_string();
+    // Round-trip must succeed (would fail if the quote isn't escaped).
+    let roundtripped = SourceMap::from_json_string(&json).unwrap();
+    assert_eq!(roundtripped.get_debug_id(), Some("id-with-\"quote\"-and-\\backslash"));
 }

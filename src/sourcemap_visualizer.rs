@@ -29,12 +29,13 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
             return s;
         }
 
-        let source_contents_lines_map: Vec<Vec<Vec<u16>>> = source_contents
+        // Build a 1:1 map: index N in the result corresponds to source_id N.
+        // `None` entries are preserved so indexing by source_id stays correct
+        // even when some sources have no content (the previous filter_map
+        // dropped them, mis-aligning all later indices).
+        let source_contents_lines_map: Vec<Option<Vec<Vec<u16>>>> = source_contents
             .iter()
-            .filter_map(|content| {
-                let content = content.as_ref()?;
-                Some(Self::generate_line_utf16_tables(content))
-            })
+            .map(|content| content.as_ref().map(|c| Self::generate_line_utf16_tables(c)))
             .collect();
 
         let output_lines = Self::generate_line_utf16_tables(self.code);
@@ -48,7 +49,13 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
                 continue;
             };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
-            let source_lines = &source_contents_lines_map[source_id as usize];
+            let Some(source_lines) = source_contents_lines_map
+                .get(source_id as usize)
+                .and_then(|opt| opt.as_ref())
+            else {
+                // No content for this source; skip rather than panic.
+                continue;
+            };
 
             // Print source
             if last_source != Some(source) {

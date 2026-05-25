@@ -59,6 +59,7 @@ ignored = ["napi"]
 
 [dependencies]
 base64-simd = "0.8"
+hashbrown = { version = "0.16", default-features = false, features = ["default-hasher", "inline-more"] }
 json-escape-simd = "3"
 napi = { version = "3", optional = true }
 napi-derive = { version = "3", optional = true }
