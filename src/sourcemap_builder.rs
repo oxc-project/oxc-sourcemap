@@ -87,8 +87,9 @@ impl SourceMapBuilder {
         // which is not ideal for large applications.
         self.names.shrink_to_fit();
         self.sources.shrink_to_fit();
-        // For checker.ts, capacity for `tokens` before and after are 262144 and 171174 respectively.
-        self.tokens.shrink_to_fit();
+        // Note: no explicit `self.tokens.shrink_to_fit()` here — `into_boxed_slice`
+        // below already drops any excess capacity in a single allocation+copy. A
+        // standalone `shrink_to_fit` would duplicate that work.
         if let Some(c) = self.token_chunks.as_mut() {
             c.shrink_to_fit()
         }

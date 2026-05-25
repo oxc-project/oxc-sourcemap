@@ -99,11 +99,14 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         // Borrow strings directly from the input map — no allocations.
         // The output `SourceMap`'s lifetime is tied to `'a`, so the
         // borrow checker enforces that input maps outlive it.
-        self.sources.extend(sourcemap.get_sources().map(Cow::Borrowed));
+        //
+        // Iterate the input `Vec`s directly rather than through the
+        // `impl Iterator` accessors so `extend` sees an `ExactSizeIterator`
+        // and can pre-reserve in one shot instead of growing geometrically.
+        self.sources.extend(sourcemap.sources.iter().map(|s| Cow::Borrowed(s.as_ref())));
         self.source_contents
-            .extend(sourcemap.get_source_contents().map(|opt| opt.map(Cow::Borrowed)));
-        self.names.reserve(sourcemap.names.len());
-        self.names.extend(sourcemap.get_names().map(Cow::Borrowed));
+            .extend(sourcemap.source_contents.iter().map(|opt| opt.as_deref().map(Cow::Borrowed)));
+        self.names.extend(sourcemap.names.iter().map(|s| Cow::Borrowed(s.as_ref())));
 
         // Extend `tokens`, skipping the first token if it duplicates the last existing one.
         //

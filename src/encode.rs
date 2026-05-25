@@ -147,7 +147,21 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
         contents.push("],\"x_google_ignoreList\":[");
         contents.push_list(x_google_ignore_list.iter(), |s, output| {
-            output.extend_from_slice(s.to_string().as_bytes());
+            // Inline u32 → decimal bytes, no intermediate `String` allocation.
+            let mut buf = [0u8; 10];
+            let mut n = *s;
+            let mut i = buf.len();
+            if n == 0 {
+                i -= 1;
+                buf[i] = b'0';
+            } else {
+                while n > 0 {
+                    i -= 1;
+                    buf[i] = b'0' + (n % 10) as u8;
+                    n /= 10;
+                }
+            }
+            output.extend_from_slice(&buf[i..]);
         });
     }
 
