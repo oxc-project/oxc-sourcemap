@@ -80,9 +80,8 @@ fn synthesize_xlarge(base_json: &str, repeats: usize) -> String {
                 "chunk_{chunk}/{}",
                 src.as_str().unwrap_or("source.js")
             )));
-            sources_content.push(
-                base_sources_content.get(i).cloned().unwrap_or(serde_json::Value::Null),
-            );
+            sources_content
+                .push(base_sources_content.get(i).cloned().unwrap_or(serde_json::Value::Null));
         }
         for (i, n) in base_names.iter().enumerate() {
             names.push(serde_json::Value::String(format!(
