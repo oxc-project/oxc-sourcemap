@@ -167,6 +167,17 @@ impl SourceMap {
         encode(self)
     }
 
+    /// Replace this map's `tokens` array, leaving every other field (and
+    /// the underlying string buffer) untouched. Useful for token-level
+    /// transforms like line shifting where the strings don't change.
+    ///
+    /// Drops any existing `token_chunks` since they would now reference
+    /// invalid positions.
+    pub fn set_tokens(&mut self, tokens: Box<[Token]>) {
+        self.tokens = tokens;
+        self.token_chunks = None;
+    }
+
     /// Convert `SourceMap` to vlq sourcemap string.
     pub fn to_json_string(&self) -> String {
         encode_to_string(self)
