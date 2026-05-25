@@ -135,13 +135,11 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
-    let mut estimated_tokens = 1usize;
-    for &byte in mapping {
-        if byte == b',' || byte == b';' {
-            estimated_tokens += 1;
-        }
-    }
+    // Heuristic token count: realistic sourcemaps average ~3-5 bytes per segment
+    // (1-2 char column delta + 4 char src deltas including separators). `len/3`
+    // is a safe lower bound that avoids most reallocations without paying the
+    // cost of a full upfront scan of `mapping` for `,` / `;` counting.
+    let estimated_tokens = mapping.len() / 3 + 1;
     let mut tokens = Vec::with_capacity(estimated_tokens);
 
     let mut dst_line = 0u32;
@@ -161,10 +159,13 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
     // Delimiters:
     // * `,` separates segments on the same generated line
     // * `;` advances generated line and resets generated column
+    let mapping_len = mapping.len();
     let mut cursor = 0usize;
     let mut nums = [0i64; 5];
-    while cursor < mapping.len() {
-        match mapping[cursor] {
+    while cursor < mapping_len {
+        // SAFETY: bounds-checked by the `while`
+        let b = unsafe { *mapping.get_unchecked(cursor) };
+        match b {
             b',' => {
                 // Empty segment, skip.
                 cursor += 1;
@@ -176,7 +177,62 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                 cursor += 1;
             }
             _ => {
-                let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
+                // Inline of `parse_vlq_segment_into` — keeps cursor/state in
+                // registers and avoids the function-call + reborrow overhead
+                // for what is the hottest loop of the decoder.
+                let mut nums_len = 0usize;
+                let mut cur = 0i64;
+                let mut shift = 0u32;
+                let mut local_cursor = cursor;
+                loop {
+                    if local_cursor >= mapping_len {
+                        break;
+                    }
+                    // SAFETY: bounds-checked above
+                    let c = unsafe { *mapping.get_unchecked(local_cursor) };
+                    if c == b',' || c == b';' {
+                        break;
+                    }
+                    // SAFETY: B64 is a 256-element lookup table, and c is a u8 (0-255)
+                    let enc = unsafe { i64::from(*B64.0.get_unchecked(c as usize)) };
+                    let val = enc & 0b11111;
+                    let cont = enc >> 5;
+
+                    // `shift` is bumped by 5 each iteration starting from 0, so the
+                    // only invalid value before applying is 65 (i.e. > 62), which we
+                    // detect after the next increment. Bail before the dangerous
+                    // `val << shift` shift can wrap.
+                    if shift > 62 {
+                        return Err(Error::VlqOverflow);
+                    }
+                    cur = cur.wrapping_add(val << shift);
+                    local_cursor += 1;
+                    shift += 5;
+
+                    if cont == 0 {
+                        // VLQ stores sign in low bit; remaining bits are the magnitude.
+                        let sign = cur & 1;
+                        cur >>= 1;
+                        if sign != 0 {
+                            cur = -cur;
+                        }
+                        if nums_len < 5 {
+                            // SAFETY: bounded by 5 right above
+                            unsafe { *nums.get_unchecked_mut(nums_len) = cur };
+                        }
+                        nums_len += 1;
+                        cur = 0;
+                        shift = 0;
+                    }
+                }
+                cursor = local_cursor;
+
+                if cur != 0 || shift != 0 {
+                    return Err(Error::VlqLeftover);
+                }
+                if nums_len == 0 {
+                    return Err(Error::VlqNoValues);
+                }
 
                 // `nums[0]` is always generated column delta.
                 let new_dst_col = i64::from(dst_col) + nums[0];
@@ -243,69 +299,6 @@ struct Aligned64([i8; 256]);
 
 #[rustfmt::skip]
 static B64: Aligned64 = Aligned64([ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 ]);
-
-/// Parse one VLQ segment at `cursor` and stop at `,` / `;` / end-of-input.
-///
-/// Returns the number of decoded values in the segment. Values are written into
-/// `rv` for the first 5 fields (the maximum valid segment size). If the segment
-/// contains more than 5 fields, we keep counting in `rv_len` so caller can reject
-/// it with `BadSegmentSize`.
-fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5]) -> Result<usize> {
-    let mut cur = 0i64;
-    let mut shift = 0u32;
-    let mut rv_len = 0usize;
-
-    while *cursor < mapping.len() {
-        let c = mapping[*cursor];
-        if c == b',' || c == b';' {
-            break;
-        }
-
-        // SAFETY: B64 is a 256-element lookup table, and c is a u8 (0-255)
-        let enc = unsafe { i64::from(*B64.0.get_unchecked(c as usize)) };
-        let val = enc & 0b11111;
-        let cont = enc >> 5;
-
-        // Check if shift would overflow before applying
-        if shift >= 64 {
-            return Err(Error::VlqOverflow);
-        }
-
-        // For large shifts, check if the value would fit in 32 bits when decoded
-        if shift <= 62 {
-            cur = cur.wrapping_add(val << shift);
-        } else {
-            // Beyond 62 bits of shift, we'd overflow i64
-            return Err(Error::VlqOverflow);
-        }
-
-        *cursor += 1;
-        shift += 5;
-
-        if cont == 0 {
-            // VLQ stores sign in low bit; remaining bits are the magnitude.
-            let sign = cur & 1;
-            cur >>= 1;
-            if sign != 0 {
-                cur = -cur;
-            }
-            if rv_len < rv.len() {
-                rv[rv_len] = cur;
-            }
-            rv_len += 1;
-            cur = 0;
-            shift = 0;
-        }
-    }
-
-    if cur != 0 || shift != 0 {
-        Err(Error::VlqLeftover)
-    } else if rv_len == 0 {
-        Err(Error::VlqNoValues)
-    } else {
-        Ok(rv_len)
-    }
-}
 
 #[test]
 fn test_decode_sourcemap() {
