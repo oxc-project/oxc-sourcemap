@@ -135,14 +135,14 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
-    let mut estimated_tokens = 1usize;
-    for &byte in mapping {
-        if byte == b',' || byte == b';' {
-            estimated_tokens += 1;
-        }
-    }
-    let mut tokens = Vec::with_capacity(estimated_tokens);
+    // Heuristic capacity estimate, O(1) instead of the previous O(n) `,`/`;`
+    // scan. Realistic sourcemaps average ~4-5 bytes per segment (a 1-2 char
+    // column delta plus 4 char src deltas separated by `,`). `len / 4`
+    // approximates the typical count; the trailing `into_boxed_slice` in
+    // `decode_from_string` shrinks any over-allocation back to exact size
+    // so RSS is unaffected.
+    let estimated_tokens = mapping.len() / 4 + 1;
+    let mut tokens: Vec<Token> = Vec::with_capacity(estimated_tokens);
 
     let mut dst_line = 0u32;
     let mut dst_col = 0u32;
