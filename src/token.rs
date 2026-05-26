@@ -34,6 +34,22 @@ impl Token {
         }
     }
 
+    /// Construct a `Token` directly from raw u32 ids, using `INVALID_ID`
+    /// (`u32::MAX`) to mean "absent". Skips the `Option<u32> → u32`
+    /// roundtrip from [`Token::new`] for hot decode/concat loops that
+    /// already track the sentinel value directly.
+    #[inline]
+    pub(crate) fn new_raw(
+        dst_line: u32,
+        dst_col: u32,
+        src_line: u32,
+        src_col: u32,
+        source_id: u32,
+        name_id: u32,
+    ) -> Self {
+        Self { dst_line, dst_col, src_line, src_col, source_id, name_id }
+    }
+
     pub fn get_dst_line(&self) -> u32 {
         self.dst_line
     }
