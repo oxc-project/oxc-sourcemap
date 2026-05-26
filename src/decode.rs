@@ -135,14 +135,32 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
-    let mut estimated_tokens = 1usize;
-    for &byte in mapping {
-        if byte == b',' || byte == b';' {
-            estimated_tokens += 1;
+    // Capacity estimate for `tokens: Vec<Token>`.
+    //
+    // For small mappings, run the exact `,`/`;` count — the scan is cheap on
+    // a few hundred bytes and getting capacity exactly right avoids the
+    // `Vec::into_boxed_slice` shrink-realloc that `decode_from_string`
+    // performs at the end. That realloc is the dominant cost on tiny
+    // benchmarks (32-byte fixtures), so an over-estimate would regress them.
+    //
+    // For large mappings, the O(n) scan itself becomes the dominant cost
+    // (~15-20 µs on the xlarge perf fixture). Switch to an O(1) heuristic
+    // `len / 4 + 1` — realistic sourcemaps average ~4-5 bytes per segment,
+    // so the estimate is close to the typical count. The realloc cost at
+    // the end is amortized over the saved scan.
+    const EXACT_SCAN_THRESHOLD: usize = 256;
+    let estimated_tokens = if mapping.len() < EXACT_SCAN_THRESHOLD {
+        let mut n = 1usize;
+        for &b in mapping {
+            if b == b',' || b == b';' {
+                n += 1;
+            }
         }
-    }
-    let mut tokens = Vec::with_capacity(estimated_tokens);
+        n
+    } else {
+        mapping.len() / 4 + 1
+    };
+    let mut tokens: Vec<Token> = Vec::with_capacity(estimated_tokens);
 
     let mut dst_line = 0u32;
     let mut dst_col = 0u32;
