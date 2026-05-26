@@ -135,14 +135,7 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
-    let mut estimated_tokens = 1usize;
-    for &byte in mapping {
-        if byte == b',' || byte == b';' {
-            estimated_tokens += 1;
-        }
-    }
-    let mut tokens = Vec::with_capacity(estimated_tokens);
+    let mut tokens: Vec<Token> = Vec::with_capacity(estimate_token_capacity(mapping));
 
     let mut dst_line = 0u32;
     let mut dst_col = 0u32;
@@ -243,6 +236,34 @@ struct Aligned64([i8; 256]);
 
 #[rustfmt::skip]
 static B64: Aligned64 = Aligned64([ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 ]);
+
+/// Pick a `Vec<Token>` capacity for `decode_mapping`.
+///
+/// Two regimes:
+/// * Small mappings (< 256 bytes) — exact `,`/`;` count. The scan itself is
+///   cheap on a few hundred bytes, and getting capacity *exact* lets the
+///   trailing `Vec::into_boxed_slice` in `decode_from_string` skip its
+///   shrink-realloc. That realloc dominates the per-iteration cost on tiny
+///   benchmarks (32-byte fixtures), so an over-estimate would regress them.
+/// * Larger mappings — `len / 4 + 1`. The scan would itself become the
+///   dominant cost (~15-20 µs on the xlarge perf fixture). The heuristic is
+///   close to typical sourcemap density (~4-5 bytes per segment); `Vec::push`
+///   handles under-estimates via geometric growth, and the trailing
+///   `into_boxed_slice` shrinks any over-allocation back to exact size.
+fn estimate_token_capacity(mapping: &[u8]) -> usize {
+    const EXACT_SCAN_THRESHOLD: usize = 256;
+    if mapping.len() < EXACT_SCAN_THRESHOLD {
+        let mut n = 1usize;
+        for &b in mapping {
+            if b == b',' || b == b';' {
+                n += 1;
+            }
+        }
+        n
+    } else {
+        mapping.len() / 4 + 1
+    }
+}
 
 /// Parse one VLQ segment at `cursor` and stop at `,` / `;` / end-of-input.
 ///
