@@ -34,26 +34,32 @@ impl Token {
         }
     }
 
+    #[inline]
     pub fn get_dst_line(&self) -> u32 {
         self.dst_line
     }
 
+    #[inline]
     pub fn get_dst_col(&self) -> u32 {
         self.dst_col
     }
 
+    #[inline]
     pub fn get_src_line(&self) -> u32 {
         self.src_line
     }
 
+    #[inline]
     pub fn get_src_col(&self) -> u32 {
         self.src_col
     }
 
+    #[inline]
     pub fn get_name_id(&self) -> Option<u32> {
         if self.name_id == INVALID_ID { None } else { Some(self.name_id) }
     }
 
+    #[inline]
     pub fn get_source_id(&self) -> Option<u32> {
         if self.source_id == INVALID_ID { None } else { Some(self.source_id) }
     }
