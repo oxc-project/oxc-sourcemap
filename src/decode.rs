@@ -178,10 +178,13 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
             _ => {
                 let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
 
-                // `nums[0]` is always generated column delta.
+                // Combined unsigned bounds check: a negative `i64` cast to
+                // `u64` wraps to a huge value that exceeds any reasonable
+                // upper bound, so a single `(x as u64) > BOUND` rejects both
+                // negatives and overflow.
                 let new_dst_col = i64::from(dst_col) + nums[0];
-                if new_dst_col < 0 {
-                    return Err(Error::BadSegmentSize(0)); // Negative column
+                if (new_dst_col as u64) > u32::MAX as u64 {
+                    return Err(Error::BadSegmentSize(0));
                 }
                 dst_col = new_dst_col as u32;
 
@@ -195,29 +198,30 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
 
                     // Source/name fields are also delta-encoded.
                     let new_src_id = i64::from(src_id) + nums[1];
-                    if new_src_id < 0 || new_src_id >= sources_len as i64 {
+                    if (new_src_id as u64) >= sources_len as u64 {
                         return Err(Error::BadSourceReference(src_id));
                     }
                     src_id = new_src_id as u32;
                     src = src_id;
 
                     let new_src_line = i64::from(src_line) + nums[2];
-                    if new_src_line < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative line
+                    if (new_src_line as u64) > u32::MAX as u64 {
+                        return Err(Error::BadSegmentSize(0));
                     }
                     src_line = new_src_line as u32;
 
                     let new_src_col = i64::from(src_col) + nums[3];
-                    if new_src_col < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative column
+                    if (new_src_col as u64) > u32::MAX as u64 {
+                        return Err(Error::BadSegmentSize(0));
                     }
                     src_col = new_src_col as u32;
 
                     if nums_len > 4 {
-                        name_id = (i64::from(name_id) + nums[4]) as u32;
-                        if name_id >= names_len as u32 {
+                        let new_name_id = i64::from(name_id) + nums[4];
+                        if (new_name_id as u64) >= names_len as u64 {
                             return Err(Error::BadNameReference(name_id));
                         }
+                        name_id = new_name_id as u32;
                         name = name_id;
                     }
                 }
