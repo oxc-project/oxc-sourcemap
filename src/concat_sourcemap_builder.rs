@@ -217,7 +217,7 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             None,
             self.sources,
             self.source_contents,
-            self.tokens.into_boxed_slice(),
+            self.tokens,
             Some(self.token_chunks),
         )
     }
@@ -232,7 +232,7 @@ fn build_test_inputs() -> [SourceMap<'static>; 3] {
             None,
             vec![Cow::Borrowed("foo.js")],
             vec![],
-            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
             None,
         ),
         SourceMap::new(
@@ -241,7 +241,7 @@ fn build_test_inputs() -> [SourceMap<'static>; 3] {
             None,
             vec![Cow::Borrowed("bar.js")],
             vec![],
-            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
             None,
         ),
         SourceMap::new(
@@ -250,7 +250,7 @@ fn build_test_inputs() -> [SourceMap<'static>; 3] {
             None,
             vec![Cow::Borrowed("abc.js")],
             vec![],
-            vec![Token::new(1, 2, 2, 2, Some(0), Some(0))].into_boxed_slice(),
+            vec![Token::new(1, 2, 2, 2, Some(0), Some(0))],
             None,
         ),
     ]
@@ -273,8 +273,7 @@ fn assert_test_result(concat_sm: SourceMap<'_>) {
             Token::new(1, 1, 1, 1, Some(0), Some(0)),
             Token::new(3, 1, 1, 1, Some(1), Some(2)),
             Token::new(3, 2, 2, 2, Some(2), Some(3)),
-        ]
-        .into_boxed_slice(),
+        ],
         None,
     );
 
@@ -328,8 +327,7 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
         None,
         vec![Cow::Borrowed("file1.js")],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0)), Token::new(2, 5, 2, 5, Some(0), Some(0))]
-            .into_boxed_slice(),
+        vec![Token::new(1, 1, 1, 1, Some(0), Some(0)), Token::new(2, 5, 2, 5, Some(0), Some(0))],
         None,
     );
 
@@ -343,8 +341,7 @@ fn test_concat_sourcemap_builder_deduplicates_tokens() {
         vec![
             Token::new(2, 5, 2, 5, Some(0), Some(0)), // Different source/name after offset
             Token::new(3, 10, 3, 10, Some(0), Some(0)),
-        ]
-        .into_boxed_slice(),
+        ],
         None,
     );
 

@@ -491,7 +491,7 @@ fn test_encode_escape_string() {
         None,
         vec!["\0".into()],
         vec![Some("emoji-👀-\0".into())],
-        vec![].into_boxed_slice(),
+        vec![],
         None,
     );
     sm.set_x_google_ignore_list(vec![0]);
@@ -558,7 +558,7 @@ fn test_encode_all_sources_content_null() {
         None,
         vec!["a.js".into(), "b.js".into()],
         vec![None, None],
-        vec![].into_boxed_slice(),
+        vec![],
         None,
     );
     let json = sm.to_json_string();
@@ -576,7 +576,7 @@ fn test_encode_all_sources_content_null() {
         None,
         vec!["a.js".into(), "b.js".into()],
         vec![Some("content".into()), None],
-        vec![].into_boxed_slice(),
+        vec![],
         None,
     );
     let json = sm.to_json_string();
@@ -601,7 +601,7 @@ fn test_encode_escape_file_and_source_root() {
         Some("root\0path".into()),
         vec![],
         vec![],
-        vec![].into_boxed_slice(),
+        vec![],
         None,
     );
     let json = sm.to_json_string();

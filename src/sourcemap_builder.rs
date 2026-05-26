@@ -98,7 +98,7 @@ impl SourceMapBuilder {
             None,
             self.sources,
             self.source_contents,
-            self.tokens.into_boxed_slice(),
+            self.tokens,
             self.token_chunks,
         )
     }
