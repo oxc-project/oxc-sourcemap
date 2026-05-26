@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- *(visualizer)* fix O(n²) chars().nth scan and reduce allocations ([#344](https://github.com/oxc-project/oxc-sourcemap/pull/344))
-- *(decode)* skip `,`/`;` pre-scan for large mappings, keep exact scan for small ([#343](https://github.com/oxc-project/oxc-sourcemap/pull/343))
-- *(concat)* hoist per-token chunk state out of the per-iteration closure ([#331](https://github.com/oxc-project/oxc-sourcemap/pull/331))
+- _(visualizer)_ fix O(n²) chars().nth scan and reduce allocations ([#344](https://github.com/oxc-project/oxc-sourcemap/pull/344))
+- _(decode)_ skip `,`/`;` pre-scan for large mappings, keep exact scan for small ([#343](https://github.com/oxc-project/oxc-sourcemap/pull/343))
+- _(concat)_ hoist per-token chunk state out of the per-iteration closure ([#331](https://github.com/oxc-project/oxc-sourcemap/pull/331))
 - add synthesized real_xlarge fixture ([#328](https://github.com/oxc-project/oxc-sourcemap/pull/328))
 
 ## [6.1.1](https://github.com/oxc-project/oxc-sourcemap/compare/v6.1.0...v6.1.1) - 2026-03-24
