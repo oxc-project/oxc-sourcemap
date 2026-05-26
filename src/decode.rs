@@ -135,14 +135,19 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
-    let mut estimated_tokens = 1usize;
-    for &byte in mapping {
-        if byte == b',' || byte == b';' {
-            estimated_tokens += 1;
-        }
-    }
-    let mut tokens = Vec::with_capacity(estimated_tokens);
+    // Tight upper bound on token count without scanning the mapping.
+    //
+    // Every produced token consumes at least one non-delimiter byte (the
+    // segment's first character). The densest valid pattern is `A,B,C,...`
+    // — alternating 1-byte segments and `,` separators — which yields at
+    // most `(len + 1) / 2` tokens. `mapping.len() / 2 + 1` is therefore a
+    // safe (and tight) upper bound, so we can skip the upfront `,` / `;`
+    // scan and trust `tokens.len() < tokens.capacity()` inside the hot
+    // loop. Unused tail capacity stays in the resulting `Vec<Token>` and
+    // costs no time (no realloc-on-shrink since #337 stores tokens as
+    // `Vec<Token>` end-to-end).
+    let estimated_tokens = mapping.len() / 2 + 1;
+    let mut tokens: Vec<Token> = Vec::with_capacity(estimated_tokens);
 
     let mut dst_line = 0u32;
     let mut dst_col = 0u32;
@@ -178,10 +183,13 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
             _ => {
                 let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
 
-                // `nums[0]` is always generated column delta.
+                // Combined unsigned bounds check: a negative `i64` cast to
+                // `u64` wraps to a huge value that exceeds any reasonable
+                // upper bound, so a single `(x as u64) > BOUND` rejects both
+                // negatives and overflow.
                 let new_dst_col = i64::from(dst_col) + nums[0];
-                if new_dst_col < 0 {
-                    return Err(Error::BadSegmentSize(0)); // Negative column
+                if (new_dst_col as u64) > u32::MAX as u64 {
+                    return Err(Error::BadSegmentSize(0));
                 }
                 dst_col = new_dst_col as u32;
 
@@ -195,41 +203,49 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
 
                     // Source/name fields are also delta-encoded.
                     let new_src_id = i64::from(src_id) + nums[1];
-                    if new_src_id < 0 || new_src_id >= sources_len as i64 {
+                    if (new_src_id as u64) >= sources_len as u64 {
                         return Err(Error::BadSourceReference(src_id));
                     }
                     src_id = new_src_id as u32;
                     src = src_id;
 
                     let new_src_line = i64::from(src_line) + nums[2];
-                    if new_src_line < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative line
+                    if (new_src_line as u64) > u32::MAX as u64 {
+                        return Err(Error::BadSegmentSize(0));
                     }
                     src_line = new_src_line as u32;
 
                     let new_src_col = i64::from(src_col) + nums[3];
-                    if new_src_col < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative column
+                    if (new_src_col as u64) > u32::MAX as u64 {
+                        return Err(Error::BadSegmentSize(0));
                     }
                     src_col = new_src_col as u32;
 
                     if nums_len > 4 {
-                        name_id = (i64::from(name_id) + nums[4]) as u32;
-                        if name_id >= names_len as u32 {
+                        let new_name_id = i64::from(name_id) + nums[4];
+                        if (new_name_id as u64) >= names_len as u64 {
                             return Err(Error::BadNameReference(name_id));
                         }
+                        name_id = new_name_id as u32;
                         name = name_id;
                     }
                 }
 
-                tokens.push(Token::new(
-                    dst_line,
-                    dst_col,
-                    src_line,
-                    src_col,
-                    if src == INVALID_ID { None } else { Some(src) },
-                    if name == INVALID_ID { None } else { Some(name) },
-                ));
+                // SAFETY: capacity is `mapping.len() / 2 + 1`, a proven upper
+                // bound on producible tokens (the densest valid pattern
+                // `A,B,C,...` reaches exactly `(len + 1) / 2`). So
+                // `tokens.len() < tokens.capacity()` holds at every push.
+                //
+                // `src` / `name` already encode "absent" as `INVALID_ID`, so
+                // we go through `Token::new_raw` instead of round-tripping
+                // through `Option<u32>` via `Token::new`.
+                unsafe {
+                    let len = tokens.len();
+                    debug_assert!(len < tokens.capacity());
+                    let token = Token::new_raw(dst_line, dst_col, src_line, src_col, src, name);
+                    std::ptr::write(tokens.as_mut_ptr().add(len), token);
+                    tokens.set_len(len + 1);
+                }
             }
         }
     }
