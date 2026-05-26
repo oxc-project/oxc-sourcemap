@@ -135,13 +135,19 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Exact token count: every `,` or `;` delimits one segment.
-    let mut estimated_tokens = 1usize;
-    for &byte in mapping {
-        if byte == b',' || byte == b';' {
-            estimated_tokens += 1;
-        }
-    }
+    // Tight upper bound on token count without scanning the mapping.
+    //
+    // Every produced token consumes at least one non-delimiter byte (the
+    // segment's first character). The densest possible pattern is
+    // `A,B,C,...` — alternating 1-byte segments and `,` separators — which
+    // yields at most `(len + 1) / 2` tokens. `mapping.len() / 2 + 1` is
+    // therefore a safe (and tight) upper bound for any valid input, so we
+    // can skip the upfront `,` / `;` scan and trust `tokens.len() <
+    // tokens.capacity()` inside the hot loop.
+    //
+    // With `tokens` kept as `Vec<Token>` end-to-end (no `into_boxed_slice`
+    // shrink), unused tail capacity is just memory — no realloc penalty.
+    let estimated_tokens = mapping.len() / 2 + 1;
     let mut tokens: Vec<Token> = Vec::with_capacity(estimated_tokens);
 
     let mut dst_line = 0u32;
@@ -229,10 +235,22 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                     }
                 }
 
-                // `src`/`name` already encode "absent" as `INVALID_ID`, so go
-                // through `Token::new_raw` instead of round-tripping through
-                // `Option<u32>` via `Token::new`.
-                tokens.push(Token::new_raw(dst_line, dst_col, src_line, src_col, src, name));
+                // SAFETY: capacity is `mapping.len() / 2 + 1`, which is a proven
+                // upper bound on the number of tokens this loop can produce
+                // (every token costs at least one non-delimiter byte, densest
+                // case `A,B,C,...` reaches exactly `(len + 1) / 2`). So
+                // `tokens.len() < tokens.capacity()` holds at every push.
+                //
+                // `src` / `name` already encode "absent" as `INVALID_ID`, so
+                // we go through `Token::new_raw` instead of round-tripping
+                // through `Option<u32>` via `Token::new`.
+                unsafe {
+                    let len = tokens.len();
+                    debug_assert!(len < tokens.capacity());
+                    let token = Token::new_raw(dst_line, dst_col, src_line, src_col, src, name);
+                    std::ptr::write(tokens.as_mut_ptr().add(len), token);
+                    tokens.set_len(len + 1);
+                }
             }
         }
     }
