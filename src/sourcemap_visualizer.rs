@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Write};
 
 use crate::SourceMap;
 
@@ -71,15 +71,17 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
             let src_invalid = t.src_line as usize >= source_lines.len()
                 || (t.src_col as usize) >= source_lines[t.src_line as usize].len();
             if dst_invalid || src_invalid {
-                s.push_str(&format!(
-                    "({}:{}){} --> ({}:{}){}\n",
+                writeln!(
+                    s,
+                    "({}:{}){} --> ({}:{}){}",
                     t.src_line,
                     t.src_col,
                     if src_invalid { " [invalid]" } else { "" },
                     t.dst_line,
                     t.dst_col,
                     if dst_invalid { " [invalid]" } else { "" },
-                ));
+                )
+                .unwrap();
                 continue;
             }
 
@@ -106,15 +108,17 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
                 source_lines[t.src_line as usize].len() as u32
             };
 
-            s.push_str(&format!(
-                "({}:{}) {:?} --> ({}:{}) {:?}\n",
+            writeln!(
+                s,
+                "({}:{}) {:?} --> ({}:{}) {:?}",
                 t.src_line,
                 t.src_col,
                 Self::str_slice_by_token(source_lines, t.src_line, t.src_col, src_end_col),
                 t.dst_line,
                 t.dst_col,
                 Self::str_slice_by_token(&output_lines, t.dst_line, t.dst_col, dst_end_col)
-            ));
+            )
+            .unwrap();
         }
 
         s
@@ -123,11 +127,14 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
     fn generate_line_utf16_tables(content: &str) -> Vec<Vec<u16>> {
         let mut tables = vec![];
         let mut line_byte_offset = 0;
+        let bytes = content.as_bytes();
         for (i, ch) in content.char_indices() {
             match ch {
                 '\r' | '\n' | '\u{2028}' | '\u{2029}' => {
-                    // Handle Windows-specific "\r\n" newlines
-                    if ch == '\r' && content.chars().nth(i + 1) == Some('\n') {
+                    // Handle Windows-specific "\r\n" newlines. `\n` is a single
+                    // ASCII byte, so peeking the next byte is correct even when
+                    // earlier content contains multi-byte UTF-8.
+                    if ch == '\r' && bytes.get(i + 1) == Some(&b'\n') {
                         continue;
                     }
                     tables.push(content[line_byte_offset..=i].encode_utf16().collect::<Vec<_>>());
