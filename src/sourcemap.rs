@@ -23,7 +23,7 @@ pub struct SourceMap<'a> {
     pub(crate) source_root: Option<Cow<'a, str>>,
     pub(crate) sources: Vec<Cow<'a, str>>,
     pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
-    pub(crate) tokens: Box<[Token]>,
+    pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
     /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
@@ -39,7 +39,7 @@ impl<'a> SourceMap<'a> {
         source_root: Option<Cow<'a, str>>,
         sources: Vec<Cow<'a, str>>,
         source_contents: Vec<Option<Cow<'a, str>>>,
-        tokens: Box<[Token]>,
+        tokens: Vec<Token>,
         token_chunks: Option<Vec<TokenChunk>>,
     ) -> Self {
         Self {
@@ -302,7 +302,7 @@ pub struct SourceMapParts<'a> {
     pub source_root: Option<Cow<'a, str>>,
     pub sources: Vec<Cow<'a, str>>,
     pub source_contents: Vec<Option<Cow<'a, str>>>,
-    pub tokens: Box<[Token]>,
+    pub tokens: Vec<Token>,
     pub token_chunks: Option<Vec<TokenChunk>>,
     pub x_google_ignore_list: Option<Vec<u32>>,
     pub debug_id: Option<Cow<'a, str>>,
@@ -384,7 +384,7 @@ fn test_sourcemap_source_view_token() {
         None,
         vec![Cow::Borrowed("foo.js")],
         vec![],
-        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
+        vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         None,
     );
     let mut source_view_tokens = sm.get_source_view_tokens();

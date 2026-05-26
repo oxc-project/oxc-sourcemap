@@ -69,7 +69,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
             .sources_content
             .map(|content| content.into_iter().map(|c| c.map(Cow::Owned)).collect())
             .unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
+        tokens,
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id.map(Cow::Owned),
@@ -125,7 +125,7 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
         source_root: json.source_root,
         sources: json.sources,
         source_contents: json.sources_content.unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
+        tokens,
         token_chunks: None,
         x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id,
@@ -135,14 +135,14 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
-    // Upper-bound token estimate: each `,` and `;` can delimit at most one segment.
+    // Exact token count: every `,` or `;` delimits one segment.
     let mut estimated_tokens = 1usize;
     for &byte in mapping {
         if byte == b',' || byte == b';' {
             estimated_tokens += 1;
         }
     }
-    let mut tokens = Vec::with_capacity(estimated_tokens);
+    let mut tokens: Vec<Token> = Vec::with_capacity(estimated_tokens);
 
     let mut dst_line = 0u32;
     let mut dst_col = 0u32;
@@ -178,10 +178,13 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
             _ => {
                 let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
 
-                // `nums[0]` is always generated column delta.
+                // `nums[0]` is always generated column delta. Range check via
+                // single unsigned compare: a negative i64 cast to u64 produces
+                // a value > any u32::MAX, which fails the `>= u32::MAX as u64`
+                // guard (used implicitly here — we only care about non-neg).
                 let new_dst_col = i64::from(dst_col) + nums[0];
-                if new_dst_col < 0 {
-                    return Err(Error::BadSegmentSize(0)); // Negative column
+                if (new_dst_col as u64) > u32::MAX as u64 {
+                    return Err(Error::BadSegmentSize(0));
                 }
                 dst_col = new_dst_col as u32;
 
@@ -193,43 +196,43 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                         return Err(Error::BadSegmentSize(nums_len as u32));
                     }
 
-                    // Source/name fields are also delta-encoded.
+                    // Combined unsigned bounds check: when `new_src_id` is
+                    // negative as i64, casting to u64 wraps to a huge value
+                    // that exceeds `sources_len`. Saves the separate `< 0`
+                    // branch (was: `<0 || >= n`, now: single `>= n`).
                     let new_src_id = i64::from(src_id) + nums[1];
-                    if new_src_id < 0 || new_src_id >= sources_len as i64 {
+                    if (new_src_id as u64) >= sources_len as u64 {
                         return Err(Error::BadSourceReference(src_id));
                     }
                     src_id = new_src_id as u32;
                     src = src_id;
 
                     let new_src_line = i64::from(src_line) + nums[2];
-                    if new_src_line < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative line
+                    if (new_src_line as u64) > u32::MAX as u64 {
+                        return Err(Error::BadSegmentSize(0));
                     }
                     src_line = new_src_line as u32;
 
                     let new_src_col = i64::from(src_col) + nums[3];
-                    if new_src_col < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative column
+                    if (new_src_col as u64) > u32::MAX as u64 {
+                        return Err(Error::BadSegmentSize(0));
                     }
                     src_col = new_src_col as u32;
 
                     if nums_len > 4 {
-                        name_id = (i64::from(name_id) + nums[4]) as u32;
-                        if name_id >= names_len as u32 {
+                        let new_name_id = i64::from(name_id) + nums[4];
+                        if (new_name_id as u64) >= names_len as u64 {
                             return Err(Error::BadNameReference(name_id));
                         }
+                        name_id = new_name_id as u32;
                         name = name_id;
                     }
                 }
 
-                tokens.push(Token::new(
-                    dst_line,
-                    dst_col,
-                    src_line,
-                    src_col,
-                    if src == INVALID_ID { None } else { Some(src) },
-                    if name == INVALID_ID { None } else { Some(name) },
-                ));
+                // `src`/`name` already encode "absent" as `INVALID_ID`, so go
+                // through `Token::new_raw` instead of round-tripping through
+                // `Option<u32>` via `Token::new`.
+                tokens.push(Token::new_raw(dst_line, dst_col, src_line, src_col, src, name));
             }
         }
     }
