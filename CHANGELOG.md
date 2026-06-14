@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- *(deps)* update napi to v3.9.2 ([#355](https://github.com/oxc-project/oxc-sourcemap/pull/355))
-- *(builder)* [**breaking**] borrow inputs instead of cloning for zero-copy build ([#353](https://github.com/oxc-project/oxc-sourcemap/pull/353))
+- _(deps)_ update napi to v3.9.2 ([#355](https://github.com/oxc-project/oxc-sourcemap/pull/355))
+- _(builder)_ [**breaking**] borrow inputs instead of cloning for zero-copy build ([#353](https://github.com/oxc-project/oxc-sourcemap/pull/353))
 
 ## [7.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v6.1.1...v7.0.0) - 2026-05-26
 
