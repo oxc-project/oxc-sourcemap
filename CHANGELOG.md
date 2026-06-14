@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v7.0.0...v8.0.0) - 2026-06-14
+
+### Other
+
+- *(deps)* update napi to v3.9.2 ([#355](https://github.com/oxc-project/oxc-sourcemap/pull/355))
+- *(builder)* [**breaking**] borrow inputs instead of cloning for zero-copy build ([#353](https://github.com/oxc-project/oxc-sourcemap/pull/353))
+
 ## [7.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v6.1.1...v7.0.0) - 2026-05-26
 
 ### Added
