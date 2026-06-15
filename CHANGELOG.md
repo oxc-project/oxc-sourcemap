@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.0...v8.0.1) - 2026-06-15
+
+### Other
+
+- simplify SourceMapBuilder string storage ([#361](https://github.com/oxc-project/oxc-sourcemap/pull/361))
+
 ## [8.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v7.0.0...v8.0.0) - 2026-06-15
 
 ### Other
