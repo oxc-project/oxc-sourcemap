@@ -11,7 +11,7 @@ use crate::{
 ///
 /// The builder **borrows** the names, sources and source contents you add for its lifetime `'a`,
 /// so building allocates essentially nothing beyond the tokens vector (the dedup maps key by
-/// `&'a str`, not owned copies, and the map stores `Cow::Borrowed`).
+/// `&'a str`, not owned copies).
 ///
 /// The ownership decision is deferred to the end:
 /// * [`into_sourcemap`](Self::into_sourcemap) returns a borrowed [`SourceMap<'a>`] — zero copy.
@@ -19,12 +19,12 @@ use crate::{
 ///   `'static` [`crate::OwnedSourceMap`].
 #[derive(Debug, Default)]
 pub struct SourceMapBuilder<'a> {
-    pub(crate) file: Option<Cow<'a, str>>,
+    pub(crate) file: Option<&'a str>,
     pub(crate) names_map: FxHashMap<&'a str, u32>,
-    pub(crate) names: Vec<Cow<'a, str>>,
-    pub(crate) sources: Vec<Cow<'a, str>>,
+    pub(crate) names: Vec<&'a str>,
+    pub(crate) sources: Vec<&'a str>,
     pub(crate) sources_map: FxHashMap<&'a str, u32>,
-    pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
+    pub(crate) source_contents: Vec<Option<&'a str>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
@@ -37,7 +37,7 @@ impl<'a> SourceMapBuilder<'a> {
         }
         let count = self.names.len() as u32;
         self.names_map.insert(name, count);
-        self.names.push(Cow::Borrowed(name));
+        self.names.push(name);
         count
     }
 
@@ -49,21 +49,19 @@ impl<'a> SourceMapBuilder<'a> {
         }
         let count = self.sources.len() as u32;
         self.sources_map.insert(source, count);
-        self.sources.push(Cow::Borrowed(source));
-        self.source_contents.push(Some(Cow::Borrowed(source_content)));
+        self.sources.push(source);
+        self.source_contents.push(Some(source_content));
         count
     }
 
     /// Add a source and its content without deduplicating (skips the hash lookup when sources
     /// are unique).
     ///
-    /// The `source` name is a `Cow` so callers can pass an owned, constructed path (e.g. from
-    /// [`std::path::Path::to_string_lossy`]) without a separate borrow, while the (large)
-    /// `source_content` is borrowed for `'a` — the content is never copied.
-    pub fn set_source_and_content(&mut self, source: Cow<'a, str>, source_content: &'a str) -> u32 {
+    /// The source name and source content are borrowed for `'a` — neither is copied.
+    pub fn set_source_and_content(&mut self, source: &'a str, source_content: &'a str) -> u32 {
         let count = self.sources.len() as u32;
         self.sources.push(source);
-        self.source_contents.push(Some(Cow::Borrowed(source_content)));
+        self.source_contents.push(Some(source_content));
         count
     }
 
@@ -82,7 +80,7 @@ impl<'a> SourceMapBuilder<'a> {
 
     /// Set the generated file name. Borrowed for `'a` (no allocation).
     pub fn set_file(&mut self, file: &'a str) {
-        self.file = Some(Cow::Borrowed(file));
+        self.file = Some(file);
     }
 
     /// Set the `SourceMap::token_chunks` to make the sourcemap to vlq mapping at parallel.
@@ -103,11 +101,11 @@ impl<'a> SourceMapBuilder<'a> {
             c.shrink_to_fit()
         }
         SourceMap::new(
-            self.file,
-            self.names,
+            self.file.map(Cow::Borrowed),
+            self.names.into_iter().map(Cow::Borrowed).collect(),
             None,
-            self.sources,
-            self.source_contents,
+            self.sources.into_iter().map(Cow::Borrowed).collect(),
+            self.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
             self.tokens.into_boxed_slice(),
             self.token_chunks,
         )
@@ -116,15 +114,32 @@ impl<'a> SourceMapBuilder<'a> {
     /// Same as [`Self::into_sourcemap`], but copies the strings once into an owned
     /// [`crate::OwnedSourceMap`] so callers can store the result without spelling out `'static`.
     #[inline]
-    pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
-        crate::OwnedSourceMap::new(self.into_sourcemap().into_owned())
+    pub fn into_owned_sourcemap(mut self) -> crate::OwnedSourceMap {
+        self.names.shrink_to_fit();
+        self.sources.shrink_to_fit();
+        self.tokens.shrink_to_fit();
+        if let Some(c) = self.token_chunks.as_mut() {
+            c.shrink_to_fit()
+        }
+        crate::OwnedSourceMap::new(SourceMap::new(
+            self.file.map(|file| Cow::Owned(file.to_owned())),
+            self.names.into_iter().map(|name| Cow::Owned(name.to_owned())).collect(),
+            None,
+            self.sources.into_iter().map(|source| Cow::Owned(source.to_owned())).collect(),
+            self.source_contents
+                .into_iter()
+                .map(|content| content.map(|content| Cow::Owned(content.to_owned())))
+                .collect(),
+            self.tokens.into_boxed_slice(),
+            self.token_chunks,
+        ))
     }
 }
 
 #[test]
 fn test_sourcemap_builder() {
     let mut builder = SourceMapBuilder::default();
-    builder.set_source_and_content("baz.js".into(), "");
+    builder.set_source_and_content("baz.js", "");
     builder.add_name("x");
     builder.set_file("file");
 
