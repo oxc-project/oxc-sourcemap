@@ -1,6 +1,6 @@
 //! Ported and modified from <https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/encoder.rs>
 
-use std::ops::{Deref, DerefMut};
+use std::fmt::Write;
 
 use json_escape_simd::escape_into;
 
@@ -37,23 +37,10 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
 }
 
 pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
-    // Worst-case capacity accounting:
-    // - escape_into may write up to (len * 2 + 2) for each string
-    // - include commas between items and constant JSON punctuation/keys
-    let mut max_segments = 0usize;
+    let mut capacity = 0usize;
 
     // {"version":3,
-    max_segments += 13;
-
-    // Optional "file":"...",
-    if let Some(file) = sourcemap.get_file() {
-        max_segments += 8 /* "file": */ + file.len() * 6 + 2 /* quotes */ + 1 /* , */;
-    }
-
-    // Optional "sourceRoot":"...",
-    if let Some(source_root) = sourcemap.get_source_root() {
-        max_segments += 14 /* "sourceRoot": */ + source_root.len() * 6 + 2 /* quotes */ + 1 /* , */;
-    }
+    capacity += 13;
 
     // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
@@ -77,95 +64,145 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
                 None => (has_some, bytes + 4), // "null"
             }
         });
-    total_string_bytes += sc_bytes;
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
-
-    // Calculate total capacity needed
-    max_segments += 9 + 13; // "names":[ + ],"sources":[
     if has_source_contents {
-        max_segments += 20; // ],"sourcesContent":[
+        total_string_bytes += sc_bytes;
     }
-    max_segments += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
-    max_segments += 2 * (names_count + sources_count + sc_count); // quotes around each item
+
+    let string_count = names_count
+        + sources_count
+        + sc_count
+        + usize::from(sourcemap.get_file().is_some())
+        + usize::from(sourcemap.get_source_root().is_some())
+        + usize::from(sourcemap.get_debug_id().is_some());
+    let reserve_escapes_individually = total_string_bytes > INDIVIDUAL_ESCAPE_RESERVE_THRESHOLD;
+
+    // Optional "file":"...",
+    if let Some(file) = sourcemap.get_file() {
+        capacity += 8 /* "file": */
+            + estimated_escaped_json_string_len(file, reserve_escapes_individually)
+            + 1 /* , */;
+    }
+
+    // Optional "sourceRoot":"...",
+    if let Some(source_root) = sourcemap.get_source_root() {
+        capacity += 14 /* "sourceRoot": */
+            + estimated_escaped_json_string_len(source_root, reserve_escapes_individually)
+            + 1 /* , */;
+    }
+
+    capacity += 9 + 13; // "names":[ + ],"sources":[
+    if has_source_contents {
+        capacity += 20; // ],"sourcesContent":[
+    }
+    if reserve_escapes_individually {
+        capacity += total_string_bytes;
+    } else {
+        capacity += total_string_bytes * 6 + ESCAPE_SIMD_PADDING * usize::from(string_count > 0);
+    }
+    capacity += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
     // Commas between array items
     let comma_count = names_count.saturating_sub(1)
         + sources_count.saturating_sub(1)
         + sc_count.saturating_sub(1);
-    max_segments += comma_count;
+    capacity += comma_count;
 
     // Optional ],"x_google_ignoreList":[
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
-        max_segments += 25; // ],"x_google_ignoreList":[
+        capacity += 25; // ],"x_google_ignoreList":[
 
         let ig_count = x_google_ignore_list.len();
-        // guess 10 digits per item, 100_000_000 maximum per element
-        max_segments += 10 * ig_count;
+        capacity += 10 * ig_count;
     }
 
     // ],"mappings":"
-    max_segments += 14;
-    max_segments += estimate_mappings_length(sourcemap);
+    capacity += 14;
+    capacity += estimate_mappings_length(sourcemap);
 
     // Optional ,"debugId":<escaped>
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        max_segments += 12 /* ,"debugId": */ + debug_id.len() * 6 + 2 /* quotes */;
+        capacity += 12 /* ,"debugId": */
+            + estimated_escaped_json_string_len(debug_id, reserve_escapes_individually);
     }
 
     // "} (closing quote of mappings + closing brace)
-    max_segments += 2;
-    let mut contents = PreAllocatedString::new(max_segments);
+    capacity += 2;
+    let mut contents = JsonStringBuffer::new(capacity, reserve_escapes_individually);
 
-    contents.push("{\"version\":3,");
+    contents.push_str("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
-        contents.push("\"file\":");
-        escape_into(file, contents.as_mut_vec());
-        contents.push(",");
+        contents.push_str("\"file\":");
+        contents.push_escaped(file);
+        contents.push_str(",");
     }
 
     if let Some(source_root) = sourcemap.get_source_root() {
-        contents.push("\"sourceRoot\":");
-        escape_into(source_root, contents.as_mut_vec());
-        contents.push(",");
+        contents.push_str("\"sourceRoot\":");
+        contents.push_escaped(source_root);
+        contents.push_str(",");
     }
 
-    contents.push("\"names\":[");
-    contents.push_list(sourcemap.names.iter(), |s, out| escape_into(&**s, out));
+    contents.push_str("\"names\":[");
+    contents.push_list(sourcemap.names.iter(), |s, out| out.push_escaped(s));
 
-    contents.push("],\"sources\":[");
-    contents.push_list(sourcemap.sources.iter(), |s, out| escape_into(&**s, out));
+    contents.push_str("],\"sources\":[");
+    contents.push_list(sourcemap.sources.iter(), |s, out| out.push_escaped(s));
 
     if has_source_contents {
         let source_contents = &sourcemap.source_contents;
-        contents.push("],\"sourcesContent\":[");
+        contents.push_str("],\"sourcesContent\":[");
         contents.push_list(source_contents.iter(), |v, output| match v {
-            Some(s) => escape_into(&**s, output),
-            None => output.extend_from_slice(b"null"),
+            Some(s) => output.push_escaped(s),
+            None => output.push_str("null"),
         });
     }
 
     if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
-        contents.push("],\"x_google_ignoreList\":[");
+        contents.push_str("],\"x_google_ignoreList\":[");
         contents.push_list(x_google_ignore_list.iter(), |s, output| {
-            output.extend_from_slice(s.to_string().as_bytes());
+            write!(output.as_string_mut(), "{s}").unwrap();
         });
     }
 
-    contents.push("],\"mappings\":\"");
-    serialize_sourcemap_mappings(sourcemap, &mut contents);
-    contents.push("\"");
+    contents.push_str("],\"mappings\":\"");
+    serialize_sourcemap_mappings(sourcemap, contents.as_string_mut());
+    contents.push_str("\"");
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        contents.push(",\"debugId\":");
-        escape_into(debug_id, contents.as_mut_vec());
+        contents.push_str(",\"debugId\":");
+        contents.push_escaped(debug_id);
     }
 
-    contents.push("}");
+    contents.push_str("}");
 
-    // Check we calculated number of segments required correctly
-    debug_assert!(contents.len() <= max_segments);
+    contents.into_string()
+}
 
-    contents.consume()
+// `json_escape_simd::escape_into` writes into spare capacity and the crate's
+// own `escape` helper allocates `len * 6 + 32 + 3`. Keep the same padding when
+// we reserve immediately before escaping a string.
+const ESCAPE_SIMD_PADDING: usize = 32 + 3;
+const INDIVIDUAL_ESCAPE_RESERVE_THRESHOLD: usize = 4096;
+
+fn estimated_escaped_json_string_len(value: &str, reserve_escapes_individually: bool) -> usize {
+    if reserve_escapes_individually { value.len() + 2 } else { value.len() * 6 + 2 }
+}
+
+fn worst_case_escape_spare_capacity(value: &str) -> usize {
+    value.len().saturating_mul(6).saturating_add(ESCAPE_SIMD_PADDING)
+}
+
+fn exact_escape_spare_capacity(value: &str) -> usize {
+    let mut len = 2usize; // surrounding quotes
+    for b in value.bytes() {
+        len += match b {
+            b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0c => 2,
+            0x00..=0x1f => 6,
+            _ => 1,
+        };
+    }
+    len + ESCAPE_SIMD_PADDING
 }
 
 fn estimate_mappings_length(sourcemap: &SourceMap<'_>) -> usize {
@@ -376,61 +413,70 @@ unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
     }
 }
 
-/// A helper for pre-allocate string buffer.
+/// Helper around the JSON output buffer.
 ///
-/// Pre-allocate a Cow<'a, str> buffer, and push the segment into it.
-/// Finally, convert it to a pre-allocated length String.
-#[repr(transparent)]
-struct PreAllocatedString(String);
-
-impl Deref for PreAllocatedString {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+/// Small maps keep one aggregate worst-case escape reserve for speed. Larger
+/// maps reserve closer to the final JSON size, then grow per string only when
+/// the SIMD escaper needs more spare capacity.
+struct JsonStringBuffer {
+    inner: String,
+    reserve_escapes_individually: bool,
 }
 
-impl DerefMut for PreAllocatedString {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl PreAllocatedString {
-    fn new(max_segments: usize) -> Self {
-        Self(String::with_capacity(max_segments))
+impl JsonStringBuffer {
+    fn new(capacity: usize, reserve_escapes_individually: bool) -> Self {
+        Self { inner: String::with_capacity(capacity), reserve_escapes_individually }
     }
 
     #[inline]
-    fn push(&mut self, s: &str) {
-        self.0.push_str(s);
+    fn push_str(&mut self, s: &str) {
+        self.inner.push_str(s);
     }
 
     #[inline]
-    fn push_list<S, I>(&mut self, mut iter: I, encode: impl Fn(S, &mut Vec<u8>))
+    fn push_escaped(&mut self, s: &str) {
+        if self.reserve_escapes_individually {
+            let spare = self.inner.capacity() - self.inner.len();
+            let worst_case = worst_case_escape_spare_capacity(s);
+            if spare < worst_case {
+                let required = exact_escape_spare_capacity(s);
+                if spare < required {
+                    self.inner.reserve(required);
+                }
+            }
+        }
+        escape_into(s, self.as_mut_vec());
+    }
+
+    #[inline]
+    fn push_list<S, I>(&mut self, mut iter: I, encode: impl Fn(S, &mut Self))
     where
         I: Iterator<Item = S>,
     {
         let Some(first) = iter.next() else {
             return;
         };
-        encode(first, self.as_mut_vec());
+        encode(first, self);
 
         for other in iter {
-            self.0.push(',');
-            encode(other, self.as_mut_vec());
+            self.inner.push(',');
+            encode(other, self);
         }
+    }
+
+    #[inline]
+    fn as_string_mut(&mut self) -> &mut String {
+        &mut self.inner
     }
 
     fn as_mut_vec(&mut self) -> &mut Vec<u8> {
         // SAFETY: we are sure that the string is not shared
-        unsafe { self.0.as_mut_vec() }
+        unsafe { self.inner.as_mut_vec() }
     }
 
     #[inline]
-    fn consume(self) -> String {
-        self.0
+    fn into_string(self) -> String {
+        self.inner
     }
 }
 
