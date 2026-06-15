@@ -29,6 +29,15 @@ pub struct SourceMapBuilder<'a> {
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
 }
 
+struct SourceMapBuilderParts<'a> {
+    file: Option<&'a str>,
+    names: Vec<&'a str>,
+    sources: Vec<&'a str>,
+    source_contents: Vec<Option<&'a str>>,
+    tokens: Vec<Token>,
+    token_chunks: Option<Vec<TokenChunk>>,
+}
+
 impl<'a> SourceMapBuilder<'a> {
     /// Add a name, deduplicating. The name is borrowed for `'a` (no allocation).
     pub fn add_name(&mut self, name: &'a str) -> u32 {
@@ -89,50 +98,67 @@ impl<'a> SourceMapBuilder<'a> {
     }
 
     /// Finish, borrowing the names/sources/contents for `'a` (zero copy).
-    pub fn into_sourcemap(mut self) -> SourceMap<'a> {
-        // Trade performance for memory.
-        // The tokens array take enormously large amount of data,
-        // which is not ideal for large applications.
-        self.names.shrink_to_fit();
-        self.sources.shrink_to_fit();
-        // For checker.ts, capacity for `tokens` before and after are 262144 and 171174 respectively.
-        self.tokens.shrink_to_fit();
-        if let Some(c) = self.token_chunks.as_mut() {
-            c.shrink_to_fit()
-        }
+    pub fn into_sourcemap(self) -> SourceMap<'a> {
+        let parts = self.into_parts();
         SourceMap::new(
-            self.file.map(Cow::Borrowed),
-            self.names.into_iter().map(Cow::Borrowed).collect(),
+            parts.file.map(Cow::Borrowed),
+            parts.names.into_iter().map(Cow::Borrowed).collect(),
             None,
-            self.sources.into_iter().map(Cow::Borrowed).collect(),
-            self.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
-            self.tokens.into_boxed_slice(),
-            self.token_chunks,
+            parts.sources.into_iter().map(Cow::Borrowed).collect(),
+            parts.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
+            parts.tokens.into_boxed_slice(),
+            parts.token_chunks,
         )
     }
 
     /// Same as [`Self::into_sourcemap`], but copies the strings once into an owned
     /// [`crate::OwnedSourceMap`] so callers can store the result without spelling out `'static`.
     #[inline]
-    pub fn into_owned_sourcemap(mut self) -> crate::OwnedSourceMap {
-        self.names.shrink_to_fit();
-        self.sources.shrink_to_fit();
-        self.tokens.shrink_to_fit();
-        if let Some(c) = self.token_chunks.as_mut() {
-            c.shrink_to_fit()
-        }
+    pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
+        let parts = self.into_parts();
         crate::OwnedSourceMap::new(SourceMap::new(
-            self.file.map(|file| Cow::Owned(file.to_owned())),
-            self.names.into_iter().map(|name| Cow::Owned(name.to_owned())).collect(),
+            parts.file.map(|file| Cow::Owned(file.to_owned())),
+            parts.names.into_iter().map(|name| Cow::Owned(name.to_owned())).collect(),
             None,
-            self.sources.into_iter().map(|source| Cow::Owned(source.to_owned())).collect(),
-            self.source_contents
+            parts.sources.into_iter().map(|source| Cow::Owned(source.to_owned())).collect(),
+            parts
+                .source_contents
                 .into_iter()
                 .map(|content| content.map(|content| Cow::Owned(content.to_owned())))
                 .collect(),
-            self.tokens.into_boxed_slice(),
-            self.token_chunks,
+            parts.tokens.into_boxed_slice(),
+            parts.token_chunks,
         ))
+    }
+
+    fn into_parts(self) -> SourceMapBuilderParts<'a> {
+        let Self {
+            file,
+            names_map,
+            mut names,
+            mut sources,
+            sources_map,
+            mut source_contents,
+            mut tokens,
+            mut token_chunks,
+        } = self;
+
+        drop(names_map);
+        drop(sources_map);
+
+        // Trade performance for memory.
+        // The tokens array take enormously large amount of data,
+        // which is not ideal for large applications.
+        names.shrink_to_fit();
+        sources.shrink_to_fit();
+        source_contents.shrink_to_fit();
+        // For checker.ts, capacity for `tokens` before and after are 262144 and 171174 respectively.
+        tokens.shrink_to_fit();
+        if let Some(c) = token_chunks.as_mut() {
+            c.shrink_to_fit()
+        }
+
+        SourceMapBuilderParts { file, names, sources, source_contents, tokens, token_chunks }
     }
 }
 
