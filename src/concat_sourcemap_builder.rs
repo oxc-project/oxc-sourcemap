@@ -140,23 +140,9 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         // push advance the running prev-id state.
         let mut iter = sourcemap.get_tokens();
         if let Some(first) = iter.next() {
-            let source_id_offset = first.get_source_id().map(|x| x + source_offset);
-            let name_id_offset = first.get_name_id().map(|x| x + name_offset);
-            let new_token = Token::new(
-                first.get_dst_line() + line_offset,
-                first.get_dst_col(),
-                first.get_src_line(),
-                first.get_src_col(),
-                source_id_offset,
-                name_id_offset,
-            );
+            let new_token = translate_token(first, line_offset, source_offset, name_offset);
             if self.tokens.last() != Some(&new_token) {
-                if let Some(s) = source_id_offset {
-                    last_source_id = s;
-                }
-                if let Some(n) = name_id_offset {
-                    last_name_id = n;
-                }
+                update_prev_ids(new_token, &mut last_source_id, &mut last_name_id);
                 self.tokens.push(new_token);
             }
         }
@@ -165,22 +151,9 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         // so the prev-id advance happens unconditionally for any token that
         // carries a source/name id.
         for token in iter {
-            let source_id_offset = token.get_source_id().map(|x| x + source_offset);
-            let name_id_offset = token.get_name_id().map(|x| x + name_offset);
-            if let Some(s) = source_id_offset {
-                last_source_id = s;
-            }
-            if let Some(n) = name_id_offset {
-                last_name_id = n;
-            }
-            self.tokens.push(Token::new(
-                token.get_dst_line() + line_offset,
-                token.get_dst_col(),
-                token.get_src_line(),
-                token.get_src_col(),
-                source_id_offset,
-                name_id_offset,
-            ));
+            let new_token = translate_token(token, line_offset, source_offset, name_offset);
+            update_prev_ids(new_token, &mut last_source_id, &mut last_name_id);
+            self.tokens.push(new_token);
         }
 
         // Flush the locals back to `self` so the next `add_sourcemap` call
@@ -220,6 +193,26 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             self.tokens.into_boxed_slice(),
             Some(self.token_chunks),
         )
+    }
+}
+
+fn translate_token(token: Token, line_offset: u32, source_offset: u32, name_offset: u32) -> Token {
+    Token::new(
+        token.get_dst_line() + line_offset,
+        token.get_dst_col(),
+        token.get_src_line(),
+        token.get_src_col(),
+        token.get_source_id().map(|id| id + source_offset),
+        token.get_name_id().map(|id| id + name_offset),
+    )
+}
+
+fn update_prev_ids(token: Token, last_source_id: &mut u32, last_name_id: &mut u32) {
+    if let Some(source_id) = token.get_source_id() {
+        *last_source_id = source_id;
+    }
+    if let Some(name_id) = token.get_name_id() {
+        *last_name_id = name_id;
     }
 }
 

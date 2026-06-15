@@ -1,5 +1,5 @@
 /// Port from https://github.com/getsentry/rust-sourcemap/blob/9.1.0/src/decoder.rs
-/// It is a helper for decode vlq soucemap string to `SourceMap`.
+/// It is a helper for decoding VLQ sourcemap strings to `SourceMap`.
 use std::borrow::Cow;
 
 use crate::error::{Error, Result};
@@ -50,14 +50,7 @@ where
 }
 
 pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
-    // Validate x_google_ignore_list indices
-    if let Some(ref ignore_list) = json.x_google_ignore_list {
-        for &idx in ignore_list {
-            if idx >= json.sources.len() as u32 {
-                return Err(Error::BadSourceReference(idx));
-            }
-        }
-    }
+    validate_x_google_ignore_list(json.x_google_ignore_list.as_deref(), json.sources.len())?;
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
     Ok(SourceMap {
@@ -108,14 +101,7 @@ struct BorrowedJSONSourceMap<'a> {
 pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
 
-    // Validate x_google_ignore_list indices
-    if let Some(ref ignore_list) = json.x_google_ignore_list {
-        for &idx in ignore_list {
-            if idx >= json.sources.len() as u32 {
-                return Err(Error::BadSourceReference(idx));
-            }
-        }
-    }
+    validate_x_google_ignore_list(json.x_google_ignore_list.as_deref(), json.sources.len())?;
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
 
@@ -130,6 +116,17 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
         x_google_ignore_list: json.x_google_ignore_list,
         debug_id: json.debug_id,
     })
+}
+
+fn validate_x_google_ignore_list(ignore_list: Option<&[u32]>, sources_len: usize) -> Result<()> {
+    if let Some(ignore_list) = ignore_list {
+        for &idx in ignore_list {
+            if idx as usize >= sources_len {
+                return Err(Error::BadSourceReference(idx));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
@@ -349,7 +346,7 @@ fn test_decode_sourcemap() {
 }
 
 #[test]
-fn test_decode_sourcemap_optional_filed() {
+fn test_decode_sourcemap_optional_field() {
     let input = r#"{
         "version": 3,
         "names": [],
