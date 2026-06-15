@@ -37,70 +37,69 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
 }
 
 pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
-    let mut capacity = 0usize;
-
-    // {"version":3,
-    capacity += 13;
-
-    // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
     let sources_count = sourcemap.sources.len();
-    // Accumulate total string bytes across all collections
-    let mut total_string_bytes = 0usize;
+
+    let mut escaped_strings = EscapedStringStats::default();
+    if let Some(file) = sourcemap.get_file() {
+        escaped_strings.add(file);
+    }
+    if let Some(source_root) = sourcemap.get_source_root() {
+        escaped_strings.add(source_root);
+    }
 
     for name in &sourcemap.names {
-        total_string_bytes += name.len();
+        escaped_strings.add(name);
     }
 
     for source in &sourcemap.sources {
-        total_string_bytes += source.len();
+        escaped_strings.add(source);
     }
 
-    // Single pass over source_contents to check existence and accumulate byte lengths
-    let (has_source_contents, sc_bytes) =
-        sourcemap.source_contents.iter().fold((false, 0usize), |(has_some, bytes), content| {
-            match content {
-                Some(s) => (true, bytes + s.len()),
-                None => (has_some, bytes + 4), // "null"
+    let mut source_content_strings = EscapedStringStats::default();
+    let mut null_source_contents = 0usize;
+    let mut has_source_contents = false;
+    for content in &sourcemap.source_contents {
+        match content {
+            Some(s) => {
+                has_source_contents = true;
+                source_content_strings.add(s);
             }
-        });
+            None => null_source_contents += 1,
+        }
+    }
+
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
     if has_source_contents {
-        total_string_bytes += sc_bytes;
+        escaped_strings.extend(source_content_strings);
+    } else {
+        null_source_contents = 0;
     }
 
-    let string_count = names_count
-        + sources_count
-        + sc_count
-        + usize::from(sourcemap.get_file().is_some())
-        + usize::from(sourcemap.get_source_root().is_some())
-        + usize::from(sourcemap.get_debug_id().is_some());
-    let reserve_escapes_individually = total_string_bytes > INDIVIDUAL_ESCAPE_RESERVE_THRESHOLD;
+    if let Some(debug_id) = sourcemap.get_debug_id() {
+        escaped_strings.add(debug_id);
+    }
+
+    let reserve_escapes_individually = escaped_strings.bytes > INDIVIDUAL_ESCAPE_RESERVE_THRESHOLD;
+
+    let mut capacity = 13; // {"version":3,
 
     // Optional "file":"...",
-    if let Some(file) = sourcemap.get_file() {
-        capacity += 8 /* "file": */
-            + estimated_escaped_json_string_len(file, reserve_escapes_individually)
-            + 1 /* , */;
+    if sourcemap.get_file().is_some() {
+        capacity += 8 /* "file": */ + 1 /* , */;
     }
 
     // Optional "sourceRoot":"...",
-    if let Some(source_root) = sourcemap.get_source_root() {
-        capacity += 14 /* "sourceRoot": */
-            + estimated_escaped_json_string_len(source_root, reserve_escapes_individually)
-            + 1 /* , */;
+    if sourcemap.get_source_root().is_some() {
+        capacity += 14 /* "sourceRoot": */ + 1 /* , */;
     }
 
     capacity += 9 + 13; // "names":[ + ],"sources":[
     if has_source_contents {
         capacity += 20; // ],"sourcesContent":[
     }
-    if reserve_escapes_individually {
-        capacity += total_string_bytes;
-    } else {
-        capacity += total_string_bytes * 6 + ESCAPE_SIMD_PADDING * usize::from(string_count > 0);
-    }
-    capacity += 2 * (names_count + sources_count + sc_count); // quotes around each item
+    capacity += escaped_strings.initial_capacity(reserve_escapes_individually);
+    capacity += null_source_contents * 4; // null
 
     // Commas between array items
     let comma_count = names_count.saturating_sub(1)
@@ -121,9 +120,8 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     capacity += estimate_mappings_length(sourcemap);
 
     // Optional ,"debugId":<escaped>
-    if let Some(debug_id) = sourcemap.get_debug_id() {
-        capacity += 12 /* ,"debugId": */
-            + estimated_escaped_json_string_len(debug_id, reserve_escapes_individually);
+    if sourcemap.get_debug_id().is_some() {
+        capacity += 12 /* ,"debugId": */;
     }
 
     // "} (closing quote of mappings + closing brace)
@@ -185,8 +183,32 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 const ESCAPE_SIMD_PADDING: usize = 32 + 3;
 const INDIVIDUAL_ESCAPE_RESERVE_THRESHOLD: usize = 4096;
 
-fn estimated_escaped_json_string_len(value: &str, reserve_escapes_individually: bool) -> usize {
-    if reserve_escapes_individually { value.len() + 2 } else { value.len() * 6 + 2 }
+#[derive(Default)]
+struct EscapedStringStats {
+    bytes: usize,
+    count: usize,
+}
+
+impl EscapedStringStats {
+    fn add(&mut self, value: &str) {
+        self.bytes += value.len();
+        self.count += 1;
+    }
+
+    fn extend(&mut self, other: Self) {
+        self.bytes += other.bytes;
+        self.count += other.count;
+    }
+
+    fn initial_capacity(&self, reserve_escapes_individually: bool) -> usize {
+        if self.count == 0 {
+            0
+        } else if reserve_escapes_individually {
+            self.bytes + self.count * 2
+        } else {
+            self.bytes * 6 + self.count * 2 + ESCAPE_SIMD_PADDING
+        }
+    }
 }
 
 fn worst_case_escape_spare_capacity(value: &str) -> usize {
