@@ -136,43 +136,27 @@ impl<'sm, 'data> SourceViewToken<'sm, 'data> {
     }
 
     pub fn get_name_id(&self) -> Option<u32> {
-        if self.token.name_id == INVALID_ID { None } else { Some(self.token.name_id) }
+        self.token.get_name_id()
     }
 
     pub fn get_source_id(&self) -> Option<u32> {
-        if self.token.source_id == INVALID_ID { None } else { Some(self.token.source_id) }
+        self.token.get_source_id()
     }
 
     pub fn get_name(&self) -> Option<&'sm str> {
-        if self.token.name_id == INVALID_ID {
-            None
-        } else {
-            self.sourcemap.get_name(self.token.name_id)
-        }
+        self.get_name_id().and_then(|id| self.sourcemap.get_name(id))
     }
 
     pub fn get_source(&self) -> Option<&'sm str> {
-        if self.token.source_id == INVALID_ID {
-            None
-        } else {
-            self.sourcemap.get_source(self.token.source_id)
-        }
+        self.get_source_id().and_then(|id| self.sourcemap.get_source(id))
     }
 
     pub fn get_source_content(&self) -> Option<&'sm str> {
-        if self.token.source_id == INVALID_ID {
-            None
-        } else {
-            self.sourcemap.get_source_content(self.token.source_id)
-        }
+        self.get_source_id().and_then(|id| self.sourcemap.get_source_content(id))
     }
 
     pub fn get_source_and_content(&self) -> Option<(&'sm str, &'sm str)> {
-        if self.token.source_id == INVALID_ID {
-            None
-        } else {
-            self.sourcemap.get_source_and_content(self.token.source_id)
-        }
+        self.get_source_id().and_then(|id| self.sourcemap.get_source_and_content(id))
     }
 
     pub fn to_tuple(&self) -> (Option<&'sm str>, u32, u32, Option<&'sm str>) {
