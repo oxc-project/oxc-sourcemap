@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::{SourceMap, Token, token::TokenChunk};
+use crate::{SourceMap, SourceMapParts, Token, token::TokenChunk};
 
 /// The `ConcatSourceMapBuilder` is a helper to concat sourcemaps.
 ///
@@ -183,6 +183,73 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         }
     }
 
+    /// Owned counterpart of [`add_sourcemap`](Self::add_sourcemap): moves the input's strings in via [`SourceMap::into_parts`], so the result is `'static` with no `into_owned` copy.
+    pub fn add_sourcemap_owned(&mut self, sourcemap: SourceMap<'static>, line_offset: u32) {
+        let source_offset = self.sources.len() as u32;
+        let name_offset = self.names.len() as u32;
+
+        let SourceMapParts { names, sources, source_contents, tokens, .. } = sourcemap.into_parts();
+        self.sources.extend(sources);
+        self.source_contents.extend(source_contents);
+        self.names.extend(names);
+
+        self.append_tokens(&tokens, line_offset, source_offset, name_offset);
+    }
+
+    /// Translate/dedup/chunk `tokens` into the builder; mirrors the token loop in `add_sourcemap`.
+    fn append_tokens(
+        &mut self,
+        tokens: &[Token],
+        line_offset: u32,
+        source_offset: u32,
+        name_offset: u32,
+    ) {
+        let start_token_idx = self.tokens.len() as u32;
+        let chunk_prev_name_id = self.token_chunk_prev_name_id;
+        let chunk_prev_source_id = self.token_chunk_prev_source_id;
+
+        let mut last_source_id = self.token_chunk_prev_source_id;
+        let mut last_name_id = self.token_chunk_prev_name_id;
+
+        self.tokens.reserve(tokens.len());
+
+        let mut iter = tokens.iter().copied();
+        if let Some(first) = iter.next() {
+            let new_token = translate_token(first, line_offset, source_offset, name_offset);
+            if self.tokens.last() != Some(&new_token) {
+                update_prev_ids(new_token, &mut last_source_id, &mut last_name_id);
+                self.tokens.push(new_token);
+            }
+        }
+
+        for token in iter {
+            let new_token = translate_token(token, line_offset, source_offset, name_offset);
+            update_prev_ids(new_token, &mut last_source_id, &mut last_name_id);
+            self.tokens.push(new_token);
+        }
+
+        self.token_chunk_prev_source_id = last_source_id;
+        self.token_chunk_prev_name_id = last_name_id;
+
+        let end_token_idx = self.tokens.len() as u32;
+
+        if start_token_idx > 0 {
+            let prev_token = &self.tokens[start_token_idx as usize - 1];
+            self.token_chunks.push(TokenChunk::new(
+                start_token_idx,
+                end_token_idx,
+                prev_token.get_dst_line(),
+                prev_token.get_dst_col(),
+                prev_token.get_src_line(),
+                prev_token.get_src_col(),
+                chunk_prev_name_id,
+                chunk_prev_source_id,
+            ));
+        } else {
+            self.token_chunks.push(TokenChunk::new(0, end_token_idx, 0, 0, 0, 0, 0, 0));
+        }
+    }
+
     pub fn into_sourcemap(self) -> SourceMap<'a> {
         SourceMap::new(
             None,
@@ -302,6 +369,81 @@ fn test_concat_sourcemap_builder_from_sourcemaps() {
     let [sm1, sm2, sm3] = build_test_inputs();
     let builder = ConcatSourceMapBuilder::from_sourcemaps(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
     assert_test_result(builder.into_sourcemap());
+}
+
+#[test]
+fn test_concat_sourcemap_builder_owned_matches_borrowed() {
+    // The owned path must produce byte-identical output to the borrowed path.
+    let [b1, b2, b3] = build_test_inputs();
+    let mut borrowed = ConcatSourceMapBuilder::default();
+    for (sm, off) in [(&b1, 0u32), (&b2, 2), (&b3, 2)] {
+        borrowed.add_sourcemap(sm, off);
+    }
+    let borrowed = borrowed.into_sourcemap();
+
+    let [o1, o2, o3] = build_test_inputs();
+    let mut owned = ConcatSourceMapBuilder::default();
+    for (sm, off) in [(o1, 0u32), (o2, 2), (o3, 2)] {
+        owned.add_sourcemap_owned(sm, off);
+    }
+    let owned = owned.into_sourcemap();
+
+    assert_eq!(owned.tokens, borrowed.tokens);
+    assert_eq!(owned.sources, borrowed.sources);
+    assert_eq!(owned.names, borrowed.names);
+    assert_eq!(owned.source_contents, borrowed.source_contents);
+    assert_eq!(owned.token_chunks, borrowed.token_chunks);
+    assert_eq!(owned.to_json().mappings, borrowed.to_json().mappings);
+    assert_test_result(owned);
+}
+
+#[test]
+fn test_concat_sourcemap_builder_owned_matches_borrowed_dedup_and_sentinel() {
+    // `None` ids exercise the sentinel passthrough; the offsets make map2's first
+    // translated token equal map1's last, exercising the boundary-dedup drop.
+    fn inputs() -> [SourceMap<'static>; 2] {
+        [
+            SourceMap::new(
+                None,
+                vec![],
+                None,
+                vec![Cow::Borrowed("a.js")],
+                vec![],
+                vec![Token::new(0, 0, 0, 0, None, None), Token::new(5, 2, 1, 3, None, None)]
+                    .into_boxed_slice(),
+                None,
+            ),
+            SourceMap::new(
+                None,
+                vec![],
+                None,
+                vec![Cow::Borrowed("b.js")],
+                vec![],
+                vec![Token::new(0, 2, 1, 3, None, None), Token::new(2, 0, 2, 0, None, None)]
+                    .into_boxed_slice(),
+                None,
+            ),
+        ]
+    }
+
+    let [b1, b2] = inputs();
+    let mut borrowed = ConcatSourceMapBuilder::default();
+    borrowed.add_sourcemap(&b1, 0);
+    borrowed.add_sourcemap(&b2, 5);
+    let borrowed = borrowed.into_sourcemap();
+
+    let [o1, o2] = inputs();
+    let mut owned = ConcatSourceMapBuilder::default();
+    owned.add_sourcemap_owned(o1, 0);
+    owned.add_sourcemap_owned(o2, 5);
+    let owned = owned.into_sourcemap();
+
+    // 4 input tokens minus the deduplicated boundary token.
+    assert_eq!(borrowed.tokens.len(), 3);
+    assert_eq!(owned.tokens, borrowed.tokens);
+    assert_eq!(owned.sources, borrowed.sources);
+    assert_eq!(owned.token_chunks, borrowed.token_chunks);
+    assert_eq!(owned.to_json().mappings, borrowed.to_json().mappings);
 }
 
 #[test]

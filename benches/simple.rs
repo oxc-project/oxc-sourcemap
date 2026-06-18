@@ -236,6 +236,16 @@ pub fn bench(c: &mut Criterion) {
             black_box(concat_sm);
         });
     });
+
+    // The status-quo path a downstream owner pays today: merge + `into_owned` deep copy.
+    concat_group.bench_function("into_owned", |b| {
+        b.iter(|| {
+            let concat_sm = ConcatSourceMapBuilder::from_sourcemaps(black_box(&concat_inputs))
+                .into_sourcemap()
+                .into_owned();
+            black_box(concat_sm);
+        });
+    });
     concat_group.finish();
 }
 
