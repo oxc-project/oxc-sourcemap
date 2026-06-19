@@ -4,16 +4,21 @@ use crate::{SourceMap, Token, token::TokenChunk};
 
 /// The `ConcatSourceMapBuilder` is a helper to concat sourcemaps.
 ///
-/// The lifetime `'a` is the lifetime of the input source maps borrowed during
-/// `add_sourcemap` / `from_sourcemaps`: every name/source/sourcesContent
-/// string in the concatenated result is a [`Cow::Borrowed`] view into one of
-/// the input maps, so concatenation does no string allocations at all. The
-/// resulting [`SourceMap<'a>`] cannot outlive its inputs.
+/// The builder **borrows** every name/source/sourcesContent string from the
+/// input source maps added via `add_sourcemap` / `from_sourcemaps` for its
+/// lifetime `'a` (it stores `&'a str`, not owned copies), so concatenation does
+/// no string allocations at all.
+///
+/// The ownership decision is deferred to the end:
+/// * [`into_sourcemap`](Self::into_sourcemap) returns a borrowed [`SourceMap<'a>`] — zero copy,
+///   and so cannot outlive its inputs.
+/// * [`into_owned_sourcemap`](Self::into_owned_sourcemap) copies the strings once into a
+///   `'static` [`crate::OwnedSourceMap`].
 #[derive(Debug, Default)]
 pub struct ConcatSourceMapBuilder<'a> {
-    pub(crate) names: Vec<Cow<'a, str>>,
-    pub(crate) sources: Vec<Cow<'a, str>>,
-    pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
+    pub(crate) names: Vec<&'a str>,
+    pub(crate) sources: Vec<&'a str>,
+    pub(crate) source_contents: Vec<Option<&'a str>>,
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
@@ -99,11 +104,10 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         // Borrow strings directly from the input map — no allocations.
         // The output `SourceMap`'s lifetime is tied to `'a`, so the
         // borrow checker enforces that input maps outlive it.
-        self.sources.extend(sourcemap.get_sources().map(Cow::Borrowed));
-        self.source_contents
-            .extend(sourcemap.get_source_contents().map(|opt| opt.map(Cow::Borrowed)));
+        self.sources.extend(sourcemap.get_sources());
+        self.source_contents.extend(sourcemap.get_source_contents());
         self.names.reserve(sourcemap.names.len());
-        self.names.extend(sourcemap.get_names().map(Cow::Borrowed));
+        self.names.extend(sourcemap.get_names());
 
         // Append every input token to `self.tokens`, translated by `line_offset`,
         // `source_offset`, and `name_offset` so its references resolve against
@@ -183,16 +187,35 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         }
     }
 
+    /// Finish, borrowing the names/sources/contents for `'a` (zero copy).
     pub fn into_sourcemap(self) -> SourceMap<'a> {
         SourceMap::new(
             None,
-            self.names,
+            self.names.into_iter().map(Cow::Borrowed).collect(),
             None,
-            self.sources,
-            self.source_contents,
+            self.sources.into_iter().map(Cow::Borrowed).collect(),
+            self.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
             self.tokens.into_boxed_slice(),
             Some(self.token_chunks),
         )
+    }
+
+    /// Same as [`Self::into_sourcemap`], but copies the strings once into an owned
+    /// [`crate::OwnedSourceMap`] so callers can store the result without spelling out `'static`.
+    #[inline]
+    pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
+        crate::OwnedSourceMap::new(SourceMap::new(
+            None,
+            self.names.into_iter().map(|name| Cow::Owned(name.to_owned())).collect(),
+            None,
+            self.sources.into_iter().map(|source| Cow::Owned(source.to_owned())).collect(),
+            self.source_contents
+                .into_iter()
+                .map(|content| content.map(|content| Cow::Owned(content.to_owned())))
+                .collect(),
+            self.tokens.into_boxed_slice(),
+            Some(self.token_chunks),
+        ))
     }
 }
 
