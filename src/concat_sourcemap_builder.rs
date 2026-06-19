@@ -4,11 +4,21 @@ use crate::{SourceMap, Token, token::TokenChunk};
 
 /// The `ConcatSourceMapBuilder` is a helper to concat sourcemaps.
 ///
-/// The lifetime `'a` is the lifetime of the input source maps borrowed during
-/// `add_sourcemap` / `from_sourcemaps`: every name/source/sourcesContent
-/// string in the concatenated result is a [`Cow::Borrowed`] view into one of
-/// the input maps, so concatenation does no string allocations at all. The
-/// resulting [`SourceMap<'a>`] cannot outlive its inputs.
+/// Names/sources/sourcesContent are accumulated as [`Cow<'a, str>`], so the builder serves two
+/// input shapes without ever copying string bytes during the join:
+///
+/// * [`add_sourcemap`](Self::add_sourcemap) / [`from_sourcemaps`](Self::from_sourcemaps) **borrow**
+///   from input maps that outlive the builder (`Cow::Borrowed`).
+/// * [`add_sourcemap_owned`](Self::add_sourcemap_owned) /
+///   [`from_owned_sourcemaps`](Self::from_owned_sourcemaps) **consume** owned input maps and
+///   **move** their strings in (`Cow::Owned`) — no copy, ideal when the inputs are discarded
+///   afterwards (e.g. a bundler joining freshly-rendered modules).
+///
+/// The ownership decision is deferred to the end:
+/// * [`into_sourcemap`](Self::into_sourcemap) moves the accumulated entries straight into a
+///   [`SourceMap<'a>`] — zero copy either way.
+/// * [`into_owned_sourcemap`](Self::into_owned_sourcemap) detaches to `'static`: entries moved in
+///   via `add_sourcemap_owned` are kept as-is, only borrowed ones are copied.
 #[derive(Debug, Default)]
 pub struct ConcatSourceMapBuilder<'a> {
     pub(crate) names: Vec<Cow<'a, str>>,
@@ -45,6 +55,28 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         }
     }
 
+    /// Sum the `names` / `sources` / `tokens` lengths across `maps`, to pre-size the builder.
+    fn sum_lengths<'s, 'd: 's>(
+        maps: impl Iterator<Item = &'s SourceMap<'d>>,
+    ) -> (usize, usize, usize) {
+        let (mut names, mut sources, mut tokens) = (0, 0, 0);
+        for map in maps {
+            names += map.names.len();
+            sources += map.sources.len();
+            tokens += map.tokens.len();
+        }
+        (names, sources, tokens)
+    }
+
+    /// Pad `source_contents` with `None` so it stays index-aligned with `sources`. An input map's
+    /// `sourcesContent` may be absent or shorter than its `sources` (it is not normalized on
+    /// decode), and contents are indexed by source id — without this, a later map's content would
+    /// shift onto an earlier map's source. A no-op when the map's contents already cover its
+    /// sources (the common case), so it costs nothing there.
+    fn pad_source_contents(&mut self) {
+        self.source_contents.resize(self.sources.len(), None);
+    }
+
     /// Create new `ConcatSourceMapBuilder` from an array of `SourceMap`s and line offsets.
     ///
     /// This avoids memory copies versus creating builder with `ConcatSourceMapBuilder::default()`
@@ -63,16 +95,8 @@ impl<'a> ConcatSourceMapBuilder<'a> {
     /// let combined_sourcemap = builder.into_sourcemap();
     /// ```
     pub fn from_sourcemaps(sourcemap_and_line_offsets: &[(&'a SourceMap<'_>, u32)]) -> Self {
-        // Calculate length of `Vec`s required
-        let mut names_len = 0;
-        let mut sources_len = 0;
-        let mut tokens_len = 0;
-        for (sourcemap, _) in sourcemap_and_line_offsets {
-            names_len += sourcemap.names.len();
-            sources_len += sourcemap.sources.len();
-            tokens_len += sourcemap.tokens.len();
-        }
-
+        let (names_len, sources_len, tokens_len) =
+            Self::sum_lengths(sourcemap_and_line_offsets.iter().map(|(sourcemap, _)| *sourcemap));
         let mut builder = Self::with_capacity(
             names_len,
             sources_len,
@@ -87,102 +111,155 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         builder
     }
 
+    /// Create a `ConcatSourceMapBuilder` from **owned** `SourceMap`s and line offsets, **moving**
+    /// their strings in (no copy).
+    ///
+    /// The owned counterpart of [`from_sourcemaps`](Self::from_sourcemaps) — see
+    /// [`add_sourcemap_owned`](Self::add_sourcemap_owned). This is the fastest way to join owned
+    /// maps that are discarded afterwards (e.g. a bundler joining rendered modules): no
+    /// name/source/sourcesContent string is copied.
+    pub fn from_owned_sourcemaps(sourcemap_and_line_offsets: Vec<(SourceMap<'a>, u32)>) -> Self {
+        let (names_len, sources_len, tokens_len) =
+            Self::sum_lengths(sourcemap_and_line_offsets.iter().map(|(sourcemap, _)| sourcemap));
+        let mut builder = Self::with_capacity(
+            names_len,
+            sources_len,
+            tokens_len,
+            sourcemap_and_line_offsets.len(),
+        );
+
+        for (sourcemap, line_offset) in sourcemap_and_line_offsets {
+            builder.add_sourcemap_owned(sourcemap, line_offset);
+        }
+
+        builder
+    }
+
+    /// Add a **borrowed** `SourceMap`'s entries to the concatenation, offset by `line_offset`.
+    ///
+    /// Strings are borrowed from `sourcemap` for `'a` (no allocation), so the result cannot
+    /// outlive it. Use [`add_sourcemap_owned`](Self::add_sourcemap_owned) when you own the map and
+    /// want to move its strings in instead.
     pub fn add_sourcemap(&mut self, sourcemap: &'a SourceMap<'_>, line_offset: u32) {
         let source_offset = self.sources.len() as u32;
         let name_offset = self.names.len() as u32;
-        let start_token_idx = self.tokens.len() as u32;
 
-        // Capture prev_name_id and prev_source_id before they get updated during token mapping
-        let chunk_prev_name_id = self.token_chunk_prev_name_id;
-        let chunk_prev_source_id = self.token_chunk_prev_source_id;
-
-        // Borrow strings directly from the input map — no allocations.
-        // The output `SourceMap`'s lifetime is tied to `'a`, so the
-        // borrow checker enforces that input maps outlive it.
+        // Borrow strings directly from the input map — no allocations. The output `SourceMap`'s
+        // lifetime is tied to `'a`, so the borrow checker enforces that input maps outlive it.
         self.sources.extend(sourcemap.get_sources().map(Cow::Borrowed));
         self.source_contents
-            .extend(sourcemap.get_source_contents().map(|opt| opt.map(Cow::Borrowed)));
-        self.names.reserve(sourcemap.names.len());
+            .extend(sourcemap.get_source_contents().map(|content| content.map(Cow::Borrowed)));
+        self.pad_source_contents();
         self.names.extend(sourcemap.get_names().map(Cow::Borrowed));
 
-        // Append every input token to `self.tokens`, translated by `line_offset`,
-        // `source_offset`, and `name_offset` so its references resolve against
-        // this builder's combined `sources` / `names` arrays.
-        //
-        // Two pieces of bookkeeping ride along:
-        //
-        //  1. **Boundary dedup.** If the first input token, after translation,
-        //     equals the last token already in `self.tokens`, we drop it. This
-        //     collapses the duplicate that appears when two adjacent input
-        //     sourcemaps name the same generated position. Only the first
-        //     iteration can match — every later token has a distinct
-        //     `dst_line` / `dst_col` — so the check is hoisted out of the main
-        //     loop into a separate `iter.next()` branch.
-        //
-        //  2. **Running prev-id state.** `self.token_chunk_prev_source_id` /
-        //     `_prev_name_id` track the last source/name id we *committed*, so
-        //     the next call's `TokenChunk` header can use them as the VLQ
-        //     delta baseline. We accumulate the updates in plain locals
-        //     (`last_source_id` / `last_name_id`) inside this call and write
-        //     them back to `self.*` once at the end — that keeps the hot loop
-        //     register-resident instead of doing `&mut self` stores per token.
-        //     Crucially, the locals are only updated when a token is actually
-        //     pushed; the dedup-dropped first token must not advance them, or
-        //     the next chunk's baseline would diverge from the tokens that
-        //     reached the output.
-        let mut last_source_id = self.token_chunk_prev_source_id;
-        let mut last_name_id = self.token_chunk_prev_name_id;
-
-        self.tokens.reserve(sourcemap.tokens.len());
-
-        // First iteration: build the translated token, check it against
-        // `self.tokens.last()` for boundary dedup, and only on a successful
-        // push advance the running prev-id state.
-        let mut iter = sourcemap.get_tokens();
-        if let Some(first) = iter.next() {
-            let new_token = translate_token(first, line_offset, source_offset, name_offset);
-            if self.tokens.last() != Some(&new_token) {
-                update_prev_ids(new_token, &mut last_source_id, &mut last_name_id);
-                self.tokens.push(new_token);
-            }
-        }
-
-        // Remaining tokens are always pushed (no dedup against the boundary),
-        // so the prev-id advance happens unconditionally for any token that
-        // carries a source/name id.
-        for token in iter {
-            let new_token = translate_token(token, line_offset, source_offset, name_offset);
-            update_prev_ids(new_token, &mut last_source_id, &mut last_name_id);
-            self.tokens.push(new_token);
-        }
-
-        // Flush the locals back to `self` so the next `add_sourcemap` call
-        // sees the prev-id state from the tokens we actually committed.
-        self.token_chunk_prev_source_id = last_source_id;
-        self.token_chunk_prev_name_id = last_name_id;
-
-        // Add `token_chunks` after tokens are added so we know the actual end index
-        let end_token_idx = self.tokens.len() as u32;
-
-        if start_token_idx > 0 {
-            // Not the first sourcemap - use previous token's state
-            let prev_token = &self.tokens[start_token_idx as usize - 1];
-            self.token_chunks.push(TokenChunk::new(
-                start_token_idx,
-                end_token_idx,
-                prev_token.get_dst_line(),
-                prev_token.get_dst_col(),
-                prev_token.get_src_line(),
-                prev_token.get_src_col(),
-                chunk_prev_name_id,
-                chunk_prev_source_id,
-            ));
-        } else {
-            // First sourcemap - use zeros
-            self.token_chunks.push(TokenChunk::new(0, end_token_idx, 0, 0, 0, 0, 0, 0));
-        }
+        self.add_tokens(&sourcemap.tokens, line_offset, source_offset, name_offset);
     }
 
+    /// Add an **owned** `SourceMap` to the concatenation, **moving** its strings in (no copy),
+    /// offset by `line_offset`.
+    ///
+    /// This is the fastest path when the inputs are owned and discarded after the join: the
+    /// name/source/sourcesContent `Cow::Owned` heap buffers are moved across rather than copied,
+    /// so the cost is independent of how much `sourcesContent` rides along. Pair with
+    /// [`into_sourcemap`](Self::into_sourcemap), which then moves the entries straight into the
+    /// result (and, for `'static` inputs, returns a `'static` map without any copy).
+    pub fn add_sourcemap_owned(&mut self, sourcemap: SourceMap<'a>, line_offset: u32) {
+        let source_offset = self.sources.len() as u32;
+        let name_offset = self.names.len() as u32;
+
+        let parts = sourcemap.into_parts();
+
+        // Move the owned entries in — no string bytes are copied.
+        self.sources.extend(parts.sources);
+        self.source_contents.extend(parts.source_contents);
+        self.pad_source_contents();
+        self.names.extend(parts.names);
+
+        self.add_tokens(&parts.tokens, line_offset, source_offset, name_offset);
+    }
+
+    /// Append `tokens` to `self.tokens`, translated by `line_offset` / `source_offset` /
+    /// `name_offset` so they resolve against the combined `sources` / `names` arrays, and record
+    /// the matching [`TokenChunk`]. Shared by `add_sourcemap` (borrowed) and `add_sourcemap_owned`
+    /// (owned) — only how the strings get in differs.
+    fn add_tokens(
+        &mut self,
+        tokens: &[Token],
+        line_offset: u32,
+        source_offset: u32,
+        name_offset: u32,
+    ) {
+        let start = self.tokens.len();
+        // The chunk header records the prev-id baseline as it stood *before* this chunk.
+        let chunk_prev_source_id = self.token_chunk_prev_source_id;
+        let chunk_prev_name_id = self.token_chunk_prev_name_id;
+
+        if start == 0 && line_offset == 0 && source_offset == 0 && name_offset == 0 {
+            // Genuinely the first contributing map: no line/source/name offset, and no previous
+            // token to dedup against, so every token is unchanged — copy them in one `memcpy`.
+            // (A prior map can add sources/names without tokens, leaving `start == 0` while the
+            // offsets are non-zero, so all four conditions must hold to skip translation.)
+            self.tokens.extend_from_slice(tokens);
+        } else {
+            self.tokens.reserve(tokens.len());
+            let mut tokens = tokens.iter();
+            // Boundary dedup: only the first token can equal the previous map's last token (every
+            // later token has a distinct generated position), so check it once and drop if equal.
+            if let Some(first) = tokens.next() {
+                let first = first.translated(line_offset, source_offset, name_offset);
+                if self.tokens.last() != Some(&first) {
+                    self.tokens.push(first);
+                }
+            }
+            self.tokens.extend(
+                tokens.map(|token| token.translated(line_offset, source_offset, name_offset)),
+            );
+        }
+
+        // The next chunk's VLQ baseline is the last source/name id committed. Scan back from the
+        // end of what we just appended — the final token almost always carries both, so this is
+        // typically O(1); if this map contributed neither, the previous baseline carries over.
+        let mut prev_source_id = chunk_prev_source_id;
+        let mut prev_name_id = chunk_prev_name_id;
+        let (mut have_source, mut have_name) = (false, false);
+        for token in self.tokens[start..].iter().rev() {
+            if !have_source && let Some(id) = token.get_source_id() {
+                prev_source_id = id;
+                have_source = true;
+            }
+            if !have_name && let Some(id) = token.get_name_id() {
+                prev_name_id = id;
+                have_name = true;
+            }
+            if have_source && have_name {
+                break;
+            }
+        }
+        self.token_chunk_prev_source_id = prev_source_id;
+        self.token_chunk_prev_name_id = prev_name_id;
+
+        // Record the chunk once boundary dedup has settled the actual end index.
+        let end = self.tokens.len() as u32;
+        let chunk = if start > 0 {
+            let prev = &self.tokens[start - 1];
+            TokenChunk::new(
+                start as u32,
+                end,
+                prev.get_dst_line(),
+                prev.get_dst_col(),
+                prev.get_src_line(),
+                prev.get_src_col(),
+                chunk_prev_name_id,
+                chunk_prev_source_id,
+            )
+        } else {
+            TokenChunk::new(0, end, 0, 0, 0, 0, 0, 0)
+        };
+        self.token_chunks.push(chunk);
+    }
+
+    /// Finish, moving the accumulated names/sources/contents straight into a [`SourceMap<'a>`]
+    /// (zero copy — the `Cow` vectors are moved, not rebuilt).
     pub fn into_sourcemap(self) -> SourceMap<'a> {
         SourceMap::new(
             None,
@@ -194,25 +271,13 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             Some(self.token_chunks),
         )
     }
-}
 
-fn translate_token(token: Token, line_offset: u32, source_offset: u32, name_offset: u32) -> Token {
-    Token::new(
-        token.get_dst_line() + line_offset,
-        token.get_dst_col(),
-        token.get_src_line(),
-        token.get_src_col(),
-        token.get_source_id().map(|id| id + source_offset),
-        token.get_name_id().map(|id| id + name_offset),
-    )
-}
-
-fn update_prev_ids(token: Token, last_source_id: &mut u32, last_name_id: &mut u32) {
-    if let Some(source_id) = token.get_source_id() {
-        *last_source_id = source_id;
-    }
-    if let Some(name_id) = token.get_name_id() {
-        *last_name_id = name_id;
+    /// Same as [`Self::into_sourcemap`], but detaches to a `'static` [`crate::OwnedSourceMap`].
+    /// Entries moved in via [`add_sourcemap_owned`](Self::add_sourcemap_owned) are kept as-is
+    /// (no copy); only borrowed entries (from [`add_sourcemap`](Self::add_sourcemap)) are copied.
+    #[inline]
+    pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
+        self.into_sourcemap().into_owned_sourcemap()
     }
 }
 
@@ -302,6 +367,122 @@ fn test_concat_sourcemap_builder_from_sourcemaps() {
     let [sm1, sm2, sm3] = build_test_inputs();
     let builder = ConcatSourceMapBuilder::from_sourcemaps(&[(&sm1, 0), (&sm2, 2), (&sm3, 2)]);
     assert_test_result(builder.into_sourcemap());
+}
+
+#[test]
+fn test_concat_sourcemap_builder_add_sourcemap_owned() {
+    // Moving owned maps in must produce the same result as borrowing them.
+    let [sm1, sm2, sm3] = build_test_inputs();
+    let mut builder = ConcatSourceMapBuilder::default();
+    builder.add_sourcemap_owned(sm1, 0);
+    builder.add_sourcemap_owned(sm2, 2);
+    builder.add_sourcemap_owned(sm3, 2);
+    assert_test_result(builder.into_sourcemap());
+}
+
+#[test]
+fn test_concat_sourcemap_builder_from_owned_sourcemaps() {
+    let [sm1, sm2, sm3] = build_test_inputs();
+    let builder = ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(sm1, 0), (sm2, 2), (sm3, 2)]);
+    assert_test_result(builder.into_sourcemap());
+}
+
+#[test]
+fn test_concat_owned_moves_strings_into_owned_sourcemap() {
+    // Two owned maps with owned content; the move-in path must preserve every string and
+    // renumber `other`'s ids/lines, ending up as a `'static` map with no data lost.
+    let a = SourceMap::new(
+        None,
+        vec![Cow::Owned("name_a".to_string())],
+        None,
+        vec![Cow::Owned("a.js".to_string())],
+        vec![Some(Cow::Owned("a content".to_string()))],
+        vec![Token::new(0, 0, 0, 0, Some(0), Some(0))].into_boxed_slice(),
+        None,
+    );
+    let b = SourceMap::new(
+        None,
+        vec![Cow::Owned("name_b".to_string())],
+        None,
+        vec![Cow::Owned("b.js".to_string())],
+        vec![Some(Cow::Owned("b content".to_string()))],
+        vec![Token::new(0, 0, 0, 0, Some(0), Some(0))].into_boxed_slice(),
+        None,
+    );
+
+    let owned =
+        ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(a, 0), (b, 5)]).into_owned_sourcemap();
+
+    assert_eq!(owned.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+    assert_eq!(owned.get_names().collect::<Vec<_>>(), vec!["name_a", "name_b"]);
+    assert_eq!(owned.get_source_content(0), Some("a content"));
+    assert_eq!(owned.get_source_content(1), Some("b content"));
+    // `b`'s token is shifted by the line offset and renumbered onto the combined ids.
+    assert_eq!(owned.get_token(1), Some(Token::new(5, 0, 0, 0, Some(1), Some(1))));
+}
+
+#[test]
+fn test_concat_owned_translates_after_tokenless_map() {
+    // A first map that contributes a source but no tokens leaves `self.tokens` empty while the
+    // source offset advances; the next map must still renumber its ids (not take the memcpy path).
+    let tokenless = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec![Cow::Owned("a.js".to_string())],
+        vec![Some(Cow::Owned("a content".to_string()))],
+        vec![].into_boxed_slice(),
+        None,
+    );
+    let with_token = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec![Cow::Owned("b.js".to_string())],
+        vec![Some(Cow::Owned("b content".to_string()))],
+        // Source id 0 within its own map; after concat it must point at "b.js" (combined index 1).
+        vec![Token::new(0, 0, 0, 0, Some(0), None)].into_boxed_slice(),
+        None,
+    );
+
+    let map = ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(tokenless, 0), (with_token, 0)])
+        .into_sourcemap();
+
+    assert_eq!(map.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+    assert_eq!(map.get_token(0).unwrap().get_source_id(), Some(1));
+    assert_eq!(map.get_source_content(1), Some("b content"));
+}
+
+#[test]
+fn test_concat_owned_pads_missing_source_contents() {
+    // First map has a source but no `sourcesContent`; the second map's content must stay attached
+    // to its own source rather than shifting onto the first map's source id.
+    let no_content = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec![Cow::Owned("a.js".to_string())],
+        vec![],
+        vec![Token::new(0, 0, 0, 0, Some(0), None)].into_boxed_slice(),
+        None,
+    );
+    let with_content = SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec![Cow::Owned("b.js".to_string())],
+        vec![Some(Cow::Owned("b content".to_string()))],
+        vec![Token::new(0, 0, 0, 0, Some(0), None)].into_boxed_slice(),
+        None,
+    );
+
+    let map =
+        ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(no_content, 0), (with_content, 1)])
+            .into_sourcemap();
+
+    assert_eq!(map.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+    assert_eq!(map.get_source_content(0), None);
+    assert_eq!(map.get_source_content(1), Some("b content"));
 }
 
 #[test]
