@@ -4,10 +4,8 @@ use std::{
     time::Duration,
 };
 
-use std::borrow::Cow;
-
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap, SourceMapBuilder, Token};
+use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap, SourceMapBuilder};
 
 #[derive(Debug, Clone)]
 struct Fixture {
@@ -111,40 +109,8 @@ fn synthesize_xlarge(base_json: &str, repeats: usize) -> String {
     serde_json::to_string(&obj).unwrap()
 }
 
-/// Synthesize a chunk's worth of owned module sourcemaps, each carrying its full source text as
-/// `sourcesContent` — modelling rolldown's `SourceJoiner` inputs (the dominant concat workload).
-fn make_owned_module_maps(
-    count: usize,
-    content_bytes: usize,
-    tokens_per_map: u32,
-) -> Vec<(SourceMap<'static>, u32)> {
-    let line = "const value = computeSomething(alpha, beta, gamma); // source line\n";
-    let mut content = String::with_capacity(content_bytes + line.len());
-    while content.len() < content_bytes {
-        content.push_str(line);
-    }
-
-    let mut maps = Vec::with_capacity(count);
-    let mut line_offset = 0u32;
-    for i in 0..count {
-        let names = vec![Cow::Owned(format!("ident_a_{i}")), Cow::Owned(format!("ident_b_{i}"))];
-        let sources = vec![Cow::Owned(format!("src/module_{i}.js"))];
-        let source_contents = vec![Some(Cow::Owned(content.clone()))];
-        let tokens: Vec<Token> =
-            (0..tokens_per_map).map(|t| Token::new(t, t * 2, t, t, Some(0), Some(t % 2))).collect();
-        let map = SourceMap::new(
-            None,
-            names,
-            None,
-            sources,
-            source_contents,
-            tokens.into_boxed_slice(),
-            None,
-        );
-        maps.push((map, line_offset));
-        line_offset += tokens_per_map + 1;
-    }
-    maps
+fn token_line_span(sm: &SourceMap) -> u32 {
+    sm.get_tokens().last().map_or(1, |token| token.get_dst_line() + 1)
 }
 
 pub fn bench(c: &mut Criterion) {
@@ -242,34 +208,32 @@ pub fn bench(c: &mut Criterion) {
         });
     });
 
-    // A single representative concat workload: a chunk of 200 modules, each carrying ~2 KB of
-    // `sourcesContent`, concatenated into one owned `SourceMap` (rolldown's `SourceJoiner` shape).
-    let owned_maps = make_owned_module_maps(200, 2048, 100);
-    let content_bytes: u64 = owned_maps
-        .iter()
-        .map(|(map, _)| map.get_source_contents().flatten().map(str::len).sum::<usize>())
-        .sum::<usize>() as u64;
-    let concat_inputs: Vec<(&SourceMap, u32)> =
-        owned_maps.iter().map(|(map, offset)| (map, *offset)).collect();
+    let mut line_offset = 0u32;
+    let mut concat_input_size = 0u64;
+    let mut concat_inputs = Vec::with_capacity(parsed_fixtures.len());
+    for (_, bytes, sourcemap) in &parsed_fixtures {
+        concat_inputs.push((sourcemap, line_offset));
+        line_offset = line_offset.saturating_add(token_line_span(sourcemap));
+        concat_input_size += *bytes;
+    }
 
     let mut concat_group = c.benchmark_group("concat");
-    concat_group.throughput(Throughput::Bytes(content_bytes));
-    // Bulk constructor.
-    concat_group.bench_function("ConcatSourceMapBuilder::from_sourcemaps", |b| {
+    concat_group.throughput(Throughput::Bytes(concat_input_size));
+    concat_group.bench_function("from_sourcemaps", |b| {
         b.iter(|| {
-            let concat_sm = ConcatSourceMapBuilder::from_sourcemaps(black_box(&concat_inputs))
-                .into_owned_sourcemap();
+            let concat_sm =
+                ConcatSourceMapBuilder::from_sourcemaps(black_box(&concat_inputs)).into_sourcemap();
             black_box(concat_sm);
         });
     });
-    // Incremental adder (rolldown's `SourceJoiner` calls this per source).
-    concat_group.bench_function("ConcatSourceMapBuilder::add_sourcemap", |b| {
+    concat_group.bench_function("add_sourcemap_loop", |b| {
         b.iter(|| {
             let mut builder = ConcatSourceMapBuilder::default();
-            for &(map, offset) in black_box(&concat_inputs) {
-                builder.add_sourcemap(map, offset);
+            for &(sourcemap, line_offset) in black_box(&concat_inputs) {
+                builder.add_sourcemap(sourcemap, line_offset);
             }
-            black_box(builder.into_owned_sourcemap());
+            let concat_sm = builder.into_sourcemap();
+            black_box(concat_sm);
         });
     });
     concat_group.finish();
