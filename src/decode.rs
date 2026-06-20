@@ -284,18 +284,14 @@ fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5])
         let val = enc & 0b11111;
         let cont = enc >> 5;
 
-        // Check if shift would overflow before applying
-        if shift >= 64 {
+        // VLQ shift grows by 5 bits per continuation byte. Bail out before
+        // `val << shift` could overflow i64: the largest safe shift for a 5-bit
+        // value is 62, and `shift` only ever takes multiples of 5, so the first
+        // offending shift is 65.
+        if shift > 62 {
             return Err(Error::VlqOverflow);
         }
-
-        // For large shifts, check if the value would fit in 32 bits when decoded
-        if shift <= 62 {
-            cur = cur.wrapping_add(val << shift);
-        } else {
-            // Beyond 62 bits of shift, we'd overflow i64
-            return Err(Error::VlqOverflow);
-        }
+        cur = cur.wrapping_add(val << shift);
 
         *cursor += 1;
         shift += 5;
@@ -325,62 +321,167 @@ fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5])
     }
 }
 
-#[test]
-fn test_decode_sourcemap() {
-    let input = r#"{
-        "version": 3,
-        "sources": ["coolstuff.js"],
-        "sourceRoot": "x",
-        "names": ["x","alert"],
-        "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
-        "x_google_ignoreList": [0]
-    }"#;
-    let sm = SourceMap::from_json_string(input).unwrap();
-    assert_eq!(sm.get_source_root(), Some("x"));
-    assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
-    let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
-    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
-    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
-    assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 2, 2, Some("alert")));
-    assert!(iter.next().is_none());
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-fn test_decode_sourcemap_optional_field() {
-    let input = r#"{
-        "version": 3,
-        "names": [],
-        "sources": [],
-        "sourcesContent": [null],
-        "mappings": ""
-    }"#;
-    SourceMap::from_json_string(input).expect("should success");
-}
+    #[test]
+    fn decode_sourcemap() {
+        let input = r#"{
+            "version": 3,
+            "sources": ["coolstuff.js"],
+            "sourceRoot": "x",
+            "names": ["x","alert"],
+            "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
+            "x_google_ignoreList": [0]
+        }"#;
+        let sm = SourceMap::from_json_string(input).unwrap();
+        assert_eq!(sm.get_source_root(), Some("x"));
+        assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
+        let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
+        assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
+        assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
+        assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 2, 2, Some("alert")));
+        assert!(iter.next().is_none());
+    }
 
-#[test]
-fn test_decode_mapping_bad_segment_size() {
-    let input = r#"{
-        "version": 3,
-        "names": [],
-        "sources": [],
-        "sourcesContent": [],
-        "mappings": "AA"
-    }"#;
+    #[test]
+    fn decode_from_json_value() {
+        // `SourceMap::from_json` / `decode` consumes an owned `JSONSourceMap`,
+        // a separate path from the borrowed `from_json_string` / `decode_from_string`.
+        let json = SourceMap::from_json_string(
+            r#"{
+                "version": 3,
+                "file": "f.js",
+                "sourceRoot": "r",
+                "names": ["n"],
+                "sources": ["a.js"],
+                "sourcesContent": ["c"],
+                "mappings": "AAAAA",
+                "debugId": "d",
+                "x_google_ignoreList": [0]
+            }"#,
+        )
+        .unwrap()
+        .to_json();
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.get_file(), Some("f.js"));
+        assert_eq!(sm.get_source_root(), Some("r"));
+        assert_eq!(sm.get_debug_id(), Some("d"));
+        assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
+        assert_eq!(sm.get_source_content(0), Some("c"));
+        assert_eq!(sm.get_name(0), Some("n"));
+    }
 
-    let err = SourceMap::from_json_string(input).unwrap_err();
-    assert!(matches!(err, Error::BadSegmentSize(2)));
-}
+    #[test]
+    fn decode_sourcemap_optional_field() {
+        let input = r#"{
+            "version": 3,
+            "names": [],
+            "sources": [],
+            "sourcesContent": [null],
+            "mappings": ""
+        }"#;
+        SourceMap::from_json_string(input).expect("should success");
+    }
 
-#[test]
-fn test_decode_mapping_vlq_leftover() {
-    let input = r#"{
-        "version": 3,
-        "names": [],
-        "sources": [],
-        "sourcesContent": [],
-        "mappings": "g"
-    }"#;
+    #[test]
+    fn decode_unsupported_version() {
+        let input = r#"{"version": 2, "names": [], "sources": [], "mappings": ""}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::BadJson(_)));
+    }
 
-    let err = SourceMap::from_json_string(input).unwrap_err();
-    assert!(matches!(err, Error::VlqLeftover));
+    #[test]
+    fn decode_mapping_bad_segment_size() {
+        let input = r#"{"version":3,"names":[],"sources":[],"sourcesContent":[],"mappings":"AA"}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::BadSegmentSize(2)));
+    }
+
+    #[test]
+    fn decode_mapping_vlq_leftover() {
+        let input = r#"{"version":3,"names":[],"sources":[],"sourcesContent":[],"mappings":"g"}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::VlqLeftover));
+    }
+
+    #[test]
+    fn decode_mapping_vlq_overflow() {
+        // A long run of continuation bytes overflows the VLQ shift accumulator.
+        let mappings = "g".repeat(14);
+        let input =
+            format!(r#"{{"version":3,"names":[],"sources":["a.js"],"mappings":"{mappings}"}}"#);
+        let err = SourceMap::from_json_string(&input).unwrap_err();
+        assert!(matches!(err, Error::VlqOverflow));
+    }
+
+    #[test]
+    fn decode_mapping_bad_source_reference() {
+        // 4-field segment references source id 0, but there are no sources.
+        let input = r#"{"version":3,"names":[],"sources":[],"mappings":"AAAA"}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::BadSourceReference(_)));
+    }
+
+    #[test]
+    fn decode_mapping_bad_name_reference() {
+        // 5-field segment references name id 0, but there are no names.
+        let input = r#"{"version":3,"names":[],"sources":["a.js"],"mappings":"AAAAA"}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::BadNameReference(0)));
+    }
+
+    #[test]
+    fn decode_ignore_list_bad_source_reference() {
+        // `x_google_ignoreList` references a source index that does not exist.
+        let input =
+            r#"{"version":3,"names":[],"sources":[],"mappings":"","x_google_ignoreList":[3]}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::BadSourceReference(3)));
+    }
+
+    #[test]
+    fn decode_owned_propagates_errors() {
+        // The owned `decode` path (`SourceMap::from_json`) must surface the same
+        // validation errors as the borrowed path: a bad ignore-list index...
+        let bad_ignore_list = JSONSourceMap {
+            version: 3,
+            file: None,
+            mappings: String::new(),
+            source_root: None,
+            sources: vec![],
+            sources_content: None,
+            names: vec![],
+            debug_id: None,
+            x_google_ignore_list: Some(vec![3]),
+        };
+        assert!(matches!(SourceMap::from_json(bad_ignore_list), Err(Error::BadSourceReference(3))));
+
+        // ...and a mapping that references a source with no sources declared.
+        let bad_mapping = JSONSourceMap {
+            version: 3,
+            file: None,
+            mappings: "AAAA".to_string(),
+            source_root: None,
+            sources: vec![],
+            sources_content: None,
+            names: vec![],
+            debug_id: None,
+            x_google_ignore_list: None,
+        };
+        assert!(matches!(SourceMap::from_json(bad_mapping), Err(Error::BadSourceReference(_))));
+    }
+
+    #[test]
+    fn parse_vlq_segment_empty_is_no_values() {
+        // Directly exercise the defensive `VlqNoValues` branch: with the cursor
+        // already at the end of the input, no values can be decoded. This state
+        // is unreachable through `decode_mapping` (which only calls the parser
+        // on a non-delimiter byte), so it is covered here.
+        let mut cursor = 0;
+        let mut out = [0i64; 5];
+        let err = parse_vlq_segment_into(b"", &mut cursor, &mut out).unwrap_err();
+        assert!(matches!(err, Error::VlqNoValues));
+    }
 }
