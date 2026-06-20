@@ -434,9 +434,13 @@ impl PreAllocatedString {
     }
 }
 
-#[test]
-fn test_encode() {
-    let input = r#"{
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_roundtrip() {
+        let input = r#"{
         "version": 3,
         "sources": ["coolstuff.js"],
         "sourceRoot": "x",
@@ -444,16 +448,16 @@ fn test_encode() {
         "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
         "x_google_ignoreList": [0]
     }"#;
-    let sm = SourceMap::from_json_string(input).unwrap();
-    let encoded = sm.to_json_string();
-    let sm2 = SourceMap::from_json_string(&encoded).unwrap();
+        let sm = SourceMap::from_json_string(input).unwrap();
+        let encoded = sm.to_json_string();
+        let sm2 = SourceMap::from_json_string(&encoded).unwrap();
 
-    for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
-        assert_eq!(tok1, tok2);
-    }
+        for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
+            assert_eq!(tok1, tok2);
+        }
 
-    // spellchecker:off
-    let input = r#"{
+        // spellchecker:off
+        let input = r#"{
         "version": 3,
         "file": "index.js",
         "names": [
@@ -472,41 +476,41 @@ fn test_encode() {
         ],
         "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA,MAAa,MAAM;AAEnBA,OAAK,QAAQ,IAAI;AAEjB,SAASA,OAAK,IAAI,QAAM;AACtB,UAAS,cAAc,GAAG,CAAC,cAAcA;;SAG1B,QAAQ,QAAQ;AAC/B,KAAI,KAAK;AACP,SAAK,QAAQ,IAAI,IAAI;;EAEvB;;;;;;;ACVF,KAAK,QAAQ,QAAQ;AAErB,SAAS,KAAK,IAAI,QAAM;AACtB,UAAS,cAAc,GAAG,CAAC,cAAcC"
     }"#;
-    // spellchecker:on
-    let sm = SourceMap::from_json_string(input).unwrap();
-    let encoded = sm.to_json_string();
-    let sm2 = SourceMap::from_json_string(&encoded).unwrap();
+        // spellchecker:on
+        let sm = SourceMap::from_json_string(input).unwrap();
+        let encoded = sm.to_json_string();
+        let sm2 = SourceMap::from_json_string(&encoded).unwrap();
 
-    for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
-        assert_eq!(tok1, tok2);
+        for (tok1, tok2) in sm.get_tokens().zip(sm2.get_tokens()) {
+            assert_eq!(tok1, tok2);
+        }
     }
-}
 
-#[test]
-fn test_encode_escape_string() {
-    // '\0' should be escaped.
-    let mut sm = SourceMap::new(
-        None,
-        vec!["name_length_greater_than_16_\0".into()],
-        None,
-        vec!["\0".into()],
-        vec![Some("emoji-👀-\0".into())],
-        vec![].into_boxed_slice(),
-        None,
-    );
-    sm.set_x_google_ignore_list(vec![0]);
-    sm.set_debug_id("56431d54-c0a6-451d-8ea2-ba5de5d8ca2e");
-    assert_eq!(
-        sm.to_json_string(),
-        r#"{"version":3,"names":["name_length_greater_than_16_\u0000"],"sources":["\u0000"],"sourcesContent":["emoji-👀-\u0000"],"x_google_ignoreList":[0],"mappings":"","debugId":"56431d54-c0a6-451d-8ea2-ba5de5d8ca2e"}"#
-    );
-}
+    #[test]
+    fn encode_escape_string() {
+        // '\0' should be escaped.
+        let mut sm = SourceMap::new(
+            None,
+            vec!["name_length_greater_than_16_\0".into()],
+            None,
+            vec!["\0".into()],
+            vec![Some("emoji-👀-\0".into())],
+            vec![].into_boxed_slice(),
+            None,
+        );
+        sm.set_x_google_ignore_list(vec![0]);
+        sm.set_debug_id("56431d54-c0a6-451d-8ea2-ba5de5d8ca2e");
+        assert_eq!(
+            sm.to_json_string(),
+            r#"{"version":3,"names":["name_length_greater_than_16_\u0000"],"sources":["\u0000"],"sourcesContent":["emoji-👀-\u0000"],"x_google_ignoreList":[0],"mappings":"","debugId":"56431d54-c0a6-451d-8ea2-ba5de5d8ca2e"}"#
+        );
+    }
 
-#[test]
-fn test_vlq_encode_diff() {
-    // Most import tests here are that with maximum values, `encode_vlq_diff` pushes maximum of 7 bytes.
-    // This invariant is essential to safety of `encode_vlq_diff`.
-    #[rustfmt::skip]
+    #[test]
+    fn vlq_encode_diff() {
+        // Most import tests here are that with maximum values, `encode_vlq_diff` pushes maximum of 7 bytes.
+        // This invariant is essential to safety of `encode_vlq_diff`.
+        #[rustfmt::skip]
     const FIXTURES: &[(u32, u32, &str)] = &[
         (0,           0, "A"),
         (1,           0, "C"),
@@ -542,89 +546,162 @@ fn test_vlq_encode_diff() {
         (0, u32::MAX,    "//////H"), // 7 bytes
     ];
 
-    for (a, b, res) in FIXTURES.iter().copied() {
-        let mut out = String::with_capacity(MAX_VLQ_BYTES);
-        // SAFETY: `out` has 7 bytes spare capacity
-        unsafe { encode_vlq_diff(&mut out, a, b) };
-        assert_eq!(&out, res);
+        for (a, b, res) in FIXTURES.iter().copied() {
+            let mut out = String::with_capacity(MAX_VLQ_BYTES);
+            // SAFETY: `out` has 7 bytes spare capacity
+            unsafe { encode_vlq_diff(&mut out, a, b) };
+            assert_eq!(&out, res);
+        }
     }
-}
 
-#[test]
-fn test_encode_all_sources_content_null() {
-    let sm = SourceMap::new(
-        None,
-        vec![],
-        None,
-        vec!["a.js".into(), "b.js".into()],
-        vec![None, None],
-        vec![].into_boxed_slice(),
-        None,
-    );
-    let json = sm.to_json_string();
-    assert!(
-        !json.contains("sourcesContent"),
-        "sourcesContent should be omitted when all items are None"
-    );
+    #[test]
+    fn encode_all_sources_content_null() {
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec!["a.js".into(), "b.js".into()],
+            vec![None, None],
+            vec![].into_boxed_slice(),
+            None,
+        );
+        let json = sm.to_json_string();
+        assert!(
+            !json.contains("sourcesContent"),
+            "sourcesContent should be omitted when all items are None"
+        );
 
-    let json_map = encode(&sm);
-    assert!(json_map.sources_content.is_none());
+        let json_map = encode(&sm);
+        assert!(json_map.sources_content.is_none());
 
-    let sm = SourceMap::new(
-        None,
-        vec![],
-        None,
-        vec!["a.js".into(), "b.js".into()],
-        vec![Some("content".into()), None],
-        vec![].into_boxed_slice(),
-        None,
-    );
-    let json = sm.to_json_string();
-    assert!(
-        json.contains("sourcesContent"),
-        "sourcesContent should be present when at least one item is Some"
-    );
-    assert!(
-        json.contains(r#""sourcesContent":["content",null]"#),
-        "None source_contents should be encoded as raw null, not quoted \"null\""
-    );
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec!["a.js".into(), "b.js".into()],
+            vec![Some("content".into()), None],
+            vec![].into_boxed_slice(),
+            None,
+        );
+        let json = sm.to_json_string();
+        assert!(
+            json.contains("sourcesContent"),
+            "sourcesContent should be present when at least one item is Some"
+        );
+        assert!(
+            json.contains(r#""sourcesContent":["content",null]"#),
+            "None source_contents should be encoded as raw null, not quoted \"null\""
+        );
 
-    let json_map = encode(&sm);
-    assert!(json_map.sources_content.is_some());
-}
+        let json_map = encode(&sm);
+        assert!(json_map.sources_content.is_some());
+    }
 
-#[test]
-fn test_encode_escape_file_and_source_root() {
-    let sm = SourceMap::new(
-        Some("file\0name.js".into()),
-        vec![],
-        Some("root\0path".into()),
-        vec![],
-        vec![],
-        vec![].into_boxed_slice(),
-        None,
-    );
-    let json = sm.to_json_string();
-    assert!(
-        json.contains(r#""file":"file\u0000name.js""#),
-        "file field should have \\0 escaped: {json}"
-    );
-    assert!(
-        json.contains(r#""sourceRoot":"root\u0000path""#),
-        "sourceRoot field should have \\0 escaped: {json}"
-    );
-    // Verify the output is valid JSON by round-tripping
-    SourceMap::from_json_string(&json).unwrap();
-}
+    #[test]
+    fn encode_escape_file_and_source_root() {
+        let sm = SourceMap::new(
+            Some("file\0name.js".into()),
+            vec![],
+            Some("root\0path".into()),
+            vec![],
+            vec![],
+            vec![].into_boxed_slice(),
+            None,
+        );
+        let json = sm.to_json_string();
+        assert!(
+            json.contains(r#""file":"file\u0000name.js""#),
+            "file field should have \\0 escaped: {json}"
+        );
+        assert!(
+            json.contains(r#""sourceRoot":"root\u0000path""#),
+            "sourceRoot field should have \\0 escaped: {json}"
+        );
+        // Verify the output is valid JSON by round-tripping
+        SourceMap::from_json_string(&json).unwrap();
+    }
 
-#[test]
-fn test_encode_escape_debug_id() {
-    let mut sm = SourceMap::default();
-    // A debug_id containing JSON-special characters must be escaped, otherwise
-    // the output is malformed JSON.
-    sm.set_debug_id("id-with-\"quote\"-and-\\backslash");
-    let json = sm.to_json_string();
-    // Round-trip must succeed (would fail if the quote isn't escaped).
-    let roundtripped = SourceMap::from_json_string(&json).unwrap();
-    assert_eq!(roundtripped.get_debug_id(), Some("id-with-\"quote\"-and-\\backslash"));
+    #[test]
+    fn encode_escape_debug_id() {
+        let mut sm = SourceMap::default();
+        // A debug_id containing JSON-special characters must be escaped, otherwise
+        // the output is malformed JSON.
+        sm.set_debug_id("id-with-\"quote\"-and-\\backslash");
+        let json = sm.to_json_string();
+        // Round-trip must succeed (would fail if the quote isn't escaped).
+        let roundtripped = SourceMap::from_json_string(&json).unwrap();
+        assert_eq!(roundtripped.get_debug_id(), Some("id-with-\"quote\"-and-\\backslash"));
+    }
+
+    #[test]
+    fn encode_reserves_when_estimate_is_tight() {
+        // `to_json` pre-sizes the mappings buffer at ~12 bytes/token. Several
+        // tokens on the *same* generated line with large deltas each need more
+        // than that, forcing the in-loop `reserve` (comma branch) to run.
+        // Odd-indexed tokens carry no name id so the source-without-name
+        // serialization branch is exercised too.
+        let tokens: Vec<Token> = (0..8u32)
+            .map(|i| {
+                let name = if i % 2 == 0 { Some(0) } else { None };
+                Token::new(0, i * 100_000, i * 100_000, i * 100_000, Some(0), name)
+            })
+            .collect();
+        let sm = SourceMap::new(
+            None,
+            vec!["a_reasonably_long_name".into()],
+            None,
+            vec!["a.js".into()],
+            vec![],
+            tokens.into_boxed_slice(),
+            None,
+        );
+
+        // Both encoders must round-trip the same tokens despite the realloc.
+        for encoded in [sm.to_json_string(), encode_to_string(&sm)] {
+            let reparsed = SourceMap::from_json_string(&encoded).unwrap();
+            assert!(sm.get_tokens().eq(reparsed.get_tokens()));
+        }
+        let reparsed = SourceMap::from_json(sm.to_json()).unwrap();
+        assert!(sm.get_tokens().eq(reparsed.get_tokens()));
+    }
+
+    #[test]
+    fn encode_multiline_reserves_on_line_breaks() {
+        // Tokens spread across many generated lines drive the semicolon
+        // (line-break) reserve branch with a tight `to_json` estimate.
+        let tokens: Vec<Token> = (0..8u32)
+            .map(|i| Token::new(i * 3, 50_000, 50_000, 50_000, Some(0), Some(0)))
+            .collect();
+        let sm = SourceMap::new(
+            None,
+            vec!["name".into()],
+            None,
+            vec!["a.js".into()],
+            vec![],
+            tokens.into_boxed_slice(),
+            None,
+        );
+        let reparsed = SourceMap::from_json(sm.to_json()).unwrap();
+        assert!(sm.get_tokens().eq(reparsed.get_tokens()));
+    }
+
+    #[test]
+    fn encode_tokens_without_source() {
+        // Generated-column-only mappings (no source id) skip the source/name
+        // VLQ fields entirely — the `source_id == None` serialization branch.
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![],
+            vec![],
+            vec![Token::new(0, 0, 0, 0, None, None), Token::new(0, 4, 0, 0, None, None)]
+                .into_boxed_slice(),
+            None,
+        );
+        let encoded = sm.to_json_string();
+        let reparsed = SourceMap::from_json_string(&encoded).unwrap();
+        assert!(sm.get_tokens().eq(reparsed.get_tokens()));
+        assert!(reparsed.get_tokens().all(|token| token.get_source_id().is_none()));
+    }
 }
