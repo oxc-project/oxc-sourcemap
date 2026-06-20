@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.2](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.1...v8.0.2) - 2026-06-20
+
+### Other
+
+- clean up tests and reach full coverage ([#371](https://github.com/oxc-project/oxc-sourcemap/pull/371))
+- *(concat)* add owned-merge to ConcatSourceMapBuilder ([#368](https://github.com/oxc-project/oxc-sourcemap/pull/368))
+
 ## [8.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.0...v8.0.1) - 2026-06-15
 
 ### Other
