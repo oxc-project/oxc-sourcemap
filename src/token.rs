@@ -34,6 +34,23 @@ impl Token {
         }
     }
 
+    /// Translate this token for a concatenated source map: shift the generated line by
+    /// `line_offset` and renumber the source/name ids by `source_offset` / `name_offset`,
+    /// preserving the missing-id sentinel. Operates on the raw ids so there is no `Option`
+    /// round-trip in the concat hot loop.
+    #[inline]
+    pub(crate) fn translated(self, line_offset: u32, source_offset: u32, name_offset: u32) -> Self {
+        let shift = |id: u32, offset: u32| if id == INVALID_ID { INVALID_ID } else { id + offset };
+        Self {
+            dst_line: self.dst_line + line_offset,
+            dst_col: self.dst_col,
+            src_line: self.src_line,
+            src_col: self.src_col,
+            source_id: shift(self.source_id, source_offset),
+            name_id: shift(self.name_id, name_offset),
+        }
+    }
+
     #[inline]
     pub fn get_dst_line(&self) -> u32 {
         self.dst_line
