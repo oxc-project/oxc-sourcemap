@@ -181,7 +181,7 @@ impl<'a> SourceMap<'a> {
         self.debug_id.as_deref()
     }
 
-    pub fn get_names(&self) -> impl Iterator<Item = &str> {
+    pub fn get_names(&self) -> impl ExactSizeIterator<Item = &str> {
         self.names.iter().map(AsRef::as_ref)
     }
 
@@ -190,7 +190,7 @@ impl<'a> SourceMap<'a> {
         self.sources = sources.into_iter().map(|s| Cow::Owned(s.as_ref().to_owned())).collect();
     }
 
-    pub fn get_sources(&self) -> impl Iterator<Item = &str> {
+    pub fn get_sources(&self) -> impl ExactSizeIterator<Item = &str> {
         self.sources.iter().map(AsRef::as_ref)
     }
 
@@ -200,7 +200,7 @@ impl<'a> SourceMap<'a> {
             source_contents.into_iter().map(|v| v.map(|s| Cow::Owned(s.to_owned()))).collect();
     }
 
-    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&str>> {
+    pub fn get_source_contents(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
         self.source_contents.iter().map(|item| item.as_deref())
     }
 
@@ -213,12 +213,12 @@ impl<'a> SourceMap<'a> {
     }
 
     /// Get raw tokens.
-    pub fn get_tokens(&self) -> impl Iterator<Item = Token> {
+    pub fn get_tokens(&self) -> impl ExactSizeIterator<Item = Token> {
         self.tokens.iter().copied()
     }
 
     /// Get source view tokens. See [`SourceViewToken`] for more information.
-    pub fn get_source_view_tokens(&self) -> impl Iterator<Item = SourceViewToken<'_, 'a>> {
+    pub fn get_source_view_tokens(&self) -> impl ExactSizeIterator<Item = SourceViewToken<'_, 'a>> {
         self.tokens.iter().map(|&token| SourceViewToken::new(token, self))
     }
 
