@@ -33,7 +33,7 @@ jobs:
           tools: just,dprint,cargo-shear@1.13.1
           components: rustfmt
 
-      - name: cargo-shear@1.13.1
+      - name: cargo-shear
         id: shear
         shell: bash
         run: |
