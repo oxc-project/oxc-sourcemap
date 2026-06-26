@@ -9,7 +9,7 @@ _default:
 alias r := ready
 
 init:
-  cargo binstall watchexec-cli typos-cli cargo-shear dprint -y
+  cargo binstall watchexec-cli typos-cli cargo-shear@1.13.1 dprint -y
   # Clone tc39 source map tests for spec compliance testing
   git clone https://github.com/tc39/source-map-tests.git tests/source-map-tests || true
 
@@ -22,6 +22,6 @@ ready:
   just fmt
 
 fmt:
-  -cargo shear --fix # remove all unused dependencies
+  -cargo shear --fix --check-test-targets # remove all unused dependencies
   cargo fmt --all
   dprint fmt
