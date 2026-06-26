@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- *(deps)* update napi to v3.9.4 ([#379](https://github.com/oxc-project/oxc-sourcemap/pull/379))
+- _(deps)_ update napi to v3.9.4 ([#379](https://github.com/oxc-project/oxc-sourcemap/pull/379))
 - return impl ExactSizeIterator from the slice-backed accessors ([#377](https://github.com/oxc-project/oxc-sourcemap/pull/377))
 
 ## [8.0.2](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.1...v8.0.2) - 2026-06-20
