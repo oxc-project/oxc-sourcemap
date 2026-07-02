@@ -196,6 +196,30 @@ pub fn bench(c: &mut Criterion) {
     }
     lookup_group.finish();
 
+    // Exercise the `lookup_token` remapping hot path: with the lookup table already
+    // built, probe every token's generated position. This mirrors how bundlers
+    // collapse a sourcemap chain (one lookup per token, per chain link). Throughput
+    // is measured in lookups (elements), not bytes.
+    let mut token_lookup_group = c.benchmark_group("lookup_token");
+    for (name, _bytes, sourcemap) in &parsed_fixtures {
+        let table = sourcemap.generate_lookup_table();
+        let keys: Vec<(u32, u32)> =
+            sourcemap.get_tokens().map(|t| (t.get_dst_line(), t.get_dst_col())).collect();
+        token_lookup_group.throughput(Throughput::Elements(keys.len() as u64));
+        token_lookup_group.bench_with_input(
+            BenchmarkId::from_parameter(name),
+            &(table, keys),
+            |b, (table, keys)| {
+                b.iter(|| {
+                    for &(line, col) in keys {
+                        black_box(sourcemap.lookup_token(table, line, col));
+                    }
+                });
+            },
+        );
+    }
+    token_lookup_group.finish();
+
     c.bench_function("builder/SourceMapBuilder::build_single", |b| {
         b.iter(|| {
             let mut builder = SourceMapBuilder::default();

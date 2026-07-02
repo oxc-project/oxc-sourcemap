@@ -262,6 +262,7 @@ impl<'a> SourceMap<'a> {
     }
 
     /// Lookup a token by line and column, it will used at remapping.
+    #[inline]
     pub fn lookup_token(
         &self,
         lookup_table: &[LineLookupTable],
@@ -272,9 +273,11 @@ impl<'a> SourceMap<'a> {
         if line >= lookup_table.len() as u32 {
             return None;
         }
-        let token = greatest_lower_bound(lookup_table[line as usize], &(line, col), |token| {
-            (token.dst_line, token.dst_col)
-        })?;
+        // Every token in `lookup_table[line]` has `dst_line == line` (see `generate_lookup_table`),
+        // so the line component of the key is constant across the slice. Binary searching on
+        // `dst_col` alone avoids building and lexicographically comparing a `(dst_line, dst_col)`
+        // tuple on every probe — measurably faster on this remapping hot path.
+        let token = greatest_lower_bound(lookup_table[line as usize], &col, |token| token.dst_col)?;
         Some(*token)
     }
 
