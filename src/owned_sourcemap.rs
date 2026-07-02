@@ -195,6 +195,24 @@ impl OwnedSourceMap {
         self.inner.lookup_source_view_token(lookup_table, line, col)
     }
 
+    pub fn lookup_token_approx(
+        &self,
+        lookup_table: &[&[Token]],
+        line: u32,
+        col: u32,
+    ) -> Option<Token> {
+        self.inner.lookup_token_approx(lookup_table, line, col)
+    }
+
+    pub fn lookup_source_view_token_approx(
+        &self,
+        lookup_table: &[&[Token]],
+        line: u32,
+        col: u32,
+    ) -> Option<SourceViewToken<'_, 'static>> {
+        self.inner.lookup_source_view_token_approx(lookup_table, line, col)
+    }
+
     // ---------- structural ----------
 
     /// Take the inner parts; same as `SourceMap::into_parts`.

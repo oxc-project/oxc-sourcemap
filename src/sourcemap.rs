@@ -290,6 +290,46 @@ impl<'a> SourceMap<'a> {
     ) -> Option<SourceViewToken<'_, 'a>> {
         self.lookup_token(lookup_table, line, col).map(|token| SourceViewToken::new(token, self))
     }
+
+    /// Like [`lookup_token`](Self::lookup_token), but clamps to the line's first token when `col`
+    /// falls *before* it, instead of returning `None`.
+    ///
+    /// `lookup_token` returns the greatest token with destination `<= (line, col)`, so a query
+    /// before a line's first token yields `None`. That is correct for a plain position lookup, but
+    /// it drops mappings when *composing* sourcemaps — e.g. remapping a token whose column lands
+    /// before the previous map's first token on that line (a line indented past column 0). Clamping
+    /// to the nearest token keeps the mapping, matching Rollup's `collapseSourcemaps` `traceSegment`.
+    /// An empty line (or a line past the end of the table) still returns `None`.
+    pub fn lookup_token_approx(
+        &self,
+        lookup_table: &[LineLookupTable],
+        line: u32,
+        col: u32,
+    ) -> Option<Token> {
+        if line >= lookup_table.len() as u32 {
+            return None;
+        }
+        let line_tokens = lookup_table[line as usize];
+        match greatest_lower_bound(line_tokens, &(line, col), |token| {
+            (token.dst_line, token.dst_col)
+        }) {
+            Some(token) => Some(*token),
+            // `greatest_lower_bound` only yields `None` when `col` precedes the first token on the
+            // line, so clamp to that first token. An empty line has no first token and stays `None`.
+            None => line_tokens.first().copied(),
+        }
+    }
+
+    /// The [`SourceViewToken`] counterpart of [`lookup_token_approx`](Self::lookup_token_approx).
+    pub fn lookup_source_view_token_approx(
+        &self,
+        lookup_table: &[LineLookupTable],
+        line: u32,
+        col: u32,
+    ) -> Option<SourceViewToken<'_, 'a>> {
+        self.lookup_token_approx(lookup_table, line, col)
+            .map(|token| SourceViewToken::new(token, self))
+    }
 }
 
 /// Owned destructured parts of a [`SourceMap`].
@@ -525,5 +565,121 @@ mod tests {
         let table = sm.generate_lookup_table();
         // The earliest token at column 7 wins (src_line 1).
         assert_eq!(sm.lookup_token(&table, 0, 7).unwrap().get_src_line(), 1);
+    }
+
+    #[test]
+    fn lookup_token_approx_clamps_to_first_token_before_line() {
+        // Same setup as `lookup_before_first_token`: the only token starts at column 5, and the
+        // query at column 0 falls before it. `lookup_token` drops it (`None`); the approximating
+        // variant clamps to that first token instead, keeping the mapping alive.
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![Cow::Borrowed("a.js")],
+            vec![],
+            vec![Token::new(0, 5, 3, 7, Some(0), None)].into_boxed_slice(),
+            None,
+        );
+        let table = sm.generate_lookup_table();
+
+        assert!(sm.lookup_token(&table, 0, 0).is_none());
+
+        let approx = sm.lookup_token_approx(&table, 0, 0).unwrap();
+        assert_eq!((approx.get_dst_line(), approx.get_dst_col()), (0, 5));
+        assert_eq!((approx.get_src_line(), approx.get_src_col()), (3, 7));
+    }
+
+    #[test]
+    fn lookup_token_approx_indented_line_keeps_mapping() {
+        // Models the composition bug (rolldown#10070): the line's first token sits *after* the
+        // indentation (column 1, the `\t`-prefixed statement). A query at column 0 must not drop
+        // the line — it should clamp to that first real token so the statement stays mapped.
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![Cow::Borrowed("a.js")],
+            vec![],
+            vec![
+                Token::new(0, 1, 1, 2, Some(0), None), // `globalThis` after a leading tab
+                Token::new(0, 12, 1, 13, Some(0), None), // `side`
+            ]
+            .into_boxed_slice(),
+            None,
+        );
+        let table = sm.generate_lookup_table();
+
+        // Plain lookup drops the column-0 query (nothing at col <= 0 on this line).
+        assert!(sm.lookup_token(&table, 0, 0).is_none());
+        // Approx clamps to the first token on the line.
+        assert_eq!(sm.lookup_token_approx(&table, 0, 0).unwrap().get_src_col(), 2);
+        // A query at/after a token still resolves to the greatest lower bound, exactly like
+        // `lookup_token` — the approximation only kicks in for the before-first-token case.
+        assert_eq!(sm.lookup_token(&table, 0, 12).unwrap().get_src_col(), 13);
+        assert_eq!(sm.lookup_token_approx(&table, 0, 12).unwrap().get_src_col(), 13);
+        assert_eq!(sm.lookup_token_approx(&table, 0, 20).unwrap().get_src_col(), 13);
+    }
+
+    #[test]
+    fn lookup_token_approx_empty_and_out_of_range_are_none() {
+        // No tokens on the line, or a line past the end of the table, has nothing to clamp to.
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![Cow::Borrowed("a.js")],
+            vec![],
+            vec![Token::new(1, 0, 0, 0, Some(0), None)].into_boxed_slice(),
+            None,
+        );
+        let table = sm.generate_lookup_table();
+
+        // Line 0 exists in the table but has no tokens (the only token is on line 1).
+        assert!(sm.lookup_token_approx(&table, 0, 0).is_none());
+        // Line 5 is past the end of the table.
+        assert!(sm.lookup_token_approx(&table, 5, 0).is_none());
+        // Empty table.
+        assert!(sm.lookup_token_approx(&[], 0, 0).is_none());
+    }
+
+    #[test]
+    fn lookup_token_approx_does_not_clamp_when_a_column_0_token_exists() {
+        // The clamp only kicks in on a true underflow. When the line already has a token at
+        // column 0, a column-0 query is an exact match and must return it (not "approximate").
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![Cow::Borrowed("a.js")],
+            vec![],
+            vec![Token::new(0, 0, 5, 5, Some(0), None), Token::new(0, 10, 6, 6, Some(0), None)]
+                .into_boxed_slice(),
+            None,
+        );
+        let table = sm.generate_lookup_table();
+        let token = sm.lookup_token_approx(&table, 0, 0).unwrap();
+        assert_eq!((token.get_src_line(), token.get_src_col()), (5, 5));
+    }
+
+    #[test]
+    fn lookup_source_view_token_approx_resolves_source_name_and_content() {
+        // The source-view wrapper must carry the clamped token's source/name/content through.
+        let sm = SourceMap::new(
+            None,
+            vec![Cow::Borrowed("myName")],
+            None,
+            vec![Cow::Borrowed("a.js")],
+            vec![Some(Cow::Borrowed("source code"))],
+            vec![Token::new(0, 5, 1, 2, Some(0), Some(0))].into_boxed_slice(),
+            None,
+        );
+        let table = sm.generate_lookup_table();
+        // Column 0 is before the only token (col 5); the approximating wrapper clamps to it.
+        let sv = sm.lookup_source_view_token_approx(&table, 0, 0).unwrap();
+        assert_eq!(sv.get_source(), Some("a.js"));
+        assert_eq!(sv.get_source_content(), Some("source code"));
+        assert_eq!(sv.get_name(), Some("myName"));
+        assert_eq!((sv.get_src_line(), sv.get_src_col()), (1, 2));
     }
 }
