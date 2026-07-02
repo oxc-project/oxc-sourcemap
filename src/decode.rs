@@ -231,8 +231,35 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
 #[repr(align(64))]
 struct Aligned64([i8; 256]);
 
-#[rustfmt::skip]
-static B64: Aligned64 = Aligned64([ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 ]);
+/// VLQ decode table. Entry semantics:
+/// * `-1` — segment (`,`) or line (`;`) delimiter, terminates a value scan.
+/// * `0..=63` — base64 payload; bit 5 (value >= 32) is the VLQ continuation flag.
+///
+/// Bytes outside the base64 alphabet decode as `63`, i.e. exactly like `'/'`
+/// (payload 31 with the continuation bit set). This preserves the historical
+/// lenient behavior: invalid characters are consumed as continuation bytes and
+/// surface as `VlqLeftover`/`VlqOverflow` or garbage values, never a panic.
+static B64_DECODE: Aligned64 = build_b64_decode();
+
+const fn build_b64_decode() -> Aligned64 {
+    let mut table = [63i8; 256];
+    let mut i = 0;
+    while i < 26 {
+        table[(b'A' + i) as usize] = i as i8;
+        table[(b'a' + i) as usize] = 26 + i as i8;
+        i += 1;
+    }
+    let mut i = 0;
+    while i < 10 {
+        table[(b'0' + i) as usize] = 52 + i as i8;
+        i += 1;
+    }
+    table[b'+' as usize] = 62;
+    table[b'/' as usize] = 63;
+    table[b',' as usize] = -1;
+    table[b';' as usize] = -1;
+    Aligned64(table)
+}
 
 /// Pick a `Vec<Token>` capacity for `decode_mapping`.
 ///
@@ -266,59 +293,75 @@ fn estimate_token_capacity(mapping: &[u8]) -> usize {
 ///
 /// Returns the number of decoded values in the segment. Values are written into
 /// `rv` for the first 5 fields (the maximum valid segment size). If the segment
-/// contains more than 5 fields, we keep counting in `rv_len` so caller can reject
-/// it with `BadSegmentSize`.
+/// contains more than 5 fields, we keep parsing and counting so the caller can
+/// reject it with `BadSegmentSize` carrying the true field count.
 fn parse_vlq_segment_into(mapping: &[u8], cursor: &mut usize, rv: &mut [i64; 5]) -> Result<usize> {
-    let mut cur = 0i64;
-    let mut shift = 0u32;
     let mut rv_len = 0usize;
-
-    while *cursor < mapping.len() {
-        let c = mapping[*cursor];
-        if c == b',' || c == b';' {
-            break;
+    while let Some(value) = next_vlq(mapping, cursor)? {
+        if rv_len < rv.len() {
+            rv[rv_len] = value;
         }
+        rv_len += 1;
+    }
+    if rv_len == 0 {
+        return Err(Error::VlqNoValues);
+    }
+    Ok(rv_len)
+}
 
-        // SAFETY: B64 is a 256-element lookup table, and c is a u8 (0-255)
-        let enc = unsafe { i64::from(*B64.0.get_unchecked(c as usize)) };
-        let val = enc & 0b11111;
-        let cont = enc >> 5;
+/// Decode one VLQ value starting at `*cursor`.
+///
+/// Returns `Ok(None)` without consuming anything when positioned at a
+/// delimiter (`,` / `;`) or end of input; otherwise consumes the value's bytes.
+#[inline(always)]
+fn next_vlq(mapping: &[u8], cursor: &mut usize) -> Result<Option<i64>> {
+    let Some(&byte) = mapping.get(*cursor) else { return Ok(None) };
+    let first = i64::from(B64_DECODE.0[byte as usize]);
+    if first < 0 {
+        return Ok(None);
+    }
+    *cursor += 1;
+    if first < 32 {
+        // No continuation bit: a single-byte value, the dominant case in real
+        // mappings (small line/column deltas).
+        return Ok(Some(decode_sign(first)));
+    }
 
+    let mut cur = first & 0b11111;
+    let mut shift = 5u32;
+    loop {
+        let Some(&byte) = mapping.get(*cursor) else {
+            // Input ended while a continuation was pending.
+            return Err(Error::VlqLeftover);
+        };
+        let enc = i64::from(B64_DECODE.0[byte as usize]);
+        if enc < 0 {
+            // Delimiter while a continuation was pending.
+            return Err(Error::VlqLeftover);
+        }
+        *cursor += 1;
         // VLQ shift grows by 5 bits per continuation byte. Bail out before
-        // `val << shift` could overflow i64: the largest safe shift for a 5-bit
-        // value is 62, and `shift` only ever takes multiples of 5, so the first
-        // offending shift is 65.
+        // `payload << shift` could overflow i64: the largest safe shift for a
+        // 5-bit value is 62, and `shift` only ever takes multiples of 5, so
+        // the first offending shift is 65.
         if shift > 62 {
             return Err(Error::VlqOverflow);
         }
-        cur = cur.wrapping_add(val << shift);
-
-        *cursor += 1;
+        cur |= (enc & 0b11111) << shift;
         shift += 5;
-
-        if cont == 0 {
-            // VLQ stores sign in low bit; remaining bits are the magnitude.
-            let sign = cur & 1;
-            cur >>= 1;
-            if sign != 0 {
-                cur = -cur;
-            }
-            if rv_len < rv.len() {
-                rv[rv_len] = cur;
-            }
-            rv_len += 1;
-            cur = 0;
-            shift = 0;
+        if enc < 32 {
+            return Ok(Some(decode_sign(cur)));
         }
     }
+}
 
-    if cur != 0 || shift != 0 {
-        Err(Error::VlqLeftover)
-    } else if rv_len == 0 {
-        Err(Error::VlqNoValues)
-    } else {
-        Ok(rv_len)
-    }
+/// VLQ stores the sign in the low bit; remaining bits are the magnitude.
+/// Branchless sign-magnitude decode: `-0` collapses to `0`.
+#[inline(always)]
+fn decode_sign(cur: i64) -> i64 {
+    let mag = cur >> 1;
+    let sign = cur & 1;
+    (mag ^ -sign) + sign
 }
 
 #[cfg(test)]
@@ -471,6 +514,67 @@ mod tests {
             x_google_ignore_list: None,
         };
         assert!(matches!(SourceMap::from_json(bad_mapping), Err(Error::BadSourceReference(_))));
+    }
+
+    #[test]
+    fn decode_invalid_char_behaves_like_slash() {
+        // Bytes outside the base64 alphabet decode as payload 31 with the
+        // continuation bit set — exactly like '/'. A map using '!' must
+        // therefore produce the same tokens as the same map using '/'.
+        let make = |mappings: &str| {
+            format!(r#"{{"version":3,"names":[],"sources":[],"mappings":"{mappings}"}}"#)
+        };
+        let bang_json = make("gD,!C");
+        let slash_json = make("gD,/C");
+        let bang = SourceMap::from_json_string(&bang_json).unwrap();
+        let slash = SourceMap::from_json_string(&slash_json).unwrap();
+        let tokens: Vec<Token> = bang.get_tokens().collect();
+        assert_eq!(tokens, slash.get_tokens().collect::<Vec<Token>>());
+        assert_eq!(tokens[0].get_dst_col(), 48);
+        assert_eq!(tokens[1].get_dst_col(), 1);
+    }
+
+    #[test]
+    fn decode_dangling_continuation_before_delimiter_is_leftover() {
+        // 13 continuation bytes stay under the shift-overflow bound, so ending
+        // the segment there must surface VlqLeftover, not VlqOverflow.
+        let mappings = format!("{},A", "g".repeat(13));
+        let input = format!(r#"{{"version":3,"names":[],"sources":[],"mappings":"{mappings}"}}"#);
+        let err = SourceMap::from_json_string(&input).unwrap_err();
+        assert!(matches!(err, Error::VlqLeftover));
+    }
+
+    #[test]
+    fn decode_oversized_segments_report_exact_field_count() {
+        for (mappings, expected) in [("AAAAAA", 6u32), ("AAAAAAA", 7u32)] {
+            let input =
+                format!(r#"{{"version":3,"names":[],"sources":[],"mappings":"{mappings}"}}"#);
+            let err = SourceMap::from_json_string(&input).unwrap_err();
+            assert!(matches!(err, Error::BadSegmentSize(n) if n == expected));
+        }
+    }
+
+    #[test]
+    fn decode_parse_error_beats_segment_validation() {
+        // The whole segment is VLQ-parsed before any field validation, so a
+        // dangling continuation reports VlqLeftover even when the decoded
+        // fields would also fail the column check ("Dg": delta -1) or the
+        // segment-size check ("AAAAAg": 6 fields).
+        for mappings in ["Dg", "AAAAAg"] {
+            let input =
+                format!(r#"{{"version":3,"names":[],"sources":[],"mappings":"{mappings}"}}"#);
+            let err = SourceMap::from_json_string(&input).unwrap_err();
+            assert!(matches!(err, Error::VlqLeftover), "mappings {mappings:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn decode_negative_column_beats_size_check() {
+        // "DA" decodes to two fields with a negative generated column; the
+        // column check runs before the field-count check.
+        let input = r#"{"version":3,"names":[],"sources":[],"mappings":"DA"}"#;
+        let err = SourceMap::from_json_string(input).unwrap_err();
+        assert!(matches!(err, Error::BadSegmentSize(0)));
     }
 
     #[test]
