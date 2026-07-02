@@ -1,3 +1,4 @@
+mod chunk;
 mod concat_sourcemap_builder;
 mod decode;
 mod encode;
@@ -11,6 +12,7 @@ mod token;
 #[cfg(feature = "napi")]
 pub mod napi;
 
+pub use chunk::{SourceMapChunk, SourceMapState, stitch_chunks};
 pub use concat_sourcemap_builder::ConcatSourceMapBuilder;
 pub use decode::JSONSourceMap;
 pub use error::Error;

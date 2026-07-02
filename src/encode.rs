@@ -275,7 +275,7 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
 /// Caller must ensure at least 7 bytes spare capacity in `out`,
 /// as this function does not perform any bounds checks.
 #[inline]
-unsafe fn encode_vlq_diff(out: &mut String, a: u32, b: u32) {
+pub(crate) unsafe fn encode_vlq_diff(out: &mut String, a: u32, b: u32) {
     unsafe {
         encode_vlq(out, i64::from(a) - i64::from(b));
     }
