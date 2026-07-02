@@ -176,6 +176,7 @@ impl<'sm, 'data> SourceViewToken<'sm, 'data> {
         self.get_source_id().and_then(|id| self.sourcemap.get_source_and_content(id))
     }
 
+    #[expect(clippy::wrong_self_convention)]
     pub fn to_tuple(&self) -> (Option<&'sm str>, u32, u32, Option<&'sm str>) {
         (self.get_source(), self.get_src_line(), self.get_src_col(), self.get_name())
     }
