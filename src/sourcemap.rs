@@ -290,6 +290,45 @@ impl<'a> SourceMap<'a> {
     ) -> Option<SourceViewToken<'_, 'a>> {
         self.lookup_token(lookup_table, line, col).map(|token| SourceViewToken::new(token, self))
     }
+
+    /// Like [`lookup_token`](Self::lookup_token), but clamps to the line's first token when `col`
+    /// falls *before* it, instead of returning `None`.
+    ///
+    /// `lookup_token` returns the greatest token with destination `<= (line, col)`, so a query
+    /// before a line's first token yields `None`. That is correct for a plain position lookup, but
+    /// it drops mappings when *composing* sourcemaps — e.g. remapping a token whose column lands
+    /// before the previous map's first token on that line (a line indented past column 0). Clamping
+    /// to the nearest token keeps the mapping, matching Rollup's `collapseSourcemaps` `traceSegment`.
+    /// An empty line (or a line past the end of the table) still returns `None`.
+    pub fn lookup_token_approx(
+        &self,
+        lookup_table: &[LineLookupTable],
+        line: u32,
+        col: u32,
+    ) -> Option<Token> {
+        if line >= lookup_table.len() as u32 {
+            return None;
+        }
+        let line_tokens = lookup_table[line as usize];
+        // Search by `dst_col` alone for the same reason as `lookup_token`.
+        match greatest_lower_bound(line_tokens, &col, |token| token.dst_col) {
+            Some(token) => Some(*token),
+            // `greatest_lower_bound` only yields `None` when `col` precedes the first token on the
+            // line, so clamp to that first token. An empty line has no first token and stays `None`.
+            None => line_tokens.first().copied(),
+        }
+    }
+
+    /// The [`SourceViewToken`] counterpart of [`lookup_token_approx`](Self::lookup_token_approx).
+    pub fn lookup_source_view_token_approx(
+        &self,
+        lookup_table: &[LineLookupTable],
+        line: u32,
+        col: u32,
+    ) -> Option<SourceViewToken<'_, 'a>> {
+        self.lookup_token_approx(lookup_table, line, col)
+            .map(|token| SourceViewToken::new(token, self))
+    }
 }
 
 /// Owned destructured parts of a [`SourceMap`].
