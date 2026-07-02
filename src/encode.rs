@@ -214,7 +214,7 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
         mut prev_source_id,
     } = *token_chunk;
 
-    let mut prev_token = if start == 0 { None } else { Some(&tokens[start as usize - 1]) };
+    let mut need_comma = start != 0;
 
     for token in &tokens[start as usize..end as usize] {
         // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq_diff` is 5.
@@ -235,13 +235,21 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
             prev_dst_col = 0;
             prev_dst_line += num_line_breaks;
-        } else if prev_token.is_some() {
+        } else if need_comma {
             let required = MAX_TOTAL_VLQ_BYTES + 1;
             if output.capacity() - output.len() < required {
                 output.reserve(required);
             }
             // SAFETY: We have reserved sufficient capacity for 1 byte
             unsafe { push_byte_unchecked(output, b',') };
+        } else {
+            // First token of the first chunk: no delimiter is emitted, but the
+            // five VLQ fields below still write up to 35 bytes, and the
+            // caller's estimate can be tighter than that (~12 bytes/token), so
+            // capacity must still be ensured here.
+            if output.capacity() - output.len() < MAX_TOTAL_VLQ_BYTES {
+                output.reserve(MAX_TOTAL_VLQ_BYTES);
+            }
         }
 
         // SAFETY: We have reserved enough capacity above to satisfy safety contract
@@ -264,7 +272,7 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             }
         }
 
-        prev_token = Some(token);
+        need_comma = true;
     }
 }
 
@@ -306,6 +314,10 @@ unsafe fn encode_vlq(out: &mut String, num: i64) {
         // 32 for last char within the loop) removes 3 instructions from the loop.
         // https://godbolt.org/z/Es4Pavh9j
         // This translates to a 16% speed-up for VLQ encoding.
+        // (A packed-u64 variant with a single 8-byte store and one length
+        // update was benchmarked at ~25% slower on serialize: it adds ALU work
+        // to the dominant single-byte case, and the per-byte length update
+        // does not stall in practice.)
         let mut digit;
         loop {
             digit = num & 0b11111;
@@ -662,6 +674,29 @@ mod tests {
             assert!(sm.get_tokens().eq(reparsed.get_tokens()));
         }
         let reparsed = SourceMap::from_json(sm.to_json()).unwrap();
+        assert!(sm.get_tokens().eq(reparsed.get_tokens()));
+    }
+
+    #[test]
+    fn encode_first_token_with_max_deltas() {
+        // The first token of the first chunk emits no `;`/`,` delimiter, so it
+        // must still trigger the per-token capacity check: its fields alone
+        // can need up to 35 bytes while `to_json`'s estimate reserves ~12 per
+        // token. src_line/src_col are unbounded by any array length.
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec!["a.js".into()],
+            vec![],
+            vec![Token::new(0, 536_870_912, 536_870_912, 536_870_912, Some(0), None)]
+                .into_boxed_slice(),
+            None,
+        );
+        let json = sm.to_json();
+        assert_eq!(json.mappings, "ggggggBAggggggBggggggB");
+        let json_string = sm.to_json_string();
+        let reparsed = SourceMap::from_json_string(&json_string).unwrap();
         assert!(sm.get_tokens().eq(reparsed.get_tokens()));
     }
 
