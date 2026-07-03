@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.1.0](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.2...v8.1.0) - 2026-07-03
+
+### Added
+
+- add lookup_token_approx for lossless sourcemap composition ([#392](https://github.com/oxc-project/oxc-sourcemap/pull/392))
+
+### Fixed
+
+- reserve capacity for the first token's VLQ fields when serializing ([#394](https://github.com/oxc-project/oxc-sourcemap/pull/394))
+
+### Other
+
+- configure clippy exported api lint ([#395](https://github.com/oxc-project/oxc-sourcemap/pull/395))
+- binary-search lookup_token by dst_col only ([#385](https://github.com/oxc-project/oxc-sourcemap/pull/385))
+- speed up VLQ mappings decode ([#393](https://github.com/oxc-project/oxc-sourcemap/pull/393))
+- *(deps)* update napi to v3.10.0 ([#391](https://github.com/oxc-project/oxc-sourcemap/pull/391))
+- *(deps)* update napi to v3.9.4 ([#379](https://github.com/oxc-project/oxc-sourcemap/pull/379))
+- return impl ExactSizeIterator from the slice-backed accessors ([#377](https://github.com/oxc-project/oxc-sourcemap/pull/377))
+
 ## [8.0.2](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.1...v8.0.2) - 2026-06-20
 
 ### Other
