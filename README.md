@@ -43,3 +43,11 @@ concat workflows. Fixture-driven benchmarks load maps from `tests/fixtures/perf/
 [crates-url]: https://crates.io/crates/oxc_sourcemap
 [docs-badge]: https://img.shields.io/docsrs/oxc_sourcemap
 [docs-url]: https://docs.rs/oxc_sourcemap
+
+## ❤ Who's [Sponsoring Oxc](https://github.com/sponsors/Boshen)?
+
+<p align="center">
+  <a href="https://github.com/sponsors/Boshen">
+    <img src="https://raw.githubusercontent.com/Boshen/sponsors/main/sponsors.svg" alt="Our sponsors" />
+  </a>
+</p>
