@@ -2,7 +2,7 @@
 
 [![Crates.io][crates-badge]][crates-url]
 [![Docs.rs][docs-badge]][docs-url]
-[![MIT licensed][license-badge]][license-url]
+[![BSD-3-Clause licensed][license-badge]][license-url]
 [![Build Status][ci-badge]][ci-url]
 [![Sponsors][sponsors-badge]][sponsors-url]
 [![Discord chat][discord-badge]][discord-url]
@@ -29,7 +29,7 @@ concat workflows. Fixture-driven benchmarks load maps from `tests/fixtures/perf/
 
 [discord-badge]: https://img.shields.io/discord/1079625926024900739?logo=discord&label=Discord
 [discord-url]: https://discord.gg/9uXCAwqQZW
-[license-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+[license-badge]: https://img.shields.io/badge/license-BSD--3--Clause-blue.svg
 [license-url]: https://github.com/oxc-project/oxc-sourcemap/blob/main/LICENSE
 [ci-badge]: https://github.com/oxc-project/oxc-sourcemap/actions/workflows/ci.yml/badge.svg?event=push&branch=main
 [ci-url]: https://github.com/oxc-project/oxc-sourcemap/actions/workflows/ci.yml?query=event%3Apush+branch%3Amain
