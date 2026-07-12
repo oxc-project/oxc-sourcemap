@@ -6,7 +6,7 @@ use oxc_sourcemap::{SourceMap, SourcemapVisualizer, Token};
 fn snapshot_sourcemap_visualizer() {
     insta::glob!("fixtures/**/*.js", |path| {
         let js = fs::read_to_string(path).unwrap();
-        let js_map = fs::read_to_string(path.with_extension("js.map")).unwrap();
+        let js_map = fs::read_to_string(path.with_added_extension("map")).unwrap();
         let sourcemap = SourceMap::from_json_string(&js_map).unwrap();
         let visualizer = SourcemapVisualizer::new(&js, &sourcemap);
         let visualizer_text = visualizer.get_text();
