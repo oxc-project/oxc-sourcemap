@@ -17,9 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - bump MSRV to 1.95.0 ([#409](https://github.com/oxc-project/oxc-sourcemap/pull/409))
 - restore rust-sourcemap license attribution ([#406](https://github.com/oxc-project/oxc-sourcemap/pull/406))
-- *(deps)* update rust crates ([#405](https://github.com/oxc-project/oxc-sourcemap/pull/405))
-- *(deps)* update rust crate napi to v3.10.3 ([#402](https://github.com/oxc-project/oxc-sourcemap/pull/402))
-- *(deps)* update rust crate napi to v3.10.2 ([#401](https://github.com/oxc-project/oxc-sourcemap/pull/401))
+- _(deps)_ update rust crates ([#405](https://github.com/oxc-project/oxc-sourcemap/pull/405))
+- _(deps)_ update rust crate napi to v3.10.3 ([#402](https://github.com/oxc-project/oxc-sourcemap/pull/402))
+- _(deps)_ update rust crate napi to v3.10.2 ([#401](https://github.com/oxc-project/oxc-sourcemap/pull/401))
 - normalize README sponsor section ([#397](https://github.com/oxc-project/oxc-sourcemap/pull/397))
 
 ## [8.1.0](https://github.com/oxc-project/oxc-sourcemap/compare/v8.0.2...v8.1.0) - 2026-07-03
