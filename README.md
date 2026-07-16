@@ -4,7 +4,6 @@
 [![Docs.rs][docs-badge]][docs-url]
 [![BSD-3-Clause licensed][license-badge]][license-url]
 [![Build Status][ci-badge]][ci-url]
-[![Sponsors][sponsors-badge]][sponsors-url]
 [![Discord chat][discord-badge]][discord-url]
 
 <!-- [![Code Coverage][code-coverage-badge]][code-coverage-url] -->
@@ -35,8 +34,6 @@ concat workflows. Fixture-driven benchmarks load maps from `tests/fixtures/perf/
 [ci-url]: https://github.com/oxc-project/oxc-sourcemap/actions/workflows/ci.yml?query=event%3Apush+branch%3Amain
 [code-coverage-badge]: https://codecov.io/github/oxc-project/oxc-sourcemap/branch/main/graph/badge.svg
 [code-coverage-url]: https://codecov.io/gh/oxc-project/oxc-sourcemap
-[sponsors-badge]: https://img.shields.io/github/sponsors/Boshen
-[sponsors-url]: https://github.com/sponsors/Boshen
 [codspeed-badge]: https://img.shields.io/endpoint?url=https://codspeed.io/badge.json
 [codspeed-url]: https://codspeed.io/oxc-project/oxc-sourcemap
 [crates-badge]: https://img.shields.io/crates/d/oxc_sourcemap?label=crates.io
@@ -44,10 +41,10 @@ concat workflows. Fixture-driven benchmarks load maps from `tests/fixtures/perf/
 [docs-badge]: https://img.shields.io/docsrs/oxc_sourcemap
 [docs-url]: https://docs.rs/oxc_sourcemap
 
-## ❤ Who's [Sponsoring Oxc](https://github.com/sponsors/Boshen)?
+# [Sponsored By](https://oxc.rs/sponsor)
 
 <p align="center">
-  <a href="https://github.com/sponsors/Boshen">
-    <img src="https://raw.githubusercontent.com/Boshen/sponsors/main/sponsors.svg" alt="Our sponsors" />
+  <a href="https://oxc.rs/sponsor">
+    <img src="https://raw.githubusercontent.com/oxc-project/sponsors/main/sponsors.svg" alt="Our sponsors" />
   </a>
 </p>
