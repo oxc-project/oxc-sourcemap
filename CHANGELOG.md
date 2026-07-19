@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.1.2](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.1...v8.1.2) - 2026-07-19
+
+### Other
+
+- add fast path for 4 / 5 segments ([#420](https://github.com/oxc-project/oxc-sourcemap/pull/420))
+- add encode mappings fast path ([#421](https://github.com/oxc-project/oxc-sourcemap/pull/421))
+- update sponsor section ([#417](https://github.com/oxc-project/oxc-sourcemap/pull/417))
+
 ## [8.1.1](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.0...v8.1.1) - 2026-07-12
 
 ### Fixed
