@@ -217,7 +217,7 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
     let mut need_comma = start != 0;
 
     for token in &tokens[start as usize..end as usize] {
-        // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq_diff` is 5.
+        // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq` is 5.
         // Also need 1 byte for each line number difference, or 1 byte if no line num difference.
         // Reserve this amount of capacity in `rv` early, so can skip bounds checks in code below.
         // As well as skipping the bounds checks, this also removes a function call to
@@ -252,41 +252,115 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             }
         }
 
-        // SAFETY: We have reserved enough capacity above to satisfy safety contract
-        // of `encode_vlq_diff` for all calls below
-        unsafe {
-            encode_vlq_diff(output, token.get_dst_col(), prev_dst_col);
+        if let Some(source_id) = token.get_source_id() {
+            // The dominant segment shape in real bundler output is 4 or 5
+            // single-digit VLQ fields (small deltas). Transform all field
+            // deltas up front so that shape can be detected with one test and
+            // written with a single 8-byte store, instead of running the
+            // digit-at-a-time VLQ loop per field.
+            let v0 = vlq_value(token.get_dst_col(), prev_dst_col);
+            let v1 = vlq_value(source_id, prev_source_id);
+            let v2 = vlq_value(token.get_src_line(), prev_src_line);
+            let v3 = vlq_value(token.get_src_col(), prev_src_col);
             prev_dst_col = token.get_dst_col();
+            prev_source_id = source_id;
+            prev_src_line = token.get_src_line();
+            prev_src_col = token.get_src_col();
 
-            if let Some(source_id) = token.get_source_id() {
-                encode_vlq_diff(output, source_id, prev_source_id);
-                prev_source_id = source_id;
-                encode_vlq_diff(output, token.get_src_line(), prev_src_line);
-                prev_src_line = token.get_src_line();
-                encode_vlq_diff(output, token.get_src_col(), prev_src_col);
-                prev_src_col = token.get_src_col();
-                if let Some(name_id) = token.get_name_id() {
-                    encode_vlq_diff(output, name_id, prev_name_id);
-                    prev_name_id = name_id;
+            if let Some(name_id) = token.get_name_id() {
+                let v4 = vlq_value(name_id, prev_name_id);
+                prev_name_id = name_id;
+                if !try_push_fast_4_or_5_segment(output, [v0, v1, v2, v3, v4]) {
+                    // SAFETY: `MAX_TOTAL_VLQ_BYTES` (35) spare capacity was
+                    // ensured above — five `encode_vlq` calls need 7 bytes each.
+                    unsafe {
+                        encode_vlq(output, v0);
+                        encode_vlq(output, v1);
+                        encode_vlq(output, v2);
+                        encode_vlq(output, v3);
+                        encode_vlq(output, v4);
+                    }
+                }
+            } else if !try_push_fast_4_or_5_segment(output, [v0, v1, v2, v3]) {
+                // SAFETY: same as above, with only four fields.
+                unsafe {
+                    encode_vlq(output, v0);
+                    encode_vlq(output, v1);
+                    encode_vlq(output, v2);
+                    encode_vlq(output, v3);
                 }
             }
+        } else {
+            // SAFETY: `MAX_TOTAL_VLQ_BYTES` spare capacity was ensured above.
+            unsafe { encode_vlq(output, vlq_value(token.get_dst_col(), prev_dst_col)) };
+            prev_dst_col = token.get_dst_col();
         }
 
         need_comma = true;
     }
 }
 
-/// Encode diff as VLQ and push encoding into `out`.
-/// Will push between 1 byte (num = 0) and 7 bytes (num = -u32::MAX).
-///
-/// # SAFETY
-/// Caller must ensure at least 7 bytes spare capacity in `out`,
-/// as this function does not perform any bounds checks.
+/// Transform the diff `a - b` into its VLQ integer representation: the sign
+/// goes in the low bit and the remaining bits are the magnitude (the
+/// branchless inverse of `decode_sign` in `decode.rs`).
+/// The result encodes to a single base64 char iff it fits the 5 payload bits
+/// of one char, i.e. no bit at or above the continuation bit is set
+/// (`value & !0x1F == 0`).
 #[inline]
-unsafe fn encode_vlq_diff(out: &mut String, a: u32, b: u32) {
-    unsafe {
-        encode_vlq(out, i64::from(a) - i64::from(b));
+fn vlq_value(a: u32, b: u32) -> u64 {
+    (u64::from(a.abs_diff(b)) << 1) | u64::from(a < b)
+}
+
+/// Fast path for the dominant sourcemap segment shapes: a 4- or 5-field
+/// segment whose VLQ values are all single-digit (no continuation bit).
+/// Pushes all fields' base64 chars with a single unaligned 8-byte store and
+/// one length update, and returns `true`. Returns `false` without writing
+/// anything when any field needs more than one char (or, in theory, when
+/// `out` lacks 8 bytes of spare capacity — never the case in
+/// `serialize_mappings`, which reserves 35 bytes per token), so the caller
+/// can fall back to the per-digit `encode_vlq` loop.
+#[inline]
+fn try_push_fast_4_or_5_segment<const N: usize>(out: &mut String, vals: [u64; N]) -> bool {
+    const { assert!(N <= 8) };
+
+    let mut all = 0u64;
+    for &v in &vals {
+        all |= v;
     }
+    // A value with any bit at or above the VLQ continuation bit needs more
+    // than one base64 char. This is the u64-wide analogue of the `& 0xE0`
+    // test in `decode.rs` — `!0x1F` rather than `0xE0` because these are
+    // full VLQ integers, not single decoded base64 bytes.
+    if all & !0x1F != 0 {
+        return false;
+    }
+
+    // The store below always writes 8 bytes (only the first `N` become
+    // visible via `set_len`). The caller reserves more than this for the
+    // fallback path anyway, so this predictable branch never fails.
+    if out.capacity() - out.len() < 8 {
+        return false;
+    }
+
+    let mut packed = 0u64;
+    for (i, &v) in vals.iter().enumerate() {
+        // `& 0x1F` keeps the index provably in bounds for the 64-entry table;
+        // it is a no-op here since the mask test above established `v < 32`.
+        packed |= u64::from(B64_CHARS.0[(v & 0x1F) as usize]) << (i * 8);
+    }
+
+    // SAFETY: the capacity check above guarantees 8 spare bytes for the
+    // 8-byte store. All bytes in `B64_CHARS` are ASCII, so the buffer stays
+    // valid UTF-8.
+    unsafe {
+        let vec = out.as_mut_vec();
+        let len = vec.len();
+        let ptr = vec.as_mut_ptr().add(len);
+        // `to_le` so the first char lands at the lowest address on any target.
+        ptr.cast::<u64>().write_unaligned(packed.to_le());
+        vec.set_len(len + N);
+    }
+    true
 }
 
 // Align chars lookup table on 64 so occupies a single cache line
@@ -296,16 +370,15 @@ struct Aligned64([u8; 64]);
 static B64_CHARS: Aligned64 =
     Aligned64(*b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
 
-/// Encode number as VLQ and push encoding into `out`.
-/// Will push between 1 byte (num = 0) and 7 bytes (num = -u32::MAX).
+/// Encode a VLQ integer representation (see [`vlq_value`]) and push encoding
+/// into `out`. Will push between 1 byte (num = 0) and 7 bytes (num from a
+/// diff of -u32::MAX).
 ///
 /// # SAFETY
 /// Caller must ensure at least 7 bytes spare capacity in `out`,
 /// as this function does not perform any bounds checks.
-unsafe fn encode_vlq(out: &mut String, num: i64) {
+unsafe fn encode_vlq(out: &mut String, mut num: u64) {
     unsafe {
-        let mut num = if num < 0 { ((-num) << 1) + 1 } else { num << 1 };
-
         // Breaking out of loop early when have reached last char (rather than conditionally adding
         // 32 for last char within the loop) removes 3 instructions from the loop.
         // https://godbolt.org/z/Es4Pavh9j
@@ -516,8 +589,8 @@ mod tests {
 
     #[test]
     fn vlq_encode_diff() {
-        // Most import tests here are that with maximum values, `encode_vlq_diff` pushes maximum of 7 bytes.
-        // This invariant is essential to safety of `encode_vlq_diff`.
+        // Most important tests here are that with maximum values, `encode_vlq` pushes maximum of 7 bytes.
+        // This invariant is essential to safety of `encode_vlq`.
         #[rustfmt::skip]
     const FIXTURES: &[(u32, u32, &str)] = &[
         (0,           0, "A"),
@@ -557,9 +630,37 @@ mod tests {
         for (a, b, res) in FIXTURES.iter().copied() {
             let mut out = String::with_capacity(MAX_VLQ_BYTES);
             // SAFETY: `out` has 7 bytes spare capacity
-            unsafe { encode_vlq_diff(&mut out, a, b) };
+            unsafe { encode_vlq(&mut out, vlq_value(a, b)) };
             assert_eq!(&out, res);
         }
+    }
+
+    #[test]
+    fn encode_fast_4_or_5_segment() {
+        // Exercises the packed single-store fast path and its boundary with the
+        // per-digit slow path: deltas of ±15 are single-digit (fast), ±16 are
+        // not (slow), and negative deltas must keep the sign in the VLQ LSB.
+        let tokens = vec![
+            Token::new(0, 15, 15, 15, Some(0), Some(0)), // all-small, fast (5 fields)
+            Token::new(0, 30, 0, 0, Some(0), None),      // negative deltas, fast (4 fields)
+            Token::new(0, 46, 16, 16, Some(0), Some(0)), // +16 src deltas, slow
+            Token::new(0, 47, 0, 0, Some(0), Some(0)),   // -16 src deltas, slow
+            Token::new(1, 1, 1, 1, Some(0), Some(0)),    // after line break, fast
+            Token::new(1, 2, 1, 1, None, None),          // no source, dst_col only
+        ];
+        let sm = SourceMap::new(
+            None,
+            vec!["a".into()],
+            None,
+            vec!["a.js".into()],
+            vec![],
+            tokens.into_boxed_slice(),
+            None,
+        );
+        assert_eq!(sm.to_json().mappings, "eAeeA,eAff,gBAgBgBA,CAhBhBA;CACCA,C"); // spellchecker:disable-line
+        let encoded = sm.to_json_string();
+        let reparsed = SourceMap::from_json_string(&encoded).unwrap();
+        assert!(sm.get_tokens().eq(reparsed.get_tokens()));
     }
 
     #[test]
