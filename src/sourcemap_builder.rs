@@ -90,11 +90,12 @@ impl<'a> SourceMapBuilder<'a> {
 
     /// Finish, borrowing the names/sources/contents for `'a` (zero copy).
     pub fn into_sourcemap(mut self) -> SourceMap<'a> {
-        // Trade performance for memory.
-        // The tokens array take enormously large amount of data,
+        // Trade performance for memory on the buffers that are moved into the source map.
+        // `names` and `sources` are intentionally not shrunk: they are collected into new
+        // `Vec<Cow<str>>` buffers below, so resizing the old `Vec<&str>` buffers would only add
+        // redundant reallocations immediately before they are dropped.
+        // The tokens array takes an enormously large amount of data,
         // which is not ideal for large applications.
-        self.names.shrink_to_fit();
-        self.sources.shrink_to_fit();
         // For checker.ts, capacity for `tokens` before and after are 262144 and 171174 respectively.
         self.tokens.shrink_to_fit();
         if let Some(c) = self.token_chunks.as_mut() {
@@ -115,8 +116,8 @@ impl<'a> SourceMapBuilder<'a> {
     /// [`crate::OwnedSourceMap`] so callers can store the result without spelling out `'static`.
     #[inline]
     pub fn into_owned_sourcemap(mut self) -> crate::OwnedSourceMap {
-        self.names.shrink_to_fit();
-        self.sources.shrink_to_fit();
+        // `names` and `sources` are collected into new owned buffers below; shrinking their
+        // temporary `Vec<&str>` storage first would only add redundant reallocations.
         self.tokens.shrink_to_fit();
         if let Some(c) = self.token_chunks.as_mut() {
             c.shrink_to_fit()
