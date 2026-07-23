@@ -15,6 +15,11 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
         mappings: {
             let mut mappings = String::with_capacity(estimate_mappings_length(sourcemap));
             serialize_sourcemap_mappings(sourcemap, &mut mappings);
+            // The 12-bytes-per-token estimate typically leaves the buffer ~2x
+            // over-sized; give page-scale headroom back (see `consume`).
+            if mappings.capacity() - mappings.len() >= 16 * 1024 {
+                mappings.shrink_to_fit();
+            }
             mappings
         },
         source_root: sourcemap.get_source_root().map(ToString::to_string),
@@ -510,7 +515,15 @@ impl PreAllocatedString {
     }
 
     #[inline]
-    fn consume(self) -> String {
+    fn consume(mut self) -> String {
+        // The capacity estimate assumes worst-case escaping (6x), so the buffer
+        // typically ends ~4x over-sized. Callers hold the returned JSON for a
+        // long time (bundler outputs), so give the headroom back when it is
+        // page-scale; tiny buffers keep their slack (shrink would cost more
+        // than it saves).
+        if self.0.capacity() - self.0.len() >= 16 * 1024 {
+            self.0.shrink_to_fit();
+        }
         self.0
     }
 }
