@@ -81,3 +81,9 @@ codspeed = ["criterion2/codspeed"]
 [profile.bench]
 lto = true
 codegen-units = 1
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
