@@ -11,10 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- *(deps)* update napi to v3.12.4 ([#457](https://github.com/oxc-project/oxc-sourcemap/pull/457))
-- *(deps)* update napi ([#456](https://github.com/oxc-project/oxc-sourcemap/pull/456))
-- *(deps)* update dependency dprint-markdown to v0.23.2 ([#447](https://github.com/oxc-project/oxc-sourcemap/pull/447))
-- *(deps)* update rust crate napi to v3.12.2 ([#444](https://github.com/oxc-project/oxc-sourcemap/pull/444))
+- _(deps)_ update napi to v3.12.4 ([#457](https://github.com/oxc-project/oxc-sourcemap/pull/457))
+- _(deps)_ update napi ([#456](https://github.com/oxc-project/oxc-sourcemap/pull/456))
+- _(deps)_ update dependency dprint-markdown to v0.23.2 ([#447](https://github.com/oxc-project/oxc-sourcemap/pull/447))
+- _(deps)_ update rust crate napi to v3.12.2 ([#444](https://github.com/oxc-project/oxc-sourcemap/pull/444))
 - reduce Rust dev debug info ([#440](https://github.com/oxc-project/oxc-sourcemap/pull/440))
 
 ## [8.1.2](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.1...v8.1.2) - 2026-07-19
