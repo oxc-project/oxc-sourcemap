@@ -96,6 +96,13 @@ impl OwnedSourceMap {
         self.inner.to_data_url()
     }
 
+    /// Compose this generated source map with the source map for its input.
+    ///
+    /// See [`SourceMap::compose`] for composition direction and metadata behavior.
+    pub fn compose(self, input: Self) -> Self {
+        Self::new(self.inner.compose(input.inner))
+    }
+
     // ---------- accessors (delegated) ----------
 
     pub fn get_file(&self) -> Option<&str> {

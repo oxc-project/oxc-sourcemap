@@ -1,3 +1,4 @@
+mod compose;
 mod concat_sourcemap_builder;
 mod decode;
 mod encode;
