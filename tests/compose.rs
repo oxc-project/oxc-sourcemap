@@ -67,7 +67,7 @@ fn compose_preserves_unmapped_segments() {
 
     let mut generated = SourceMapBuilder::default();
     generated.add_source_and_content("intermediate.js", "unmapped(); mapped();");
-    generated.add_token(0, 0, 0, 0, Some(0), None);
+    generated.add_token(0, 0, 1, 0, Some(0), None);
     generated.add_token(0, 12, 0, 4, Some(0), None);
     generated.add_token(0, 22, 0, 0, None, None);
 

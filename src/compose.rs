@@ -52,7 +52,11 @@ impl SourceMap<'_> {
                 .iter()
                 .map(|token| {
                     let original = token.get_source_id().and_then(|_| {
-                        input.lookup_token(&lookup_table, token.get_src_line(), token.get_src_col())
+                        input.lookup_token_approx(
+                            &lookup_table,
+                            token.get_src_line(),
+                            token.get_src_col(),
+                        )
                     });
                     let Some(original) = original else {
                         return unmapped_token(token);
