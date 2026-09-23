@@ -13,6 +13,7 @@ fn compose_traces_mappings_and_preserves_metadata() {
     input.source_root = Some(Cow::Borrowed("../src"));
     input.source_contents = vec![None];
     input.debug_id = Some(Cow::Borrowed("input-debug-id"));
+    input.ignore_list = Some(vec![0]);
 
     let mut generated = SourceMapBuilder::default();
     generated.set_file("bundle.js");
@@ -34,6 +35,7 @@ fn compose_traces_mappings_and_preserves_metadata() {
     assert_eq!(composed.get_file(), Some("bundle.js"));
     assert_eq!(composed.get_source_root(), Some("../src"));
     assert_eq!(composed.get_debug_id(), Some("generated-debug-id"));
+    assert_eq!(composed.get_ignore_list(), Some(&[0][..]));
     assert!(composed.into_parts().token_chunks.is_none());
 }
 

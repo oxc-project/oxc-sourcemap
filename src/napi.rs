@@ -1,8 +1,7 @@
 use napi_derive::napi;
 
-// Aligned with Rollup's sourcemap input.
-//
-// <https://github.com/rollup/rollup/blob/766dbf90d69268971feaafa1f53f88a0755e8023/src/rollup/types.d.ts#L80-L89>
+// Source map output using the standard ignoreList field.
+// See <https://tc39.es/ecma426/#sec-source-map-format>.
 //
 // ```
 // export interface ExistingRawSourceMap {
@@ -13,7 +12,7 @@ use napi_derive::napi;
 //  sources: string[];
 //  sourcesContent?: string[];
 //  version: number;
-//  x_google_ignoreList?: number[];
+//  ignoreList?: number[];
 // }
 // ```
 #[napi(object)]
@@ -25,8 +24,8 @@ pub struct SourceMap {
     pub sources: Vec<String>,
     pub sources_content: Option<Vec<String>>,
     pub version: u8,
-    #[napi(js_name = "x_google_ignoreList")]
-    pub x_google_ignorelist: Option<Vec<u32>>,
+    #[napi(js_name = "ignoreList")]
+    pub ignore_list: Option<Vec<u32>>,
 }
 
 impl From<crate::SourceMap<'_>> for SourceMap {
@@ -42,7 +41,7 @@ impl From<crate::SourceMap<'_>> for SourceMap {
                 content.into_iter().map(Option::unwrap_or_default).collect::<Vec<_>>()
             }),
             version: 3,
-            x_google_ignorelist: json.x_google_ignore_list,
+            ignore_list: json.ignore_list,
         }
     }
 }
@@ -69,7 +68,7 @@ mod tests {
             vec![].into_boxed_slice(),
             None,
         );
-        inner.set_x_google_ignore_list(vec![0]);
+        inner.set_ignore_list(vec![0]);
 
         let napi: SourceMap = inner.into();
         assert_eq!(napi.version, 3);
@@ -78,7 +77,7 @@ mod tests {
         assert_eq!(napi.names, vec!["n0".to_string()]);
         assert_eq!(napi.sources, vec!["a.js".to_string()]);
         assert_eq!(napi.sources_content, Some(vec!["content".to_string()]));
-        assert_eq!(napi.x_google_ignorelist, Some(vec![0]));
+        assert_eq!(napi.ignore_list, Some(vec![0]));
     }
 
     #[test]
@@ -100,10 +99,14 @@ mod tests {
 
     #[test]
     fn from_owned_source_map() {
-        let owned = crate::OwnedSourceMap::default();
+        let owned = crate::OwnedSourceMap::from_json_string(
+            r#"{"version":3,"sources":["a.js"],"mappings":"","x_google_ignoreList":[0]}"#,
+        )
+        .unwrap();
         let napi: SourceMap = owned.into();
         assert_eq!(napi.version, 3);
-        assert!(napi.sources.is_empty());
+        assert_eq!(napi.sources, ["a.js"]);
         assert_eq!(napi.sources_content, None);
+        assert_eq!(napi.ignore_list, Some(vec![0]));
     }
 }

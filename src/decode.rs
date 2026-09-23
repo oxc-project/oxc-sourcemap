@@ -9,13 +9,10 @@ use crate::error::{Error, Result};
 use crate::token::INVALID_ID;
 use crate::{SourceMap, Token};
 
-/// See <https://github.com/tc39/source-map/blob/1930e58ffabefe54038f7455759042c6e3dd590e/source-map-rev3.md>.
+/// See <https://tc39.es/ecma426/#sec-source-map-format>.
 #[cfg_attr(feature = "napi", napi(object, js_name = "JSONSourceMap"))]
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct JSONSourceMap {
     /// The version field, must be 3.
-    #[serde(deserialize_with = "deserialize_version")]
     pub version: u32,
     /// An optional name of the generated code that this source map is associated with.
     pub file: Option<String>,
@@ -30,16 +27,37 @@ pub struct JSONSourceMap {
     /// The contents are listed in the same order as the sources in line 5. "null" may be used if some original sources should be retrieved by name.
     pub sources_content: Option<Vec<Option<String>>>,
     /// A list of symbol names used by the "mappings" entry.
-    #[serde(default)]
     pub names: Vec<String>,
     /// An optional field containing the debugId for this sourcemap.
     pub debug_id: Option<String>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
-    /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
+    /// The `ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
     /// When parsing the source map, developer tools can use this to determine sections of the code that the browser loads and runs that could be automatically ignore-listed.
-    #[serde(rename = "x_google_ignoreList", alias = "ignoreList")]
-    #[cfg_attr(feature = "napi", napi(js_name = "x_google_ignoreList"))]
-    pub x_google_ignore_list: Option<Vec<u32>>,
+    /// JSON input falls back to the deprecated `x_google_ignoreList` when `ignoreList` is missing or null.
+    #[cfg_attr(feature = "napi", napi(js_name = "ignoreList"))]
+    pub ignore_list: Option<Vec<u32>>,
+}
+
+impl<'de> serde::Deserialize<'de> for JSONSourceMap {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let json: BorrowedJSONSourceMap<'de> = serde::Deserialize::deserialize(deserializer)?;
+        Ok(Self {
+            version: json.version,
+            file: json.file.map(Cow::into_owned),
+            mappings: json.mappings.into_owned(),
+            source_root: json.source_root.map(Cow::into_owned),
+            sources: json.sources.into_iter().map(Cow::into_owned).collect(),
+            sources_content: json
+                .sources_content
+                .map(|content| content.into_iter().map(|item| item.map(Cow::into_owned)).collect()),
+            names: json.names.into_iter().map(Cow::into_owned).collect(),
+            debug_id: json.debug_id.map(Cow::into_owned),
+            ignore_list: json.ignore_list.or(json.x_google_ignore_list),
+        })
+    }
 }
 
 fn deserialize_version<'de, D>(deserializer: D) -> std::result::Result<u32, D::Error>
@@ -61,7 +79,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
             json.version
         ))));
     }
-    validate_x_google_ignore_list(json.x_google_ignore_list.as_deref(), json.sources.len())?;
+    validate_ignore_list(json.ignore_list.as_deref(), json.sources.len())?;
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
     Ok(SourceMap {
@@ -75,7 +93,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
             .unwrap_or_default(),
         tokens: tokens.into_boxed_slice(),
         token_chunks: None,
-        x_google_ignore_list: json.x_google_ignore_list,
+        ignore_list: json.ignore_list,
         debug_id: json.debug_id.map(Cow::Owned),
     })
 }
@@ -89,7 +107,6 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
 #[serde(rename_all = "camelCase")]
 struct BorrowedJSONSourceMap<'a> {
     #[serde(deserialize_with = "deserialize_version")]
-    #[expect(dead_code)]
     version: u32,
     #[serde(borrow)]
     file: Option<Cow<'a, str>>,
@@ -105,14 +122,18 @@ struct BorrowedJSONSourceMap<'a> {
     names: Vec<Cow<'a, str>>,
     #[serde(borrow)]
     debug_id: Option<Cow<'a, str>>,
-    #[serde(rename = "x_google_ignoreList", alias = "ignoreList")]
+    ignore_list: Option<Vec<u32>>,
+    // Parse separately so maps containing both fields are accepted. The standard
+    // `ignoreList` takes precedence, including when it is empty.
+    #[serde(rename = "x_google_ignoreList")]
     x_google_ignore_list: Option<Vec<u32>>,
 }
 
 pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
 
-    validate_x_google_ignore_list(json.x_google_ignore_list.as_deref(), json.sources.len())?;
+    let ignore_list = json.ignore_list.or(json.x_google_ignore_list);
+    validate_ignore_list(ignore_list.as_deref(), json.sources.len())?;
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
 
@@ -124,12 +145,12 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
         source_contents: json.sources_content.unwrap_or_default(),
         tokens: tokens.into_boxed_slice(),
         token_chunks: None,
-        x_google_ignore_list: json.x_google_ignore_list,
+        ignore_list,
         debug_id: json.debug_id,
     })
 }
 
-fn validate_x_google_ignore_list(ignore_list: Option<&[u32]>, sources_len: usize) -> Result<()> {
+fn validate_ignore_list(ignore_list: Option<&[u32]>, sources_len: usize) -> Result<()> {
     if let Some(ignore_list) = ignore_list {
         for &idx in ignore_list {
             if idx as usize >= sources_len {
@@ -464,11 +485,11 @@ mod tests {
             "sourceRoot": "x",
             "names": ["x","alert"],
             "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
-            "x_google_ignoreList": [0]
+            "ignoreList": [0]
         }"#;
         let sm = SourceMap::from_json_string(input).unwrap();
         assert_eq!(sm.get_source_root(), Some("x"));
-        assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
+        assert_eq!(sm.get_ignore_list(), Some(&[0][..]));
         let mut iter = sm.get_source_view_tokens().filter(|token| token.get_name_id().is_some());
         assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 0, 4, Some("x")));
         assert_eq!(iter.next().unwrap().to_tuple(), (Some("coolstuff.js"), 1, 4, Some("x")));
@@ -480,28 +501,82 @@ mod tests {
     fn decode_from_json_value() {
         // `SourceMap::from_json` / `decode` consumes an owned `JSONSourceMap`,
         // a separate path from the borrowed `from_json_string` / `decode_from_string`.
-        let json = SourceMap::from_json_string(
-            r#"{
-                "version": 3,
-                "file": "f.js",
-                "sourceRoot": "r",
-                "names": ["n"],
-                "sources": ["a.js"],
-                "sourcesContent": ["c"],
-                "mappings": "AAAAA",
-                "debugId": "d",
-                "x_google_ignoreList": [0]
-            }"#,
-        )
-        .unwrap()
-        .to_json();
+        let json = serde_json::from_value(serde_json::json!({
+            "version": 3,
+            "file": "f.js",
+            "sourceRoot": "r",
+            "names": ["n"],
+            "sources": ["a.js"],
+            "sourcesContent": ["c"],
+            "mappings": "AAAAA",
+            "debugId": "d",
+            "ignoreList": [0]
+        }))
+        .unwrap();
         let sm = SourceMap::from_json(json).unwrap();
         assert_eq!(sm.get_file(), Some("f.js"));
         assert_eq!(sm.get_source_root(), Some("r"));
         assert_eq!(sm.get_debug_id(), Some("d"));
-        assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
+        assert_eq!(sm.get_ignore_list(), Some(&[0][..]));
         assert_eq!(sm.get_source_content(0), Some("c"));
         assert_eq!(sm.get_name(0), Some("n"));
+    }
+
+    #[test]
+    fn decode_ignore_list_fallback() {
+        let cases: &[(&str, Option<&[u32]>)] = &[
+            ("", None),
+            (r#", "ignoreList": [0]"#, Some(&[0])),
+            (r#", "x_google_ignoreList": [1]"#, Some(&[1])),
+            (r#", "ignoreList": [0], "x_google_ignoreList": [0]"#, Some(&[0])),
+            (r#", "ignoreList": [0], "x_google_ignoreList": [1]"#, Some(&[0])),
+            (r#", "x_google_ignoreList": [1], "ignoreList": [0]"#, Some(&[0])),
+            (r#", "ignoreList": [], "x_google_ignoreList": [1]"#, Some(&[])),
+            (r#", "ignoreList": [0], "x_google_ignoreList": [3]"#, Some(&[0])),
+            (r#", "ignoreList": [], "x_google_ignoreList": [3]"#, Some(&[])),
+            (r#", "ignoreList": null, "x_google_ignoreList": [1]"#, Some(&[1])),
+            (r#", "ignoreList": [0], "x_google_ignoreList": null"#, Some(&[0])),
+            (r#", "ignoreList": null, "x_google_ignoreList": null"#, None),
+            (r#", "ignoreList": null"#, None),
+            (r#", "x_google_ignoreList": null"#, None),
+            (r#", "ignoreList": []"#, Some(&[])),
+            (r#", "x_google_ignoreList": []"#, Some(&[])),
+        ];
+        for &(fields, expected) in cases {
+            let input =
+                format!(r#"{{"version":3,"sources":["a.js","b.js"],"mappings":""{fields}}}"#);
+            let borrowed = SourceMap::from_json_string(&input).unwrap();
+            assert_eq!(borrowed.get_ignore_list(), expected, "{input}");
+
+            let json: JSONSourceMap = serde_json::from_str(&input).unwrap();
+            assert_eq!(json.ignore_list.as_deref(), expected, "{input}");
+            let owned = SourceMap::from_json(json).unwrap();
+            assert_eq!(owned.get_ignore_list(), expected, "{input}");
+
+            let wrapped = crate::OwnedSourceMap::from_json_string(&input).unwrap();
+            assert_eq!(wrapped.get_ignore_list(), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn decode_ignore_list_invalid_types() {
+        for fields in [
+            r#""ignoreList": false"#,
+            r#""ignoreList": [-1]"#,
+            r#""ignoreList": [0.5]"#,
+            r#""ignoreList": [4294967296]"#,
+            r#""x_google_ignoreList": false"#,
+            r#""x_google_ignoreList": [-1]"#,
+            r#""ignoreList": false, "x_google_ignoreList": [0]"#,
+            r#""ignoreList": [0], "x_google_ignoreList": false"#,
+        ] {
+            let input = format!(r#"{{"version":3,"sources":["a.js"],"mappings":"",{fields}}}"#);
+            assert!(
+                matches!(SourceMap::from_json_string(&input), Err(Error::BadJson(_))),
+                "{input}"
+            );
+            assert!(serde_json::from_str::<JSONSourceMap>(&input).is_err(), "{input}");
+        }
     }
 
     #[test]
@@ -565,11 +640,23 @@ mod tests {
 
     #[test]
     fn decode_ignore_list_bad_source_reference() {
-        // `x_google_ignoreList` references a source index that does not exist.
-        let input =
-            r#"{"version":3,"names":[],"sources":[],"mappings":"","x_google_ignoreList":[3]}"#;
-        let err = SourceMap::from_json_string(input).unwrap_err();
-        assert!(matches!(err, Error::BadSourceReference(3)));
+        for fields in [
+            r#""ignoreList": [3]"#,
+            r#""x_google_ignoreList": [3]"#,
+            r#""ignoreList": [3], "x_google_ignoreList": [0]"#,
+            r#""ignoreList": null, "x_google_ignoreList": [3]"#,
+        ] {
+            let input = format!(r#"{{"version":3,"sources":["a.js"],"mappings":"",{fields}}}"#);
+            assert!(
+                matches!(SourceMap::from_json_string(&input), Err(Error::BadSourceReference(3))),
+                "{input}"
+            );
+            let json = serde_json::from_str(&input).unwrap();
+            assert!(
+                matches!(SourceMap::from_json(json), Err(Error::BadSourceReference(3))),
+                "{input}"
+            );
+        }
     }
 
     #[test]
@@ -585,7 +672,7 @@ mod tests {
             sources_content: None,
             names: vec![],
             debug_id: None,
-            x_google_ignore_list: None,
+            ignore_list: None,
         };
         assert!(matches!(SourceMap::from_json(bad_version), Err(Error::BadJson(_))));
 
@@ -599,7 +686,7 @@ mod tests {
             sources_content: None,
             names: vec![],
             debug_id: None,
-            x_google_ignore_list: Some(vec![3]),
+            ignore_list: Some(vec![3]),
         };
         assert!(matches!(SourceMap::from_json(bad_ignore_list), Err(Error::BadSourceReference(3))));
 
@@ -613,7 +700,7 @@ mod tests {
             sources_content: None,
             names: vec![],
             debug_id: None,
-            x_google_ignore_list: None,
+            ignore_list: None,
         };
         assert!(matches!(SourceMap::from_json(bad_mapping), Err(Error::BadSourceReference(_))));
     }

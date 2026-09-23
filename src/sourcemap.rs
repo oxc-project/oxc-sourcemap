@@ -26,9 +26,9 @@ pub struct SourceMap<'a> {
     pub(crate) tokens: Box<[Token]>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
-    /// The `x_google_ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
+    /// The `ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
     /// When parsing the source map, developer tools can use this to determine sections of the code that the browser loads and runs that could be automatically ignore-listed.
-    pub(crate) x_google_ignore_list: Option<Vec<u32>>,
+    pub(crate) ignore_list: Option<Vec<u32>>,
     pub(crate) debug_id: Option<Cow<'a, str>>,
 }
 
@@ -50,7 +50,7 @@ impl<'a> SourceMap<'a> {
             source_contents,
             tokens,
             token_chunks,
-            x_google_ignore_list: None,
+            ignore_list: None,
             debug_id: None,
         }
     }
@@ -112,7 +112,7 @@ impl<'a> SourceMap<'a> {
                 .collect(),
             tokens: self.tokens,
             token_chunks: self.token_chunks,
-            x_google_ignore_list: self.x_google_ignore_list,
+            ignore_list: self.ignore_list,
             debug_id: self.debug_id.map(|c| Cow::Owned(c.into_owned())),
         }
     }
@@ -132,7 +132,7 @@ impl<'a> SourceMap<'a> {
             source_contents: self.source_contents,
             tokens: self.tokens,
             token_chunks: self.token_chunks,
-            x_google_ignore_list: self.x_google_ignore_list,
+            ignore_list: self.ignore_list,
             debug_id: self.debug_id,
         }
     }
@@ -147,7 +147,7 @@ impl<'a> SourceMap<'a> {
             source_contents: parts.source_contents,
             tokens: parts.tokens,
             token_chunks: parts.token_chunks,
-            x_google_ignore_list: parts.x_google_ignore_list,
+            ignore_list: parts.ignore_list,
             debug_id: parts.debug_id,
         }
     }
@@ -164,13 +164,13 @@ impl<'a> SourceMap<'a> {
         self.source_root.as_deref()
     }
 
-    pub fn get_x_google_ignore_list(&self) -> Option<&[u32]> {
-        self.x_google_ignore_list.as_deref()
+    pub fn get_ignore_list(&self) -> Option<&[u32]> {
+        self.ignore_list.as_deref()
     }
 
-    /// Set `x_google_ignoreList`.
-    pub fn set_x_google_ignore_list(&mut self, x_google_ignore_list: Vec<u32>) {
-        self.x_google_ignore_list = Some(x_google_ignore_list);
+    /// Set `ignoreList`.
+    pub fn set_ignore_list(&mut self, ignore_list: Vec<u32>) {
+        self.ignore_list = Some(ignore_list);
     }
 
     pub fn set_debug_id(&mut self, debug_id: &str) {
@@ -346,7 +346,7 @@ pub struct SourceMapParts<'a> {
     pub source_contents: Vec<Option<Cow<'a, str>>>,
     pub tokens: Box<[Token]>,
     pub token_chunks: Option<Vec<TokenChunk>>,
-    pub x_google_ignore_list: Option<Vec<u32>>,
+    pub ignore_list: Option<Vec<u32>>,
     pub debug_id: Option<Cow<'a, str>>,
 }
 
