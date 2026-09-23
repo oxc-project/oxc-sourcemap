@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use oxc_sourcemap::{Error, OwnedSourceMap, SourceMap, SourceMapBuilder, TokenChunk};
+use oxc_sourcemap::{OwnedSourceMap, SourceMap, SourceMapBuilder, TokenChunk};
 
 #[test]
 fn compose_traces_mappings_and_preserves_metadata() {
@@ -23,7 +23,7 @@ fn compose_traces_mappings_and_preserves_metadata() {
     let mut generated = generated.into_sourcemap();
     generated.set_debug_id("generated-debug-id");
 
-    let composed = generated.compose(SourceMap::from_parts(input)).unwrap();
+    let composed = generated.compose(SourceMap::from_parts(input));
     let token = composed.get_source_view_token(0).unwrap();
 
     assert_eq!((token.get_dst_line(), token.get_dst_col()), (3, 7));
@@ -52,7 +52,7 @@ fn compose_uses_generated_names_as_deduplicated_fallbacks() {
     generated.add_token(0, 0, 0, 0, Some(0), Some(shared));
     generated.add_token(0, 10, 0, 10, Some(0), Some(fallback));
 
-    let composed = generated.into_sourcemap().compose(input.into_sourcemap()).unwrap();
+    let composed = generated.into_sourcemap().compose(input.into_sourcemap());
 
     assert_eq!(composed.get_names().collect::<Vec<_>>(), ["shared", "fallback"]);
     assert_eq!(composed.get_source_view_token(0).unwrap().get_name(), Some("shared"));
@@ -71,7 +71,7 @@ fn compose_preserves_unmapped_segments() {
     generated.add_token(0, 12, 0, 4, Some(0), None);
     generated.add_token(0, 22, 0, 0, None, None);
 
-    let composed = generated.into_sourcemap().compose(input.into_sourcemap()).unwrap();
+    let composed = generated.into_sourcemap().compose(input.into_sourcemap());
     let tokens = composed.get_tokens().collect::<Vec<_>>();
 
     assert_eq!(tokens[0].get_source_id(), None);
@@ -80,14 +80,13 @@ fn compose_preserves_unmapped_segments() {
 }
 
 #[test]
+#[should_panic(expected = "Cannot compose a transformation map with 2 sources")]
 fn compose_rejects_multiple_transformation_sources() {
     let mut generated = SourceMapBuilder::default();
     generated.add_source_and_content("first.js", "");
     generated.add_source_and_content("second.js", "");
 
-    let error = generated.into_sourcemap().compose(SourceMap::default()).unwrap_err();
-
-    assert!(matches!(error, Error::MultipleSourcesInComposition(2)));
+    generated.into_sourcemap().compose(SourceMap::default());
 }
 
 #[test]
@@ -101,7 +100,7 @@ fn owned_source_map_compose_delegates_to_source_map() {
     )
     .unwrap();
 
-    let composed = generated.compose(input).unwrap();
+    let composed = generated.compose(input);
     assert_eq!(composed.get_file(), Some("out.js"));
     assert_eq!(composed.get_source(0), Some("original.js"));
 }

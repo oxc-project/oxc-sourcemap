@@ -16,8 +16,6 @@ pub enum Error {
     BadSourceReference(u32),
     /// a reference to a non existing name was encountered
     BadNameReference(u32),
-    /// a transformation map with multiple sources cannot be composed with one input map
-    MultipleSourcesInComposition(usize),
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -34,9 +32,6 @@ impl fmt::Display for Error {
             }
             Error::BadNameReference(idx) => {
                 write!(f, "Reference to non-existing name at position {idx}")
-            }
-            Error::MultipleSourcesInComposition(count) => {
-                write!(f, "Cannot compose a transformation map with {count} sources")
             }
         }
     }
@@ -93,10 +88,6 @@ mod tests {
         assert_eq!(
             Error::BadNameReference(9).to_string(),
             "Reference to non-existing name at position 9"
-        );
-        assert_eq!(
-            Error::MultipleSourcesInComposition(2).to_string(),
-            "Cannot compose a transformation map with 2 sources"
         );
     }
 

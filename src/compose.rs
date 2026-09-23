@@ -2,10 +2,7 @@ use std::borrow::Cow;
 
 use rustc_hash::FxHashMap;
 
-use crate::{
-    SourceMap, Token,
-    error::{Error, Result},
-};
+use crate::{SourceMap, Token};
 
 impl SourceMap<'_> {
     /// Compose this source map with the source map for its input.
@@ -22,15 +19,16 @@ impl SourceMap<'_> {
     /// positions and source metadata come from `input`. An input name takes
     /// precedence over a name from `self` at the same mapping.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns [`Error::MultipleSourcesInComposition`] when `self` contains
-    /// more than one source.
-    pub fn compose<'input>(self, input: SourceMap<'input>) -> Result<SourceMap<'input>> {
+    /// Panics when `self` contains more than one source.
+    pub fn compose<'input>(self, input: SourceMap<'input>) -> SourceMap<'input> {
         let generated = self.into_parts();
-        if generated.sources.len() > 1 {
-            return Err(Error::MultipleSourcesInComposition(generated.sources.len()));
-        }
+        assert!(
+            generated.sources.len() <= 1,
+            "Cannot compose a transformation map with {} sources",
+            generated.sources.len()
+        );
 
         let (tokens, fallback_names) = {
             let lookup_table = input.generate_lookup_table();
@@ -85,7 +83,7 @@ impl SourceMap<'_> {
         result.tokens = tokens.into_boxed_slice();
         result.token_chunks = None;
         result.debug_id = generated.debug_id.map(|debug_id| Cow::Owned(debug_id.into_owned()));
-        Ok(SourceMap::from_parts(result))
+        SourceMap::from_parts(result)
     }
 }
 

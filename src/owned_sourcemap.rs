@@ -99,8 +99,8 @@ impl OwnedSourceMap {
     /// Compose this generated source map with the source map for its input.
     ///
     /// See [`SourceMap::compose`] for composition direction and metadata behavior.
-    pub fn compose(self, input: Self) -> Result<Self> {
-        self.inner.compose(input.inner).map(Self::new)
+    pub fn compose(self, input: Self) -> Self {
+        Self::new(self.inner.compose(input.inner))
     }
 
     // ---------- accessors (delegated) ----------
