@@ -127,16 +127,16 @@ struct BorrowedJSONSourceMap<'a> {
     // Defer legacy type validation until fallback is needed. The standard
     // `ignoreList` takes precedence, even if the legacy value is malformed.
     #[serde(rename = "x_google_ignoreList")]
-    x_google_ignore_list: Option<Box<serde_json::value::RawValue>>,
+    x_google_ignore_list: Option<serde_json::Value>,
 }
 
 fn resolve_ignore_list(
     ignore_list: Option<Vec<u32>>,
-    x_google_ignore_list: Option<Box<serde_json::value::RawValue>>,
+    x_google_ignore_list: Option<serde_json::Value>,
 ) -> serde_json::Result<Option<Vec<u32>>> {
     match ignore_list {
         Some(list) => Ok(Some(list)),
-        None => x_google_ignore_list.map(|value| serde_json::from_str(value.get())).transpose(),
+        None => x_google_ignore_list.map(serde_json::from_value).transpose(),
     }
 }
 
