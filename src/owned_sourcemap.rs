@@ -117,12 +117,12 @@ impl OwnedSourceMap {
         self.inner.get_source_root()
     }
 
-    pub fn get_x_google_ignore_list(&self) -> Option<&[u32]> {
-        self.inner.get_x_google_ignore_list()
+    pub fn get_ignore_list(&self) -> Option<&[u32]> {
+        self.inner.get_ignore_list()
     }
 
-    pub fn set_x_google_ignore_list(&mut self, list: Vec<u32>) {
-        self.inner.set_x_google_ignore_list(list);
+    pub fn set_ignore_list(&mut self, list: Vec<u32>) {
+        self.inner.set_ignore_list(list);
     }
 
     pub fn get_debug_id(&self) -> Option<&str> {
@@ -284,7 +284,7 @@ mod tests {
         "sources": ["a.js"],
         "sourcesContent": ["AC"],
         "mappings": "AAAAA",
-        "x_google_ignoreList": [0],
+        "ignoreList": [0],
         "debugId": "dbg"
     }"#;
 
@@ -293,7 +293,7 @@ mod tests {
         let sm = OwnedSourceMap::from_json_string(JSON).unwrap();
         assert_eq!(sm.get_file(), Some("out.js"));
         assert_eq!(sm.get_source_root(), Some("root"));
-        assert_eq!(sm.get_x_google_ignore_list(), Some(&[0][..]));
+        assert_eq!(sm.get_ignore_list(), Some(&[0][..]));
         assert_eq!(sm.get_debug_id(), Some("dbg"));
         assert_eq!(sm.get_names().collect::<Vec<_>>(), vec!["n0"]);
         assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec!["a.js"]);
@@ -317,8 +317,8 @@ mod tests {
         assert_eq!(sm.get_source(0), Some("b.js"));
         sm.set_source_contents(vec![Some("new content")]);
         assert_eq!(sm.get_source_content(0), Some("new content"));
-        sm.set_x_google_ignore_list(vec![]);
-        assert_eq!(sm.get_x_google_ignore_list(), Some(&[][..]));
+        sm.set_ignore_list(vec![]);
+        assert_eq!(sm.get_ignore_list(), Some(&[][..]));
         sm.set_debug_id("newdbg");
         assert_eq!(sm.get_debug_id(), Some("newdbg"));
     }
@@ -379,8 +379,10 @@ mod tests {
         let owned = OwnedSourceMap::from_json_string(JSON).unwrap();
         let parts = owned.into_parts();
         assert_eq!(parts.file.as_deref(), Some("out.js"));
+        assert_eq!(parts.ignore_list.as_deref(), Some(&[0][..]));
         let rebuilt = OwnedSourceMap::from_parts(parts);
         assert_eq!(rebuilt.get_file(), Some("out.js"));
         assert_eq!(rebuilt.get_source(0), Some("a.js"));
+        assert_eq!(rebuilt.get_ignore_list(), Some(&[0][..]));
     }
 }

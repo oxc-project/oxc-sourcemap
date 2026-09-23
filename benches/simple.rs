@@ -120,7 +120,7 @@ pub fn bench(c: &mut Criterion) {
         "sourceRoot": "x",
         "names": ["x","alert"],
         "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
-        "x_google_ignoreList": [0],
+        "ignoreList": [0],
         "sourcesContent": ["var x = 1;\nif (x == 2) {\n  alert('test');\n}"]
     }"#;
     c.bench_function("smoke/SourceMap::from_json_string_inline", |b| {

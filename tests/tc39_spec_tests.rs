@@ -191,7 +191,7 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                 }
             }
             TestAction::CheckIgnoreList { present } => {
-                let ignore_list = source_map.get_x_google_ignore_list();
+                let ignore_list = source_map.get_ignore_list();
                 if let Some(indices) = ignore_list {
                     for source_name in present {
                         // Find the index of this source in the sources array

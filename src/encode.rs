@@ -32,7 +32,7 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
         },
         names: sourcemap.names.iter().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
-        x_google_ignore_list: sourcemap.get_x_google_ignore_list().map(|x| x.to_vec()),
+        ignore_list: sourcemap.get_ignore_list().map(|x| x.to_vec()),
     }
 }
 
@@ -94,13 +94,13 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
         + sc_count.saturating_sub(1);
     max_segments += comma_count;
 
-    // Optional ],"x_google_ignoreList":[
-    if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
-        max_segments += 25; // ],"x_google_ignoreList":[
+    // Optional ],"ignoreList":[
+    if let Some(ignore_list) = &sourcemap.ignore_list {
+        max_segments += 16; // ],"ignoreList":[
 
-        let ig_count = x_google_ignore_list.len();
-        // guess 10 digits per item, 100_000_000 maximum per element
-        max_segments += 10 * ig_count;
+        let ig_count = ignore_list.len();
+        // At most 10 digits per u32, plus commas between items.
+        max_segments += 10 * ig_count + ig_count.saturating_sub(1);
     }
 
     // ],"mappings":"
@@ -144,9 +144,9 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
         });
     }
 
-    if let Some(x_google_ignore_list) = &sourcemap.x_google_ignore_list {
-        contents.push("],\"x_google_ignoreList\":[");
-        contents.push_list(x_google_ignore_list.iter(), |s, output| {
+    if let Some(ignore_list) = &sourcemap.ignore_list {
+        contents.push("],\"ignoreList\":[");
+        contents.push_list(ignore_list.iter(), |s, output| {
             output.extend_from_slice(s.to_string().as_bytes());
         });
     }
@@ -520,6 +520,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn encode_empty_ignore_list() {
+        let mut sm = SourceMap::default();
+        sm.set_ignore_list(vec![]);
+        assert_eq!(
+            sm.to_json_string(),
+            r#"{"version":3,"names":[],"sources":[],"ignoreList":[],"mappings":""}"#
+        );
+    }
+
+    #[test]
+    fn encode_ignore_list() {
+        for fields in [
+            "",
+            r#", "ignoreList": []"#,
+            r#", "ignoreList": [0]"#,
+            r#", "x_google_ignoreList": []"#,
+            r#", "x_google_ignoreList": [0]"#,
+            r#", "ignoreList": [], "x_google_ignoreList": [0]"#,
+        ] {
+            let input = format!(r#"{{"version":3,"sources":["a.js"],"mappings":""{fields}}}"#);
+            let sm = SourceMap::from_json_string(&input).unwrap();
+            assert_eq!(sm.to_json().ignore_list.as_deref(), sm.get_ignore_list());
+
+            let encoded = sm.to_json_string();
+            let json: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+            assert!(json.get("x_google_ignoreList").is_none());
+            assert_eq!(
+                json.get("ignoreList"),
+                sm.get_ignore_list().map(|list| serde_json::json!(list)).as_ref()
+            );
+            let decoded = SourceMap::from_json_string(&encoded).unwrap();
+            assert_eq!(decoded.get_ignore_list(), sm.get_ignore_list());
+        }
+    }
+
+    #[test]
     fn encode_roundtrip() {
         let input = r#"{
         "version": 3,
@@ -527,7 +563,7 @@ mod tests {
         "sourceRoot": "x",
         "names": ["x","alert"],
         "mappings": "AAAA,GAAIA,GAAI,EACR,IAAIA,GAAK,EAAG,CACVC,MAAM",
-        "x_google_ignoreList": [0]
+        "ignoreList": [0]
     }"#;
         let sm = SourceMap::from_json_string(input).unwrap();
         let encoded = sm.to_json_string();
@@ -579,11 +615,11 @@ mod tests {
             vec![].into_boxed_slice(),
             None,
         );
-        sm.set_x_google_ignore_list(vec![0]);
+        sm.set_ignore_list(vec![0]);
         sm.set_debug_id("56431d54-c0a6-451d-8ea2-ba5de5d8ca2e");
         assert_eq!(
             sm.to_json_string(),
-            r#"{"version":3,"names":["name_length_greater_than_16_\u0000"],"sources":["\u0000"],"sourcesContent":["emoji-👀-\u0000"],"x_google_ignoreList":[0],"mappings":"","debugId":"56431d54-c0a6-451d-8ea2-ba5de5d8ca2e"}"#
+            r#"{"version":3,"names":["name_length_greater_than_16_\u0000"],"sources":["\u0000"],"sourcesContent":["emoji-👀-\u0000"],"ignoreList":[0],"mappings":"","debugId":"56431d54-c0a6-451d-8ea2-ba5de5d8ca2e"}"#
         );
     }
 
