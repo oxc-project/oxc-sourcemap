@@ -1,5 +1,39 @@
 use napi_derive::napi;
 
+use crate::{JSONSourceMap, OwnedSourceMap};
+
+/// A raw version 3 source map accepted as transform input.
+#[derive(Debug)]
+#[napi(object)]
+pub struct InputSourceMap {
+    pub file: Option<String>,
+    pub mappings: String,
+    pub names: Vec<String>,
+    pub source_root: Option<String>,
+    pub sources: Vec<String>,
+    pub sources_content: Option<Vec<Option<String>>>,
+    pub version: u32,
+    pub debug_id: Option<String>,
+}
+
+impl TryFrom<InputSourceMap> for OwnedSourceMap {
+    type Error = crate::Error;
+
+    fn try_from(source_map: InputSourceMap) -> Result<Self, Self::Error> {
+        Self::from_json(JSONSourceMap {
+            version: source_map.version,
+            file: source_map.file,
+            mappings: source_map.mappings,
+            source_root: source_map.source_root,
+            sources: source_map.sources,
+            sources_content: source_map.sources_content,
+            names: source_map.names,
+            debug_id: source_map.debug_id,
+            x_google_ignore_list: None,
+        })
+    }
+}
+
 // Aligned with Rollup's sourcemap input.
 //
 // <https://github.com/rollup/rollup/blob/766dbf90d69268971feaafa1f53f88a0755e8023/src/rollup/types.d.ts#L80-L89>
@@ -56,7 +90,7 @@ impl From<crate::OwnedSourceMap> for SourceMap {
 
 #[cfg(test)]
 mod tests {
-    use super::SourceMap;
+    use super::{InputSourceMap, SourceMap};
 
     #[test]
     fn from_source_map() {
@@ -105,5 +139,43 @@ mod tests {
         assert_eq!(napi.version, 3);
         assert!(napi.sources.is_empty());
         assert_eq!(napi.sources_content, None);
+    }
+
+    #[test]
+    fn input_source_map_converts_to_owned_source_map() {
+        let input = InputSourceMap {
+            file: Some("intermediate.js".to_string()),
+            mappings: "AAAA".to_string(),
+            names: vec![],
+            source_root: Some("../src".to_string()),
+            sources: vec!["original.ts".to_string()],
+            sources_content: Some(vec![None]),
+            version: 3,
+            debug_id: Some("debug-id".to_string()),
+        };
+
+        let source_map = crate::OwnedSourceMap::try_from(input).unwrap();
+        assert_eq!(source_map.get_file(), Some("intermediate.js"));
+        assert_eq!(source_map.get_source_root(), Some("../src"));
+        assert_eq!(source_map.get_source(0), Some("original.ts"));
+        assert_eq!(source_map.get_source_content(0), None);
+        assert_eq!(source_map.get_debug_id(), Some("debug-id"));
+    }
+
+    #[test]
+    fn input_source_map_rejects_unsupported_version() {
+        let input = InputSourceMap {
+            file: None,
+            mappings: String::new(),
+            names: vec![],
+            source_root: None,
+            sources: vec![],
+            sources_content: None,
+            version: 4,
+            debug_id: None,
+        };
+
+        let error = crate::OwnedSourceMap::try_from(input).unwrap_err();
+        assert_eq!(error.to_string(), "JSON parsing error: unsupported source map version: 4");
     }
 }

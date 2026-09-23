@@ -50,6 +50,12 @@ where
 }
 
 pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
+    if json.version != 3 {
+        return Err(Error::BadJson(<serde_json::Error as serde::de::Error>::custom(format!(
+            "unsupported source map version: {}",
+            json.version
+        ))));
+    }
     validate_x_google_ignore_list(json.x_google_ignore_list.as_deref(), json.sources.len())?;
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
@@ -564,7 +570,21 @@ mod tests {
     #[test]
     fn decode_owned_propagates_errors() {
         // The owned `decode` path (`SourceMap::from_json`) must surface the same
-        // validation errors as the borrowed path: a bad ignore-list index...
+        // validation errors as the borrowed path: an unsupported version...
+        let bad_version = JSONSourceMap {
+            version: 4,
+            file: None,
+            mappings: String::new(),
+            source_root: None,
+            sources: vec![],
+            sources_content: None,
+            names: vec![],
+            debug_id: None,
+            x_google_ignore_list: None,
+        };
+        assert!(matches!(SourceMap::from_json(bad_version), Err(Error::BadJson(_))));
+
+        // ...a bad ignore-list index...
         let bad_ignore_list = JSONSourceMap {
             version: 3,
             file: None,
