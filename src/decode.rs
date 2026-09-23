@@ -55,7 +55,8 @@ impl<'de> serde::Deserialize<'de> for JSONSourceMap {
                 .map(|content| content.into_iter().map(|item| item.map(Cow::into_owned)).collect()),
             names: json.names.into_iter().map(Cow::into_owned).collect(),
             debug_id: json.debug_id.map(Cow::into_owned),
-            ignore_list: json.ignore_list.or(json.x_google_ignore_list),
+            ignore_list: resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)
+                .map_err(serde::de::Error::custom)?,
         })
     }
 }
@@ -123,16 +124,26 @@ struct BorrowedJSONSourceMap<'a> {
     #[serde(borrow)]
     debug_id: Option<Cow<'a, str>>,
     ignore_list: Option<Vec<u32>>,
-    // Parse separately so maps containing both fields are accepted. The standard
-    // `ignoreList` takes precedence, including when it is empty.
+    // Defer legacy type validation until fallback is needed. The standard
+    // `ignoreList` takes precedence, even if the legacy value is malformed.
     #[serde(rename = "x_google_ignoreList")]
-    x_google_ignore_list: Option<Vec<u32>>,
+    x_google_ignore_list: Option<Box<serde_json::value::RawValue>>,
+}
+
+fn resolve_ignore_list(
+    ignore_list: Option<Vec<u32>>,
+    x_google_ignore_list: Option<Box<serde_json::value::RawValue>>,
+) -> serde_json::Result<Option<Vec<u32>>> {
+    match ignore_list {
+        Some(list) => Ok(Some(list)),
+        None => x_google_ignore_list.map(|value| serde_json::from_str(value.get())).transpose(),
+    }
 }
 
 pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
 
-    let ignore_list = json.ignore_list.or(json.x_google_ignore_list);
+    let ignore_list = resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)?;
     validate_ignore_list(ignore_list.as_deref(), json.sources.len())?;
 
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
@@ -559,6 +570,36 @@ mod tests {
     }
 
     #[test]
+    fn decode_ignore_list_ignores_malformed_fallback() {
+        for legacy in
+            ["false", r#""invalid""#, "{}", "0", "[false]", "[-1]", "[0.5]", "[4294967296]"]
+        {
+            for (standard, expected) in [("[]", &[][..]), ("[0]", &[0][..])] {
+                for fields in [
+                    format!(r#""ignoreList": {standard}, "x_google_ignoreList": {legacy}"#),
+                    format!(r#""x_google_ignoreList": {legacy}, "ignoreList": {standard}"#),
+                ] {
+                    let input =
+                        format!(r#"{{"version":3,"sources":["a.js"],"mappings":"",{fields}}}"#);
+                    let borrowed = SourceMap::from_json_string(&input).unwrap();
+                    assert_eq!(borrowed.get_ignore_list(), Some(expected), "{input}");
+
+                    let json: JSONSourceMap = serde_json::from_str(&input).unwrap();
+                    let owned = SourceMap::from_json(json).unwrap();
+                    assert_eq!(owned.get_ignore_list(), Some(expected), "{input}");
+
+                    let json: JSONSourceMap = serde_json::from_reader(input.as_bytes()).unwrap();
+                    assert_eq!(json.ignore_list.as_deref(), Some(expected), "{input}");
+
+                    let value = serde_json::from_str(&input).unwrap();
+                    let json: JSONSourceMap = serde_json::from_value(value).unwrap();
+                    assert_eq!(json.ignore_list.as_deref(), Some(expected), "{input}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn decode_ignore_list_invalid_types() {
         for fields in [
             r#""ignoreList": false"#,
@@ -568,7 +609,8 @@ mod tests {
             r#""x_google_ignoreList": false"#,
             r#""x_google_ignoreList": [-1]"#,
             r#""ignoreList": false, "x_google_ignoreList": [0]"#,
-            r#""ignoreList": [0], "x_google_ignoreList": false"#,
+            r#""ignoreList": null, "x_google_ignoreList": false"#,
+            r#""ignoreList": null, "x_google_ignoreList": [-1]"#,
         ] {
             let input = format!(r#"{{"version":3,"sources":["a.js"],"mappings":"",{fields}}}"#);
             assert!(
