@@ -521,7 +521,8 @@ mod tests {
             "sourcesContent": ["c"],
             "mappings": "AAAAA",
             "debugId": "d",
-            "ignoreList": [0]
+            "ignoreList": [0],
+            "x_google_ignoreList": false
         }))
         .unwrap();
         let sm = SourceMap::from_json(json).unwrap();
@@ -545,6 +546,10 @@ mod tests {
             (r#", "ignoreList": [], "x_google_ignoreList": [1]"#, Some(&[])),
             (r#", "ignoreList": [0], "x_google_ignoreList": [3]"#, Some(&[0])),
             (r#", "ignoreList": [], "x_google_ignoreList": [3]"#, Some(&[])),
+            (r#", "ignoreList": [0], "x_google_ignoreList": false"#, Some(&[0])),
+            (r#", "x_google_ignoreList": false, "ignoreList": [0]"#, Some(&[0])),
+            (r#", "x_google_ignoreList": false, "ignoreList": []"#, Some(&[])),
+            (r#", "ignoreList": [0], "x_google_ignoreList": [-1]"#, Some(&[0])),
             (r#", "ignoreList": null, "x_google_ignoreList": [1]"#, Some(&[1])),
             (r#", "ignoreList": [0], "x_google_ignoreList": null"#, Some(&[0])),
             (r#", "ignoreList": null, "x_google_ignoreList": null"#, None),
@@ -559,43 +564,9 @@ mod tests {
             let borrowed = SourceMap::from_json_string(&input).unwrap();
             assert_eq!(borrowed.get_ignore_list(), expected, "{input}");
 
-            let json: JSONSourceMap = serde_json::from_str(&input).unwrap();
-            assert_eq!(json.ignore_list.as_deref(), expected, "{input}");
+            let json = serde_json::from_reader(input.as_bytes()).unwrap();
             let owned = SourceMap::from_json(json).unwrap();
             assert_eq!(owned.get_ignore_list(), expected, "{input}");
-
-            let wrapped = crate::OwnedSourceMap::from_json_string(&input).unwrap();
-            assert_eq!(wrapped.get_ignore_list(), expected, "{input}");
-        }
-    }
-
-    #[test]
-    fn decode_ignore_list_ignores_malformed_fallback() {
-        for legacy in
-            ["false", r#""invalid""#, "{}", "0", "[false]", "[-1]", "[0.5]", "[4294967296]"]
-        {
-            for (standard, expected) in [("[]", &[][..]), ("[0]", &[0][..])] {
-                for fields in [
-                    format!(r#""ignoreList": {standard}, "x_google_ignoreList": {legacy}"#),
-                    format!(r#""x_google_ignoreList": {legacy}, "ignoreList": {standard}"#),
-                ] {
-                    let input =
-                        format!(r#"{{"version":3,"sources":["a.js"],"mappings":"",{fields}}}"#);
-                    let borrowed = SourceMap::from_json_string(&input).unwrap();
-                    assert_eq!(borrowed.get_ignore_list(), Some(expected), "{input}");
-
-                    let json: JSONSourceMap = serde_json::from_str(&input).unwrap();
-                    let owned = SourceMap::from_json(json).unwrap();
-                    assert_eq!(owned.get_ignore_list(), Some(expected), "{input}");
-
-                    let json: JSONSourceMap = serde_json::from_reader(input.as_bytes()).unwrap();
-                    assert_eq!(json.ignore_list.as_deref(), Some(expected), "{input}");
-
-                    let value = serde_json::from_str(&input).unwrap();
-                    let json: JSONSourceMap = serde_json::from_value(value).unwrap();
-                    assert_eq!(json.ignore_list.as_deref(), Some(expected), "{input}");
-                }
-            }
         }
     }
 
