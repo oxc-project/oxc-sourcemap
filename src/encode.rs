@@ -96,7 +96,7 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 
     // Optional ],"ignoreList":[
     if let Some(ignore_list) = &sourcemap.ignore_list {
-        max_segments += 15; // ],"ignoreList":[
+        max_segments += 16; // ],"ignoreList":[
 
         let ig_count = ignore_list.len();
         // At most 10 digits per u32, plus commas between items.
@@ -518,6 +518,16 @@ impl PreAllocatedString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encode_empty_ignore_list() {
+        let mut sm = SourceMap::default();
+        sm.set_ignore_list(vec![]);
+        assert_eq!(
+            sm.to_json_string(),
+            r#"{"version":3,"names":[],"sources":[],"ignoreList":[],"mappings":""}"#
+        );
+    }
 
     #[test]
     fn encode_ignore_list() {
