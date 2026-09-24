@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Write};
+use std::fmt::Write;
 
 use crate::SourceMap;
 
@@ -137,8 +137,9 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
                     if ch == '\r' && bytes.get(i + 1) == Some(&b'\n') {
                         continue;
                     }
-                    tables.push(content[line_byte_offset..=i].encode_utf16().collect::<Vec<_>>());
-                    line_byte_offset = i + 1;
+                    let end = i + ch.len_utf8();
+                    tables.push(content[line_byte_offset..end].encode_utf16().collect());
+                    line_byte_offset = end;
                 }
                 _ => {}
             }
@@ -147,15 +148,14 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
         tables
     }
 
-    fn str_slice_by_token(buff: &[Vec<u16>], line: u32, start: u32, end: u32) -> Cow<'_, str> {
+    fn str_slice_by_token(buff: &[Vec<u16>], line: u32, start: u32, end: u32) -> String {
         let line = line as usize;
         let start = start as usize;
         let end = end as usize;
         let s = &buff[line];
-        String::from_utf16(&s[start.min(end).min(s.len())..start.max(end).min(s.len())])
-            .unwrap()
-            .replace("\r", "")
-            .into()
+        // A mapping can split a surrogate pair, so render incomplete characters lossily.
+        String::from_utf16_lossy(&s[start.min(end).min(s.len())..start.max(end).min(s.len())])
+            .replace('\r', "")
     }
 }
 
@@ -223,6 +223,48 @@ mod tests {
         );
         let text = SourcemapVisualizer::new("aa\r\nbb\r\n", &sm).get_text();
         assert!(text.contains("- a.js"), "{text}");
+    }
+
+    #[test]
+    fn handles_unicode_line_separators() {
+        for separator in ['\u{2028}', '\u{2029}'] {
+            let code = format!("é{separator}😀");
+            let sm = SourceMap::new(
+                None,
+                vec![],
+                None,
+                vec!["a.js".into()],
+                vec![Some(code.as_str().into())],
+                vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)]
+                    .into_boxed_slice(),
+                None,
+            );
+            let first_line = format!("é{separator}");
+            assert_eq!(
+                SourcemapVisualizer::new(&code, &sm).get_text(),
+                format!(
+                    "- a.js\n(0:0) {first_line:?} --> (0:0) {first_line:?}\n(1:0) \"😀\" --> (1:0) \"😀\"\n"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn handles_columns_inside_surrogate_pairs() {
+        let sm = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec!["a.js".into()],
+            vec![Some("😀x".into())],
+            vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(0, 1, 0, 1, Some(0), None)]
+                .into_boxed_slice(),
+            None,
+        );
+        assert_eq!(
+            SourcemapVisualizer::new("😀x", &sm).get_text(),
+            "- a.js\n(0:0) \"�\" --> (0:0) \"�\"\n(0:1) \"�x\" --> (0:1) \"�x\"\n"
+        );
     }
 
     #[test]
