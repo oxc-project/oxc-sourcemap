@@ -90,13 +90,8 @@ impl<'a> SourceMapBuilder<'a> {
 
     /// Finish, borrowing the names/sources/contents for `'a` (zero copy).
     pub fn into_sourcemap(mut self) -> SourceMap<'a> {
-        // Trade performance for memory.
-        // The tokens array take enormously large amount of data,
-        // which is not ideal for large applications.
-        self.names.shrink_to_fit();
-        self.sources.shrink_to_fit();
-        // For checker.ts, capacity for `tokens` before and after are 262144 and 171174 respectively.
-        self.tokens.shrink_to_fit();
+        // Names and sources are collected into new vectors below, and converting tokens
+        // into a boxed slice already discards their spare capacity.
         if let Some(c) = self.token_chunks.as_mut() {
             c.shrink_to_fit()
         }
@@ -115,9 +110,6 @@ impl<'a> SourceMapBuilder<'a> {
     /// [`crate::OwnedSourceMap`] so callers can store the result without spelling out `'static`.
     #[inline]
     pub fn into_owned_sourcemap(mut self) -> crate::OwnedSourceMap {
-        self.names.shrink_to_fit();
-        self.sources.shrink_to_fit();
-        self.tokens.shrink_to_fit();
         if let Some(c) = self.token_chunks.as_mut() {
             c.shrink_to_fit()
         }
