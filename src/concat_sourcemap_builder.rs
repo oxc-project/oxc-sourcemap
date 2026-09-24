@@ -28,6 +28,8 @@ pub struct ConcatSourceMapBuilder<'a> {
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
     pub(crate) token_chunk_prev_source_id: u32,
+    pub(crate) token_chunk_prev_src_line: u32,
+    pub(crate) token_chunk_prev_src_col: u32,
     pub(crate) token_chunk_prev_name_id: u32,
 }
 
@@ -51,6 +53,8 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             tokens: Vec::with_capacity(tokens_len),
             token_chunks: Vec::with_capacity(token_chunks_len),
             token_chunk_prev_source_id: 0,
+            token_chunk_prev_src_line: 0,
+            token_chunk_prev_src_col: 0,
             token_chunk_prev_name_id: 0,
         }
     }
@@ -190,9 +194,19 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         name_offset: u32,
     ) {
         let start = self.tokens.len();
-        // The chunk header records the prev-id baseline as it stood *before* this chunk.
-        let chunk_prev_source_id = self.token_chunk_prev_source_id;
-        let chunk_prev_name_id = self.token_chunk_prev_name_id;
+        // Capture the encoding state before appending this chunk. Unmapped tokens only
+        // advance the generated position; source coordinates and names carry over.
+        let prev = self.tokens.last();
+        let mut chunk = TokenChunk::new(
+            start as u32,
+            start as u32,
+            prev.map_or(0, Token::get_dst_line),
+            prev.map_or(0, Token::get_dst_col),
+            self.token_chunk_prev_src_line,
+            self.token_chunk_prev_src_col,
+            self.token_chunk_prev_name_id,
+            self.token_chunk_prev_source_id,
+        );
 
         if start == 0 && line_offset == 0 && source_offset == 0 && name_offset == 0 {
             // Genuinely the first contributing map: no line/source/name offset, and no previous
@@ -216,45 +230,28 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             );
         }
 
-        // The next chunk's VLQ baseline is the last source/name id committed. Scan back from the
+        // The next chunk's VLQ baseline is the last mapped source position and name. Scan from the
         // end of what we just appended — the final token almost always carries both, so this is
         // typically O(1); if this map contributed neither, the previous baseline carries over.
-        let mut prev_source_id = chunk_prev_source_id;
-        let mut prev_name_id = chunk_prev_name_id;
         let (mut have_source, mut have_name) = (false, false);
         for token in self.tokens[start..].iter().rev() {
-            if !have_source && let Some(id) = token.get_source_id() {
-                prev_source_id = id;
+            let Some(source_id) = token.get_source_id() else { continue };
+            if !have_source {
+                self.token_chunk_prev_source_id = source_id;
+                self.token_chunk_prev_src_line = token.get_src_line();
+                self.token_chunk_prev_src_col = token.get_src_col();
                 have_source = true;
             }
             if !have_name && let Some(id) = token.get_name_id() {
-                prev_name_id = id;
+                self.token_chunk_prev_name_id = id;
                 have_name = true;
             }
             if have_source && have_name {
                 break;
             }
         }
-        self.token_chunk_prev_source_id = prev_source_id;
-        self.token_chunk_prev_name_id = prev_name_id;
-
         // Record the chunk once boundary dedup has settled the actual end index.
-        let end = self.tokens.len() as u32;
-        let chunk = if start > 0 {
-            let prev = &self.tokens[start - 1];
-            TokenChunk::new(
-                start as u32,
-                end,
-                prev.get_dst_line(),
-                prev.get_dst_col(),
-                prev.get_src_line(),
-                prev.get_src_col(),
-                chunk_prev_name_id,
-                chunk_prev_source_id,
-            )
-        } else {
-            TokenChunk::new(0, end, 0, 0, 0, 0, 0, 0)
-        };
+        chunk.end = self.tokens.len() as u32;
         self.token_chunks.push(chunk);
     }
 
@@ -487,6 +484,60 @@ mod tests {
         assert_eq!(map.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
         assert_eq!(map.get_source_content(0), None);
         assert_eq!(map.get_source_content(1), Some("b content"));
+    }
+
+    #[test]
+    fn preserves_encoding_state_across_unmapped_chunks() {
+        for unmapped_name in [None, Some(0)] {
+            let first = SourceMap::new(
+                None,
+                vec!["unused".into(), "first".into()],
+                None,
+                vec!["first.js".into()],
+                vec![],
+                vec![
+                    Token::new(0, 0, 3, 7, Some(0), Some(1)),
+                    Token::new(0, 4, 0, 0, None, unmapped_name),
+                ]
+                .into_boxed_slice(),
+                None,
+            );
+            let unmapped = SourceMap::new(
+                None,
+                vec![],
+                None,
+                vec![],
+                vec![],
+                vec![Token::new(0, 0, 0, 0, None, None)].into_boxed_slice(),
+                None,
+            );
+            let empty = SourceMap::default();
+            let last = SourceMap::new(
+                None,
+                vec!["last".into()],
+                None,
+                vec!["last.js".into()],
+                vec![],
+                vec![Token::new(0, 0, 1, 2, Some(0), Some(0))].into_boxed_slice(),
+                None,
+            );
+            let inputs = [(&first, 0), (&unmapped, 1), (&empty, 2), (&last, 3)];
+            let borrowed = ConcatSourceMapBuilder::from_sourcemaps(&inputs).into_sourcemap();
+            let owned = ConcatSourceMapBuilder::from_owned_sourcemaps(
+                inputs.iter().map(|&(map, offset)| (map.clone(), offset)).collect(),
+            )
+            .into_sourcemap();
+
+            for map in [borrowed, owned] {
+                let encoded = map.to_json_string();
+                let decoded = SourceMap::from_json_string(&encoded).unwrap();
+                assert_eq!(decoded.get_token(3), Some(Token::new(3, 0, 1, 2, Some(1), Some(2))));
+
+                let mut parts = map.into_parts();
+                parts.token_chunks = None;
+                assert_eq!(encoded, SourceMap::from_parts(parts).to_json_string());
+            }
+        }
     }
 
     #[test]
