@@ -37,22 +37,21 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
 }
 
 pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
-    // Worst-case capacity accounting:
-    // - escape_into may write up to (len * 2 + 2) for each string
-    // - include commas between items and constant JSON punctuation/keys
-    let mut max_segments = 0usize;
+    // Reserve for worst-case string escaping and an estimate of the mappings.
+    // Large VLQ deltas can exceed the estimate; serialization reserves more as needed.
+    let mut estimated_capacity = 0usize;
 
     // {"version":3,
-    max_segments += 13;
+    estimated_capacity += 13;
 
     // Optional "file":"...",
     if let Some(file) = sourcemap.get_file() {
-        max_segments += 8 /* "file": */ + file.len() * 6 + 2 /* quotes */ + 1 /* , */;
+        estimated_capacity += 8 /* "file": */ + file.len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
     // Optional "sourceRoot":"...",
     if let Some(source_root) = sourcemap.get_source_root() {
-        max_segments += 14 /* "sourceRoot": */ + source_root.len() * 6 + 2 /* quotes */ + 1 /* , */;
+        estimated_capacity += 14 /* "sourceRoot": */ + source_root.len() * 6 + 2 /* quotes */ + 1 /* , */;
     }
 
     // Calculate string lengths in a single pass for better cache locality
@@ -81,40 +80,40 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
 
     // Calculate total capacity needed
-    max_segments += 9 + 13; // "names":[ + ],"sources":[
+    estimated_capacity += 9 + 13; // "names":[ + ],"sources":[
     if has_source_contents {
-        max_segments += 20; // ],"sourcesContent":[
+        estimated_capacity += 20; // ],"sourcesContent":[
     }
-    max_segments += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
-    max_segments += 2 * (names_count + sources_count + sc_count); // quotes around each item
+    estimated_capacity += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
+    estimated_capacity += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
     // Commas between array items
     let comma_count = names_count.saturating_sub(1)
         + sources_count.saturating_sub(1)
         + sc_count.saturating_sub(1);
-    max_segments += comma_count;
+    estimated_capacity += comma_count;
 
     // Optional ],"ignoreList":[
     if let Some(ignore_list) = &sourcemap.ignore_list {
-        max_segments += 16; // ],"ignoreList":[
+        estimated_capacity += 16; // ],"ignoreList":[
 
         let ig_count = ignore_list.len();
         // At most 10 digits per u32, plus commas between items.
-        max_segments += 10 * ig_count + ig_count.saturating_sub(1);
+        estimated_capacity += 10 * ig_count + ig_count.saturating_sub(1);
     }
 
     // ],"mappings":"
-    max_segments += 14;
-    max_segments += estimate_mappings_length(sourcemap);
+    estimated_capacity += 14;
+    estimated_capacity += estimate_mappings_length(sourcemap);
 
     // Optional ,"debugId":<escaped>
     if let Some(debug_id) = sourcemap.get_debug_id() {
-        max_segments += 12 /* ,"debugId": */ + debug_id.len() * 6 + 2 /* quotes */;
+        estimated_capacity += 12 /* ,"debugId": */ + debug_id.len() * 6 + 2 /* quotes */;
     }
 
     // "} (closing quote of mappings + closing brace)
-    max_segments += 2;
-    let mut contents = PreAllocatedString::new(max_segments);
+    estimated_capacity += 2;
+    let mut contents = PreAllocatedString::new(estimated_capacity);
 
     contents.push("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
@@ -162,27 +161,13 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 
     contents.push("}");
 
-    // Check we calculated number of segments required correctly
-    debug_assert!(contents.len() <= max_segments);
-
     contents.consume()
 }
 
 fn estimate_mappings_length(sourcemap: &SourceMap<'_>) -> usize {
-    sourcemap
-        .token_chunks
-        .as_ref()
-        .map(|chunks| {
-            // Increased from 10 to 12 to account for worst-case VLQ encoding and separators
-            // Add prev_dst_line for each chunk as those become semicolons
-            chunks
-                .iter()
-                .map(|t| (t.end - t.start) as usize * 12 + t.prev_dst_line as usize)
-                .sum::<usize>()
-        })
-        .unwrap_or_else(|| {
-            sourcemap.tokens.len() * 12 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
-        })
+    // Twelve bytes per token is a heuristic, not an upper bound. Generated line
+    // breaks contribute once across the whole map, regardless of chunk boundaries.
+    sourcemap.tokens.len() * 12 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
 }
 
 fn serialize_sourcemap_mappings(sm: &SourceMap<'_>, output: &mut String) {
@@ -457,10 +442,7 @@ unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
     }
 }
 
-/// A helper for pre-allocate string buffer.
-///
-/// Pre-allocate a Cow<'a, str> buffer, and push the segment into it.
-/// Finally, convert it to a pre-allocated length String.
+/// A preallocated JSON string buffer that grows as needed.
 #[repr(transparent)]
 struct PreAllocatedString(String);
 
@@ -479,8 +461,8 @@ impl DerefMut for PreAllocatedString {
 }
 
 impl PreAllocatedString {
-    fn new(max_segments: usize) -> Self {
-        Self(String::with_capacity(max_segments))
+    fn new(estimated_capacity: usize) -> Self {
+        Self(String::with_capacity(estimated_capacity))
     }
 
     #[inline]
@@ -785,15 +767,16 @@ mod tests {
         // than that, forcing the in-loop `reserve` (comma branch) to run.
         // Odd-indexed tokens carry no name id so the source-without-name
         // serialization branch is exercised too.
-        let tokens: Vec<Token> = (0..8u32)
+        let tokens: Vec<Token> = (0..32u32)
             .map(|i| {
                 let name = if i % 2 == 0 { Some(0) } else { None };
-                Token::new(0, i * 100_000, i * 100_000, i * 100_000, Some(0), name)
+                let source_position = (i % 2) * 536_870_912;
+                Token::new(0, i * 100_000_000, source_position, source_position, Some(0), name)
             })
             .collect();
         let sm = SourceMap::new(
             None,
-            vec!["a_reasonably_long_name".into()],
+            vec!["n".into()],
             None,
             vec!["a.js".into()],
             vec![],
@@ -802,10 +785,9 @@ mod tests {
         );
 
         // Both encoders must round-trip the same tokens despite the realloc.
-        for encoded in [sm.to_json_string(), encode_to_string(&sm)] {
-            let reparsed = SourceMap::from_json_string(&encoded).unwrap();
-            assert!(sm.get_tokens().eq(reparsed.get_tokens()));
-        }
+        let encoded = sm.to_json_string();
+        let reparsed = SourceMap::from_json_string(&encoded).unwrap();
+        assert!(sm.get_tokens().eq(reparsed.get_tokens()));
         let reparsed = SourceMap::from_json(sm.to_json()).unwrap();
         assert!(sm.get_tokens().eq(reparsed.get_tokens()));
     }
