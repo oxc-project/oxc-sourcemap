@@ -22,11 +22,9 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
     }
 
     pub fn get_text(&self) -> String {
-        let mut s = String::new();
         let source_contents = &self.sourcemap.source_contents;
-        if self.sourcemap.source_contents.is_empty() {
-            s.push_str("[no source contents]\n");
-            return s;
+        if source_contents.is_empty() {
+            return "[no source contents]\n".to_owned();
         }
 
         // Build a 1:1 map: index N in the result corresponds to source_id N.
@@ -35,22 +33,22 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
         // dropped them, which misaligned all later indices).
         let source_contents_lines_map: Vec<Option<Vec<Vec<u16>>>> = source_contents
             .iter()
-            .map(|content| content.as_ref().map(|c| Self::generate_line_utf16_tables(c)))
+            .map(|content| content.as_deref().map(Self::generate_line_utf16_tables))
             .collect();
 
         let output_lines = Self::generate_line_utf16_tables(self.code);
 
         let tokens = &self.sourcemap.tokens;
 
-        let mut last_source: Option<&str> = None;
-        for i in 0..tokens.len() {
-            let t = &tokens[i];
+        let mut s = String::new();
+        let mut last_source = None;
+        for (i, t) in tokens.iter().enumerate() {
             let Some(source_id) = t.get_source_id() else {
                 continue;
             };
             let Some(source) = self.sourcemap.get_source(source_id) else { continue };
             let Some(source_lines) =
-                source_contents_lines_map.get(source_id as usize).and_then(|opt| opt.as_ref())
+                source_contents_lines_map.get(source_id as usize).and_then(Option::as_ref)
             else {
                 // No content for this source; skip rather than panic.
                 continue;
@@ -58,10 +56,7 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
 
             // Print source
             if last_source != Some(source) {
-                s.push('-');
-                s.push(' ');
-                s.push_str(source);
-                s.push('\n');
+                writeln!(s, "- {source}").unwrap();
                 last_source = Some(source);
             }
 
@@ -86,27 +81,17 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
             }
 
             // find next dst column or EOL
-            let dst_end_col = {
-                match tokens.get(i + 1) {
-                    Some(t2) if t2.dst_line == t.dst_line => t2.dst_col,
-                    _ => output_lines[t.dst_line as usize].len() as u32,
-                }
+            let dst_end_col = match tokens.get(i + 1) {
+                Some(t2) if t2.dst_line == t.dst_line => t2.dst_col,
+                _ => output_lines[t.dst_line as usize].len() as u32,
             };
 
             // find next src column or EOL
-            let src_end_col = 'result: {
-                for t2 in &tokens[i + 1..] {
-                    if t2.get_source_id() == t.get_source_id() && t2.src_line == t.src_line {
-                        // skip duplicate or backward
-                        if t2.src_col <= t.src_col {
-                            continue;
-                        }
-                        break 'result t2.src_col;
-                    }
-                    break;
-                }
-                source_lines[t.src_line as usize].len() as u32
-            };
+            let src_end_col = tokens[i + 1..]
+                .iter()
+                .take_while(|t2| t2.get_source_id() == Some(source_id) && t2.src_line == t.src_line)
+                .find(|t2| t2.src_col > t.src_col)
+                .map_or(source_lines[t.src_line as usize].len() as u32, |t2| t2.src_col);
 
             writeln!(
                 s,
@@ -129,30 +114,24 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
         let mut line_byte_offset = 0;
         let bytes = content.as_bytes();
         for (i, ch) in content.char_indices() {
-            match ch {
-                '\r' | '\n' | '\u{2028}' | '\u{2029}' => {
-                    // Handle Windows-specific "\r\n" newlines. `\n` is a single
-                    // ASCII byte, so peeking the next byte is correct even when
-                    // earlier content contains multi-byte UTF-8.
-                    if ch == '\r' && bytes.get(i + 1) == Some(&b'\n') {
-                        continue;
-                    }
-                    let end = i + ch.len_utf8();
-                    tables.push(content[line_byte_offset..end].encode_utf16().collect());
-                    line_byte_offset = end;
+            if matches!(ch, '\r' | '\n' | '\u{2028}' | '\u{2029}') {
+                // Keep CRLF together. The next byte is ASCII even after multibyte UTF-8.
+                if ch == '\r' && bytes.get(i + 1) == Some(&b'\n') {
+                    continue;
                 }
-                _ => {}
+                let end = i + ch.len_utf8();
+                tables.push(content[line_byte_offset..end].encode_utf16().collect());
+                line_byte_offset = end;
             }
         }
-        tables.push(content[line_byte_offset..].encode_utf16().collect::<Vec<_>>());
+        tables.push(content[line_byte_offset..].encode_utf16().collect());
         tables
     }
 
     fn str_slice_by_token(buff: &[Vec<u16>], line: u32, start: u32, end: u32) -> String {
-        let line = line as usize;
         let start = start as usize;
         let end = end as usize;
-        let s = &buff[line];
+        let s = &buff[line as usize];
         // A mapping can split a surrogate pair, so render incomplete characters lossily.
         String::from_utf16_lossy(&s[start.min(end).min(s.len())..start.max(end).min(s.len())])
             .replace('\r', "")

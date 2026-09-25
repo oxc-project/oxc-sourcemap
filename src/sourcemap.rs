@@ -55,7 +55,7 @@ impl<'a> SourceMap<'a> {
         }
     }
 
-    /// Convert the vlq sourcemap to to `SourceMap`.
+    /// Convert the vlq sourcemap to `SourceMap`.
     /// # Errors
     ///
     /// The `serde_json` deserialize Error.
@@ -201,7 +201,7 @@ impl<'a> SourceMap<'a> {
     }
 
     pub fn get_source_contents(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
-        self.source_contents.iter().map(|item| item.as_deref())
+        self.source_contents.iter().map(Option::as_deref)
     }
 
     pub fn get_token(&self, index: u32) -> Option<Token> {
@@ -209,7 +209,7 @@ impl<'a> SourceMap<'a> {
     }
 
     pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_, 'a>> {
-        self.tokens.get(index as usize).copied().map(|token| SourceViewToken::new(token, self))
+        self.get_token(index).map(|token| SourceViewToken::new(token, self))
     }
 
     /// Get raw tokens.
@@ -231,34 +231,29 @@ impl<'a> SourceMap<'a> {
     }
 
     pub fn get_source_content(&self, id: u32) -> Option<&str> {
-        self.source_contents.get(id as usize).and_then(|item| item.as_deref())
+        self.source_contents.get(id as usize).and_then(Option::as_deref)
     }
 
     pub fn get_source_and_content(&self, id: u32) -> Option<(&str, &str)> {
-        let source = self.get_source(id)?;
-        let content = self.get_source_content(id)?;
-        Some((source, content))
+        Some((self.get_source(id)?, self.get_source_content(id)?))
     }
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
     pub fn generate_lookup_table(&self) -> Vec<LineLookupTable<'_>> {
         // The dst line/dst col always has increasing order.
-        if let Some(last_token) = self.tokens.last() {
-            let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
-            let mut prev_start_idx = 0u32;
-            let mut prev_dst_line = 0u32;
-            for (idx, token) in self.tokens.iter().enumerate() {
-                if token.dst_line != prev_dst_line {
-                    table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..idx];
-                    prev_start_idx = idx as u32;
-                    prev_dst_line = token.dst_line;
-                }
+        let Some(last_token) = self.tokens.last() else { return vec![] };
+        let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
+        let mut start = 0;
+        let mut line = 0;
+        for (idx, token) in self.tokens.iter().enumerate() {
+            if token.dst_line != line {
+                table[line as usize] = &self.tokens[start..idx];
+                start = idx;
+                line = token.dst_line;
             }
-            table[prev_dst_line as usize] = &self.tokens[prev_start_idx as usize..];
-            table
-        } else {
-            vec![]
         }
+        table[line as usize] = &self.tokens[start..];
+        table
     }
 
     /// Lookup a token by line and column, it will used at remapping.
@@ -269,16 +264,11 @@ impl<'a> SourceMap<'a> {
         line: u32,
         col: u32,
     ) -> Option<Token> {
-        // If the line is greater than the number of lines in the lookup table, it hasn't corresponding origin token.
-        if line >= lookup_table.len() as u32 {
-            return None;
-        }
         // Every token in `lookup_table[line]` has `dst_line == line` (see `generate_lookup_table`),
         // so the line component of the key is constant across the slice. Binary searching on
         // `dst_col` alone avoids building and lexicographically comparing a `(dst_line, dst_col)`
         // tuple on every probe — measurably faster on this remapping hot path.
-        let token = greatest_lower_bound(lookup_table[line as usize], &col, |token| token.dst_col)?;
-        Some(*token)
+        greatest_lower_bound(lookup_table.get(line as usize)?, &col, |token| token.dst_col).copied()
     }
 
     /// Lookup a token by line and column, it will used at remapping. See `SourceViewToken`.
@@ -306,17 +296,11 @@ impl<'a> SourceMap<'a> {
         line: u32,
         col: u32,
     ) -> Option<Token> {
-        if line >= lookup_table.len() as u32 {
-            return None;
-        }
-        let line_tokens = lookup_table[line as usize];
+        let line_tokens = lookup_table.get(line as usize)?;
         // Search by `dst_col` alone for the same reason as `lookup_token`.
-        match greatest_lower_bound(line_tokens, &col, |token| token.dst_col) {
-            Some(token) => Some(*token),
-            // `greatest_lower_bound` only yields `None` when `col` precedes the first token on the
-            // line, so clamp to that first token. An empty line has no first token and stays `None`.
-            None => line_tokens.first().copied(),
-        }
+        greatest_lower_bound(line_tokens, &col, |token| token.dst_col)
+            .or_else(|| line_tokens.first())
+            .copied()
     }
 
     /// The [`SourceViewToken`] counterpart of [`lookup_token_approx`](Self::lookup_token_approx).
@@ -375,12 +359,8 @@ fn greatest_lower_bound<'a, T, K: Ord, F: Fn(&'a T) -> K>(
     // If we get an exact match, then we need to continue looking at previous tokens to see if
     // they also match. We use a linear search because the number of exact matches is generally
     // very small, and almost certainly smaller than the number of tokens before the index.
-    for i in (0..idx).rev() {
-        if map(&slice[i]) == *key {
-            idx = i;
-        } else {
-            break;
-        }
+    while idx > 0 && map(&slice[idx - 1]) == *key {
+        idx -= 1;
     }
     slice.get(idx)
 }

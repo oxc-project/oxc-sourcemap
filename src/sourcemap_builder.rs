@@ -32,26 +32,22 @@ pub struct SourceMapBuilder<'a> {
 impl<'a> SourceMapBuilder<'a> {
     /// Add a name, deduplicating. The name is borrowed for `'a` (no allocation).
     pub fn add_name(&mut self, name: &'a str) -> u32 {
-        if let Some(&id) = self.names_map.get(name) {
-            return id;
-        }
-        let count = self.names.len() as u32;
-        self.names_map.insert(name, count);
-        self.names.push(name);
-        count
+        *self.names_map.entry(name).or_insert_with(|| {
+            let id = self.names.len() as u32;
+            self.names.push(name);
+            id
+        })
     }
 
     /// Add a source and its content, deduplicating on the source path.
     /// Both are borrowed for `'a` (no allocation). Use this if `source` may be a duplicate.
     pub fn add_source_and_content(&mut self, source: &'a str, source_content: &'a str) -> u32 {
-        if let Some(&id) = self.sources_map.get(source) {
-            return id;
-        }
-        let count = self.sources.len() as u32;
-        self.sources_map.insert(source, count);
-        self.sources.push(source);
-        self.source_contents.push(Some(source_content));
-        count
+        *self.sources_map.entry(source).or_insert_with(|| {
+            let id = self.sources.len() as u32;
+            self.sources.push(source);
+            self.source_contents.push(Some(source_content));
+            id
+        })
     }
 
     /// Add a source and its content without deduplicating (skips the hash lookup when sources
@@ -109,22 +105,8 @@ impl<'a> SourceMapBuilder<'a> {
     /// Same as [`Self::into_sourcemap`], but copies the strings once into an owned
     /// [`crate::OwnedSourceMap`] so callers can store the result without spelling out `'static`.
     #[inline]
-    pub fn into_owned_sourcemap(mut self) -> crate::OwnedSourceMap {
-        if let Some(c) = self.token_chunks.as_mut() {
-            c.shrink_to_fit()
-        }
-        crate::OwnedSourceMap::new(SourceMap::new(
-            self.file.map(|file| Cow::Owned(file.to_owned())),
-            self.names.into_iter().map(|name| Cow::Owned(name.to_owned())).collect(),
-            None,
-            self.sources.into_iter().map(|source| Cow::Owned(source.to_owned())).collect(),
-            self.source_contents
-                .into_iter()
-                .map(|content| content.map(|content| Cow::Owned(content.to_owned())))
-                .collect(),
-            self.tokens.into_boxed_slice(),
-            self.token_chunks,
-        ))
+    pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
+        self.into_sourcemap().into_owned_sourcemap()
     }
 }
 

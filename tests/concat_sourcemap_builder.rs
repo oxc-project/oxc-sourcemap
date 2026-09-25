@@ -26,9 +26,9 @@ fn concat_sourcemap_builder_with_empty() {
     let mut source = String::new();
 
     // dep2.js.map has { mappings: "" }
-    for (i, sourcemap) in sourcemaps.iter().enumerate() {
+    for (sourcemap, js) in sourcemaps.iter().zip(&js_inputs) {
         builder.add_sourcemap(sourcemap, source.lines().count() as u32);
-        source.push_str(&js_inputs[i]);
+        source.push_str(js);
     }
 
     let sourcemap = builder.into_sourcemap();
@@ -36,7 +36,6 @@ fn concat_sourcemap_builder_with_empty() {
     let encoded = sourcemap.to_json_string();
     let sourcemap = SourceMap::from_json_string(&encoded).unwrap();
 
-    let visualizer = SourcemapVisualizer::new(&source, &sourcemap);
-    let visualizer_text = visualizer.get_text();
+    let visualizer_text = SourcemapVisualizer::new(&source, &sourcemap).get_text();
     insta::assert_snapshot!("empty", visualizer_text);
 }

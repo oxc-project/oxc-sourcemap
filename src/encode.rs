@@ -4,11 +4,9 @@ use std::ops::{Deref, DerefMut};
 
 use json_escape_simd::escape_into;
 
-use crate::JSONSourceMap;
-use crate::{SourceMap, Token, token::TokenChunk};
+use crate::{JSONSourceMap, SourceMap, Token, token::TokenChunk};
 
 pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
-    let has_source_contents = sourcemap.source_contents.iter().any(|v| v.is_some());
     JSONSourceMap {
         version: 3,
         file: sourcemap.get_file().map(ToString::to_string),
@@ -19,20 +17,12 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
         },
         source_root: sourcemap.get_source_root().map(ToString::to_string),
         sources: sourcemap.sources.iter().map(ToString::to_string).collect(),
-        sources_content: if has_source_contents {
-            Some(
-                sourcemap
-                    .source_contents
-                    .iter()
-                    .map(|v| v.as_ref().map(|item| item.to_string()))
-                    .collect(),
-            )
-        } else {
-            None
-        },
+        sources_content: sourcemap.source_contents.iter().any(Option::is_some).then(|| {
+            sourcemap.get_source_contents().map(|content| content.map(str::to_owned)).collect()
+        }),
         names: sourcemap.names.iter().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
-        ignore_list: sourcemap.get_ignore_list().map(|x| x.to_vec()),
+        ignore_list: sourcemap.ignore_list.clone(),
     }
 }
 

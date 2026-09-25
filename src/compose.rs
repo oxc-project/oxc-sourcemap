@@ -58,10 +58,7 @@ impl SourceMap<'_> {
                             token.get_src_col(),
                         )
                     });
-                    let Some(original) = original else {
-                        return unmapped_token(token);
-                    };
-                    let Some(source_id) = original.get_source_id() else {
+                    let Some(original) = original.filter(|t| t.get_source_id().is_some()) else {
                         return unmapped_token(token);
                     };
 
@@ -70,13 +67,13 @@ impl SourceMap<'_> {
                         token.get_dst_col(),
                         original.get_src_line(),
                         original.get_src_col(),
-                        Some(source_id),
+                        original.get_source_id(),
                         original
                             .get_name_id()
                             .or_else(|| intern_generated_name(token.get_name_id())),
                     )
                 })
-                .collect::<Vec<_>>();
+                .collect();
 
             (tokens, fallback_names)
         };
@@ -84,7 +81,7 @@ impl SourceMap<'_> {
         let mut result = input.into_parts();
         result.file = generated.file.map(|file| Cow::Owned(file.into_owned()));
         result.names.extend(fallback_names.into_iter().map(Cow::Owned));
-        result.tokens = tokens.into_boxed_slice();
+        result.tokens = tokens;
         result.token_chunks = None;
         result.debug_id = generated.debug_id.map(|debug_id| Cow::Owned(debug_id.into_owned()));
         SourceMap::from_parts(result)

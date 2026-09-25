@@ -6,41 +6,29 @@ use oxc_sourcemap::SourceMap;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TestCase {
     name: String,
-    #[expect(dead_code)]
-    description: String,
-    #[serde(rename = "baseFile")]
-    #[expect(dead_code)]
-    base_file: String,
-    #[serde(rename = "sourceMapFile")]
     source_map_file: String,
-    #[serde(rename = "sourceMapIsValid")]
     source_map_is_valid: bool,
-    #[serde(default, rename = "testActions")]
+    #[serde(default)]
     test_actions: Vec<TestAction>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "actionType")]
+#[serde(tag = "actionType", rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum TestAction {
-    #[serde(rename = "checkMapping")]
     CheckMapping {
-        #[serde(rename = "generatedLine")]
         generated_line: u32,
-        #[serde(rename = "generatedColumn")]
         generated_column: u32,
-        #[serde(rename = "originalSource")]
         original_source: Option<String>,
-        #[serde(rename = "originalLine")]
         original_line: Option<u32>,
-        #[serde(rename = "originalColumn")]
         original_column: Option<u32>,
-        #[serde(rename = "mappedName")]
         mapped_name: Option<String>,
     },
-    #[serde(rename = "checkIgnoreList")]
-    CheckIgnoreList { present: Vec<String> },
+    CheckIgnoreList {
+        present: Vec<String>,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -80,13 +68,10 @@ fn tc39_source_map_spec_tests() {
         }
 
         let source_map_path = resources_dir.join(&test.source_map_file);
-        let source_map_content = match fs::read_to_string(&source_map_path) {
-            Ok(content) => content,
-            Err(_) => {
-                eprintln!("⊘ {}: skipped (file not found)", test.name);
-                skipped += 1;
-                continue;
-            }
+        let Ok(source_map_content) = fs::read_to_string(&source_map_path) else {
+            eprintln!("⊘ {}: skipped (file not found)", test.name);
+            skipped += 1;
+            continue;
         };
 
         let result = SourceMap::from_json_string(&source_map_content);
@@ -99,7 +84,7 @@ fn tc39_source_map_spec_tests() {
                 test.name, test.source_map_is_valid, parse_result_valid
             );
             if let Err(e) = result {
-                eprintln!("  Error: {:?}", e);
+                eprintln!("  Error: {e:?}");
             }
             failed += 1;
             continue;
@@ -107,7 +92,7 @@ fn tc39_source_map_spec_tests() {
 
         // If the source map is valid, run test actions
         if let Ok(source_map) = result
-            && !run_test_actions(&test, &source_map, &resources_dir)
+            && !run_test_actions(&test, &source_map)
         {
             failed += 1;
             continue;
@@ -116,14 +101,14 @@ fn tc39_source_map_spec_tests() {
         passed += 1;
     }
 
-    println!("\n{} passed, {} failed, {} skipped", passed, failed, skipped);
+    println!("\n{passed} passed, {failed} failed, {skipped} skipped");
 
     // Don't panic on failures - some tests are expected to fail for unimplemented features
     // (index maps, sourceRoot resolution, etc.) and we skip tests with null sources
-    assert!(passed >= 86, "Expected at least 86 tests to pass, but only {} passed", passed);
+    assert!(passed >= 86, "Expected at least 86 tests to pass, but only {passed} passed");
 }
 
-fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &PathBuf) -> bool {
+fn run_test_actions(test: &TestCase, source_map: &SourceMap) -> bool {
     for action in &test.test_actions {
         match action {
             TestAction::CheckMapping {
@@ -145,18 +130,10 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                     let (source, src_line, src_col, name) = token.to_tuple();
 
                     // Check source
-                    if let Some(expected_source) = original_source {
-                        if source != Some(expected_source.as_str()) {
-                            eprintln!(
-                                "✗ {}: mapping check failed - expected source '{}', got {:?}",
-                                test.name, expected_source, source
-                            );
-                            return false;
-                        }
-                    } else if source.is_some() {
+                    if source != original_source.as_deref() {
                         eprintln!(
-                            "✗ {}: mapping check failed - expected no source, got {:?}",
-                            test.name, source
+                            "✗ {}: mapping check failed - expected source {:?}, got {:?}",
+                            test.name, original_source, source
                         );
                         return false;
                     }
@@ -173,12 +150,10 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap, _resources_dir: &Pa
                     }
 
                     // Check name
-                    let actual_name = name;
-                    let expected_name = mapped_name.as_ref().map(|s| s.as_str());
-                    if actual_name != expected_name {
+                    if name != mapped_name.as_deref() {
                         eprintln!(
                             "✗ {}: mapping check failed - expected name {:?}, got {:?}",
-                            test.name, expected_name, actual_name
+                            test.name, mapped_name, name
                         );
                         return false;
                     }
