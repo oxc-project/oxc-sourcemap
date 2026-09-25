@@ -81,7 +81,7 @@ impl OwnedSourceMap {
     /// # Errors
     /// Returns `serde_json` and VLQ decode errors.
     pub fn from_json_string(value: &str) -> Result<Self> {
-        SourceMap::from_json_string(value).map(SourceMap::into_owned).map(Self::new)
+        SourceMap::from_json_string(value).map(SourceMap::into_owned_sourcemap)
     }
 
     pub fn to_json(&self) -> JSONSourceMap {

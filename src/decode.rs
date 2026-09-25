@@ -674,47 +674,18 @@ mod tests {
 
     #[test]
     fn decode_owned_propagates_errors() {
+        let empty = || SourceMap::default().to_json();
         // The owned `decode` path (`SourceMap::from_json`) must surface the same
         // validation errors as the borrowed path: an unsupported version...
-        let bad_version = JSONSourceMap {
-            version: 4,
-            file: None,
-            mappings: String::new(),
-            source_root: None,
-            sources: vec![],
-            sources_content: None,
-            names: vec![],
-            debug_id: None,
-            ignore_list: None,
-        };
+        let bad_version = JSONSourceMap { version: 4, ..empty() };
         assert!(matches!(SourceMap::from_json(bad_version), Err(Error::BadJson(_))));
 
         // ...a bad ignore-list index...
-        let bad_ignore_list = JSONSourceMap {
-            version: 3,
-            file: None,
-            mappings: String::new(),
-            source_root: None,
-            sources: vec![],
-            sources_content: None,
-            names: vec![],
-            debug_id: None,
-            ignore_list: Some(vec![3]),
-        };
+        let bad_ignore_list = JSONSourceMap { ignore_list: Some(vec![3]), ..empty() };
         assert!(matches!(SourceMap::from_json(bad_ignore_list), Err(Error::BadSourceReference(3))));
 
         // ...and a mapping that references a source with no sources declared.
-        let bad_mapping = JSONSourceMap {
-            version: 3,
-            file: None,
-            mappings: "AAAA".to_string(),
-            source_root: None,
-            sources: vec![],
-            sources_content: None,
-            names: vec![],
-            debug_id: None,
-            ignore_list: None,
-        };
+        let bad_mapping = JSONSourceMap { mappings: "AAAA".to_string(), ..empty() };
         assert!(matches!(SourceMap::from_json(bad_mapping), Err(Error::BadSourceReference(_))));
     }
 

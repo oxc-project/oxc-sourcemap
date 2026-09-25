@@ -43,11 +43,9 @@ impl Token {
         let shift = |id: u32, offset: u32| if id == INVALID_ID { INVALID_ID } else { id + offset };
         Self {
             dst_line: self.dst_line + line_offset,
-            dst_col: self.dst_col,
-            src_line: self.src_line,
-            src_col: self.src_col,
             source_id: shift(self.source_id, source_offset),
             name_id: shift(self.name_id, name_offset),
+            ..self
         }
     }
 

@@ -37,9 +37,9 @@ impl From<crate::SourceMap<'_>> for SourceMap {
             names: json.names,
             source_root: json.source_root,
             sources: json.sources,
-            sources_content: json.sources_content.map(|content| {
-                content.into_iter().map(Option::unwrap_or_default).collect::<Vec<_>>()
-            }),
+            sources_content: json
+                .sources_content
+                .map(|content| content.into_iter().map(Option::unwrap_or_default).collect()),
             version: 3,
             ignore_list: json.ignore_list,
         }
