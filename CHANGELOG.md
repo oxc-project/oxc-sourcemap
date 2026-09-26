@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.2...v9.0.0) - 2026-09-25
+
+### Added
+
+- [**breaking**] adopt ignoreList with legacy Google fallback ([#470](https://github.com/oxc-project/oxc-sourcemap/pull/470))
+- add source map composition ([#468](https://github.com/oxc-project/oxc-sourcemap/pull/468))
+
+### Fixed
+
+- allow sourcemap serialization to exceed capacity estimates ([#473](https://github.com/oxc-project/oxc-sourcemap/pull/473))
+- handle Unicode boundaries in sourcemap visualization ([#472](https://github.com/oxc-project/oxc-sourcemap/pull/472))
+
+### Other
+
+- _(deps)_ upgrade Cargo dependencies ([#476](https://github.com/oxc-project/oxc-sourcemap/pull/476))
+- simplify Rust code across the codebase ([#475](https://github.com/oxc-project/oxc-sourcemap/pull/475))
+- remove redundant sourcemap builder allocations ([#474](https://github.com/oxc-project/oxc-sourcemap/pull/474))
+- _(deps)_ update napi ([#469](https://github.com/oxc-project/oxc-sourcemap/pull/469))
+- _(deps)_ update napi ([#465](https://github.com/oxc-project/oxc-sourcemap/pull/465))
+- _(deps)_ update napi ([#463](https://github.com/oxc-project/oxc-sourcemap/pull/463))
+- _(deps)_ update napi to v3.12.5 ([#462](https://github.com/oxc-project/oxc-sourcemap/pull/462))
+- _(deps)_ update rust crate json-escape-simd to v3.1.2 ([#458](https://github.com/oxc-project/oxc-sourcemap/pull/458))
+- _(deps)_ update napi to v3.12.4 ([#457](https://github.com/oxc-project/oxc-sourcemap/pull/457))
+- _(deps)_ update napi ([#456](https://github.com/oxc-project/oxc-sourcemap/pull/456))
+- _(deps)_ update dependency dprint-markdown to v0.23.2 ([#447](https://github.com/oxc-project/oxc-sourcemap/pull/447))
+- _(deps)_ update rust crate napi to v3.12.2 ([#444](https://github.com/oxc-project/oxc-sourcemap/pull/444))
+- reduce Rust dev debug info ([#440](https://github.com/oxc-project/oxc-sourcemap/pull/440))
+
 ## [8.1.2](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.1...v8.1.2) - 2026-07-19
 
 ### Other
