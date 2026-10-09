@@ -1,0 +1,21 @@
+src/compose.rs
+  s_d2abcdf0651767::t_94959c6dd5e811 62
+src/token.rs
+  s_d2abcdf0651767::t_809afb155937b9 19-23,221-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0bab23130233acb504ac9de895269faf312502d9",
+  "prompts": {},
+  "sessions": {
+    "s_d2abcdf0651767": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12015-95ec-7642-bf2d-70fe5017d148",
+        "model": "unknown"
+      },
+      "human_author": "sapphi-red <green@sapphi.red>"
+    }
+  }
+}
