@@ -16,6 +16,11 @@ pub struct Token {
 }
 
 impl Token {
+    /// Create an unmapped token at the generated position.
+    pub fn unmapped(dst_line: u32, dst_col: u32) -> Self {
+        Self::new(dst_line, dst_col, 0, 0, None, None)
+    }
+
     pub fn new(
         dst_line: u32,
         dst_col: u32,
@@ -211,6 +216,17 @@ mod tests {
         let missing = Token::new(0, 0, 0, 0, None, None);
         assert_eq!(missing.get_source_id(), None);
         assert_eq!(missing.get_name_id(), None);
+    }
+
+    #[test]
+    fn unmapped_token() {
+        let token = Token::unmapped(1, 2);
+        assert_eq!(token.get_dst_line(), 1);
+        assert_eq!(token.get_dst_col(), 2);
+        assert_eq!(token.get_src_line(), 0);
+        assert_eq!(token.get_src_col(), 0);
+        assert_eq!(token.get_source_id(), None);
+        assert_eq!(token.get_name_id(), None);
     }
 
     #[test]
