@@ -27,7 +27,7 @@ pub struct ConcatSourceMapBuilder<'a> {
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
     pub(crate) token_chunks: Vec<TokenChunk>,
-    pub(crate) token_chunk_prev_source_id: u32,
+    pub(crate) token_chunk_prev_source: (u32, u32, u32),
     pub(crate) token_chunk_prev_name_id: u32,
 }
 
@@ -50,7 +50,7 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             source_contents: Vec::with_capacity(sources_len),
             tokens: Vec::with_capacity(tokens_len),
             token_chunks: Vec::with_capacity(token_chunks_len),
-            token_chunk_prev_source_id: 0,
+            token_chunk_prev_source: (0, 0, 0),
             token_chunk_prev_name_id: 0,
         }
     }
@@ -186,8 +186,9 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         name_offset: u32,
     ) {
         let start = self.tokens.len();
-        // The chunk header records the prev-id baseline as it stood *before* this chunk.
-        let chunk_prev_source_id = self.token_chunk_prev_source_id;
+        // The chunk header records the VLQ baseline as it stood *before* this chunk.
+        let (chunk_prev_source_id, chunk_prev_src_line, chunk_prev_src_col) =
+            self.token_chunk_prev_source;
         let chunk_prev_name_id = self.token_chunk_prev_name_id;
 
         if start == 0 && line_offset == 0 && source_offset == 0 && name_offset == 0 {
@@ -212,18 +213,20 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             );
         }
 
-        // The next chunk's VLQ baseline is the last source/name id committed. Scan back from the
-        // end of what we just appended — the final token almost always carries both, so this is
-        // typically O(1); if this map contributed neither, the previous baseline carries over.
-        let (mut prev_source_id, mut prev_name_id) = (None, None);
+        // Unmapped segments only encode the generated column, so original coordinates and the
+        // source id must carry over from the last mapped token. Scan the appended tokens for
+        // that token and the last name; if absent, keep the previous chunk's baseline.
+        let (mut prev_source, mut prev_name_id) = (None, None);
         for token in self.tokens[start..].iter().rev() {
-            prev_source_id = prev_source_id.or_else(|| token.get_source_id());
+            prev_source = prev_source.or_else(|| {
+                token.get_source_id().map(|id| (id, token.get_src_line(), token.get_src_col()))
+            });
             prev_name_id = prev_name_id.or_else(|| token.get_name_id());
-            if prev_source_id.is_some() && prev_name_id.is_some() {
+            if prev_source.is_some() && prev_name_id.is_some() {
                 break;
             }
         }
-        self.token_chunk_prev_source_id = prev_source_id.unwrap_or(chunk_prev_source_id);
+        self.token_chunk_prev_source = prev_source.unwrap_or(self.token_chunk_prev_source);
         self.token_chunk_prev_name_id = prev_name_id.unwrap_or(chunk_prev_name_id);
 
         // Record the chunk once boundary dedup has settled the actual end index.
@@ -235,8 +238,8 @@ impl<'a> ConcatSourceMapBuilder<'a> {
                 end,
                 prev.get_dst_line(),
                 prev.get_dst_col(),
-                prev.get_src_line(),
-                prev.get_src_col(),
+                chunk_prev_src_line,
+                chunk_prev_src_col,
                 chunk_prev_name_id,
                 chunk_prev_source_id,
             )
@@ -358,6 +361,42 @@ mod tests {
         let builder =
             ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(sm1, 0), (sm2, 2), (sm3, 2)]);
         assert_test_result(builder.into_sourcemap());
+    }
+
+    #[test]
+    fn serialization_after_unmapped_segments() {
+        let mapped = |tokens: Vec<Token>| SourceMap {
+            sources: vec!["input.js".into()],
+            tokens: tokens.into_boxed_slice(),
+            ..SourceMap::default()
+        };
+        let first =
+            mapped(vec![Token::new(0, 0, 3, 5, Some(0), None), Token::new(0, 8, 0, 0, None, None)]);
+        let unmapped = SourceMap {
+            tokens: Box::new([Token::new(0, 0, 0, 0, None, None)]),
+            ..SourceMap::default()
+        };
+        let next = mapped(vec![Token::new(0, 0, 2, 3, Some(0), None)]);
+
+        for unmapped_count in [0, 2] {
+            let mut builder = ConcatSourceMapBuilder::default();
+            builder.add_sourcemap(&first, 0);
+            for line in 1..=unmapped_count {
+                builder.add_sourcemap(&unmapped, line);
+            }
+            builder.add_sourcemap(&next, unmapped_count + 1);
+            let map = builder.into_sourcemap();
+            let expected = Token::new(unmapped_count + 1, 0, 2, 3, Some(1), None);
+            assert_eq!(map.get_tokens().last(), Some(expected));
+
+            let json = map.to_json_string();
+            for decoded in [
+                SourceMap::from_json_string(&json).unwrap(),
+                SourceMap::from_json(map.to_json()).unwrap(),
+            ] {
+                assert_eq!(decoded.get_tokens().last(), Some(expected));
+            }
+        }
     }
 
     #[test]
