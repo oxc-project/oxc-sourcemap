@@ -1,54 +1,73 @@
-name: Benchmark
+name: Verify token-buffer lookup walltime
 
 permissions: {}
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize]
-    paths:
-      - "**/*.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/benchmark.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "**/*.rs"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - ".github/workflows/benchmark.yml"
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  benchmark:
-    name: Benchmark
-    runs-on: ubuntu-latest
+  paired-walltime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
+      contents: read
       id-token: write # required for OIDC authentication with CodSpeed
+    env:
+      BASE_REF: 715f157c7fefb2cff5cd4a9863534910e97464cf
+      HEAD_REF: 7375335803ca5c37007c09ed61e41386e1fe5e68
+      RUSTUP_TOOLCHAIN: 1.99.1
+      RUSTFLAGS: "-C debuginfo=1 -C strip=none"
     steps:
       - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b # v1.4.2
 
       - uses: oxc-project/setup-rust@3d6fb132fbe7cdcb66bf8ec193911c2945369d12 # v1.0.17
         with:
-          cache-key: benchmark
-          save-cache: ${{ github.ref_name == 'main' }}
-          tools: cargo-codspeed
+          cache-key: token-buffer-walltime-verification
+          save-cache: false
 
-      - name: Build benchmark
-        run: cargo codspeed build --features codspeed
+      - name: Build matching base and head probes
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin "$BASE_REF" "$HEAD_REF"
+          git worktree add --detach "$RUNNER_TEMP/lookup-base" "$BASE_REF"
+          git worktree add --detach "$RUNNER_TEMP/lookup-head" "$HEAD_REF"
+          cmp "$RUNNER_TEMP/lookup-base/Cargo.lock" "$RUNNER_TEMP/lookup-head/Cargo.lock"
+          cmp "$RUNNER_TEMP/lookup-base/tests/fixtures/perf/real_small.map" "$RUNNER_TEMP/lookup-head/tests/fixtures/perf/real_small.map"
+          for variant in base head; do
+            probe_root="$RUNNER_TEMP/lookup-$variant"
+            mkdir -p "$probe_root/examples"
+            cp verification/lookup.rs "$probe_root/examples/verify_lookup.rs"
+            CARGO_TARGET_DIR="$RUNNER_TEMP/build-$variant" cargo build \
+              --profile bench --locked --manifest-path "$probe_root/Cargo.toml" \
+              --example verify_lookup
+            install -D "$RUNNER_TEMP/build-$variant/release/examples/verify_lookup" \
+              "target/verify-$variant/verify_lookup"
+            git -C "$probe_root" rev-parse HEAD
+            sha256sum "target/verify-$variant/verify_lookup"
+          done
 
-      - name: Run benchmark
+      - name: Compare base and head in ABBA order on one runner
+        id: walltime
         uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5 # v5.4.0
-        timeout-minutes: 15
         with:
-          mode: simulation
-          run: cargo codspeed run
+          mode: walltime
+          runner-version: "5.6.3"
+          config: verification/walltime.yml
+
+      - name: Record measurement provenance
+        if: always()
+        env:
+          CODSPEED_MEASUREMENT_RUN: ${{ steps.walltime.outputs.run-id }}
+        run: |
+          {
+            echo "Base: $BASE_REF"
+            echo "Head: $HEAD_REF"
+            echo "CodSpeed run: $CODSPEED_MEASUREMENT_RUN"
+            echo "Each sample parses real_small once, then builds/drops its lookup table 1,000,000 times."
+            echo "All eight series use identical dependencies and inputs on this runner after both builds finish."
+            echo "Order: base1, head1, head2, base2, base3, head3, head4, base4."
+          } >> "$GITHUB_STEP_SUMMARY"

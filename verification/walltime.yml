@@ -1,0 +1,23 @@
+options:
+  warmup-time: "0.5s"
+  max-time: "8s"
+  min-rounds: 30
+  max-rounds: 60
+
+benchmarks:
+  - name: lookup_table_real_small_base1
+    exec: ./target/verify-base/verify_lookup
+  - name: lookup_table_real_small_head1
+    exec: ./target/verify-head/verify_lookup
+  - name: lookup_table_real_small_head2
+    exec: ./target/verify-head/verify_lookup
+  - name: lookup_table_real_small_base2
+    exec: ./target/verify-base/verify_lookup
+  - name: lookup_table_real_small_base3
+    exec: ./target/verify-base/verify_lookup
+  - name: lookup_table_real_small_head3
+    exec: ./target/verify-head/verify_lookup
+  - name: lookup_table_real_small_head4
+    exec: ./target/verify-head/verify_lookup
+  - name: lookup_table_real_small_base4
+    exec: ./target/verify-base/verify_lookup
