@@ -282,7 +282,7 @@ mod tests {
         .map(|(names, source, token)| SourceMap {
             names: names.into_iter().map(Cow::Borrowed).collect(),
             sources: vec![source.into()],
-            tokens: Box::new([token]),
+            tokens: vec![token],
             ..SourceMap::default()
         })
     }
