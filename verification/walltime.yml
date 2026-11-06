@@ -1,7 +1,6 @@
 options:
-  warmup-time: "0.5s"
-  max-time: "8s"
-  min-rounds: 30
+  working-directory: ".."
+  warmup-time: "500ms"
   max-rounds: 60
 
 benchmarks:
