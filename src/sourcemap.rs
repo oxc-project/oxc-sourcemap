@@ -23,7 +23,7 @@ pub struct SourceMap<'a> {
     pub(crate) source_root: Option<Cow<'a, str>>,
     pub(crate) sources: Vec<Cow<'a, str>>,
     pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
-    pub(crate) tokens: Box<[Token]>,
+    pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
     /// The `ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
@@ -48,7 +48,7 @@ impl<'a> SourceMap<'a> {
             source_root,
             sources,
             source_contents,
-            tokens,
+            tokens: tokens.into_vec(),
             token_chunks,
             ignore_list: None,
             debug_id: None,
@@ -130,7 +130,7 @@ impl<'a> SourceMap<'a> {
             source_root: self.source_root,
             sources: self.sources,
             source_contents: self.source_contents,
-            tokens: self.tokens,
+            tokens: self.tokens.into_boxed_slice(),
             token_chunks: self.token_chunks,
             ignore_list: self.ignore_list,
             debug_id: self.debug_id,
@@ -145,7 +145,7 @@ impl<'a> SourceMap<'a> {
             source_root: parts.source_root,
             sources: parts.sources,
             source_contents: parts.source_contents,
-            tokens: parts.tokens,
+            tokens: parts.tokens.into_vec(),
             token_chunks: parts.token_chunks,
             ignore_list: parts.ignore_list,
             debug_id: parts.debug_id,
@@ -154,6 +154,19 @@ impl<'a> SourceMap<'a> {
 
     pub fn get_file(&self) -> Option<&str> {
         self.file.as_deref()
+    }
+
+    /// Replace the mappings with an existing token buffer without compacting its allocation.
+    ///
+    /// Retains the buffer's spare capacity and clears any cached token chunks.
+    /// Use this when transferring a completed buffer is preferable to a potentially
+    /// copying shrink. [`Self::into_parts`] compacts the tokens when producing its
+    /// boxed slice.
+    #[must_use]
+    pub fn with_tokens(mut self, tokens: Vec<Token>) -> Self {
+        self.tokens = tokens;
+        self.token_chunks = None;
+        self
     }
 
     pub fn set_file(&mut self, file: &str) {
@@ -480,6 +493,26 @@ mod tests {
         );
         assert_eq!(no_content.get_source(0), Some("a.js"));
         assert_eq!(no_content.get_source_and_content(0), None);
+    }
+
+    #[test]
+    fn with_tokens_keeps_allocation_and_mapping_output() {
+        let token = Token::new(0, 0, 0, 0, Some(0), None);
+        let mut tokens = Vec::with_capacity(128);
+        tokens.push(token);
+        let pointer = tokens.as_ptr();
+        let capacity = tokens.capacity();
+        let mut map = SourceMap::default();
+        map.set_sources(vec!["a.js"]);
+        map.token_chunks = Some(vec![]);
+        let map = map.with_tokens(tokens);
+        assert_eq!(map.tokens.as_ptr(), pointer);
+        assert_eq!(map.tokens.capacity(), capacity);
+        assert!(map.token_chunks.is_none());
+        let json = map.to_json_string();
+        let rebuilt = SourceMap::from_parts(map.into_parts());
+        assert_eq!(rebuilt.get_token(0), Some(token));
+        assert_eq!(rebuilt.to_json_string(), json);
     }
 
     #[test]

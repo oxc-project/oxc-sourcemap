@@ -92,7 +92,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
             .sources_content
             .map(|content| content.into_iter().map(|c| c.map(Cow::Owned)).collect())
             .unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
+        tokens: tokens.into_boxed_slice().into_vec(),
         token_chunks: None,
         ignore_list: json.ignore_list,
         debug_id: json.debug_id.map(Cow::Owned),
@@ -154,7 +154,7 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
         source_root: json.source_root,
         sources: json.sources,
         source_contents: json.sources_content.unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
+        tokens: tokens.into_boxed_slice().into_vec(),
         token_chunks: None,
         ignore_list,
         debug_id: json.debug_id,
