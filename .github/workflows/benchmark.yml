@@ -1,54 +1,73 @@
-name: Benchmark
-
+name: Paired Zero Offset Benchmarks
 permissions: {}
-
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize]
-    paths:
-      - "**/*.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/benchmark.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "**/*.rs"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - ".github/workflows/benchmark.yml"
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
-
 defaults:
   run:
     shell: bash
-
 jobs:
   benchmark:
-    name: Benchmark
+    name: Benchmark (${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [simulation, walltime]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # required for OIDC authentication with CodSpeed
+      id-token: write
+      contents: read
     steps:
-      - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b # v1.4.2
-
-      - uses: oxc-project/setup-rust@3d6fb132fbe7cdcb66bf8ec193911c2945369d12 # v1.0.17
+      - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b
+      - uses: oxc-project/setup-rust@3d6fb132fbe7cdcb66bf8ec193911c2945369d12
         with:
-          cache-key: benchmark
-          save-cache: ${{ github.ref_name == 'main' }}
+          cache-key: benchmark-paired-zero-offset
+          save-cache: false
           tools: cargo-codspeed
-
-      - name: Build benchmark
-        run: cargo codspeed build --features codspeed
-
+      - name: Build paired baseline and candidate
+        env:
+          BENCH_MODE: ${{ matrix.mode }}
+        run: |
+          set -euo pipefail
+          cp .github/codspeed-experiments/prepare.py /tmp/prepare.py
+          cp .github/codspeed-experiments/zero-offset.patch /tmp/zero-offset.patch
+          bucket=walltime
+          features=()
+          if [ "$BENCH_MODE" = simulation ]; then bucket=analysis; features=(--features codspeed); fi
+          for variant in base head; do
+            git checkout --detach 45265ceecd4c98b2ed964a9fca5ff25d1f735d46
+            if [ "$variant" = head ]; then git apply /tmp/zero-offset.patch; fi
+            python3 /tmp/prepare.py
+            lock=()
+            if [ "$variant" = head ]; then cp /tmp/baseline-Cargo.lock Cargo.lock; lock=(--locked); fi
+            cargo codspeed build -m "$BENCH_MODE" --bench simple "${features[@]}" "${lock[@]}"
+            cp "target/codspeed/$bucket/oxc_sourcemap/simple" "/tmp/$variant-bench"
+            if [ "$variant" = base ]; then
+              cp Cargo.lock /tmp/baseline-Cargo.lock
+              git restore --worktree Cargo.toml Cargo.lock benches/simple.rs
+            fi
+          done
+          find "target/codspeed/$bucket/oxc_sourcemap" -maxdepth 1 -type f -delete
+          cp /tmp/base-bench "target/codspeed/$bucket/oxc_sourcemap/base"
+          cp /tmp/head-bench "target/codspeed/$bucket/oxc_sourcemap/head"
+          sha256sum /tmp/base-bench /tmp/head-bench
+          cat > /tmp/run-paired.sh <<'SH'
+          set -euo pipefail
+          for phase in base1 head1 head2 base2; do
+            case "$phase" in
+              base*) binary=base ;;
+              head*) binary=head ;;
+            esac
+            BENCH_LABEL="$phase" cargo codspeed run -m "$BENCH_MODE" --bench "$binary"
+          done
+          SH
       - name: Run benchmark
-        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea # v5.2.1
-        timeout-minutes: 15
+        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea
+        env:
+          BENCH_MODE: ${{ matrix.mode }}
+        timeout-minutes: 20
         with:
-          mode: simulation
-          run: cargo codspeed run
+          mode: ${{ matrix.mode }}
+          run: bash /tmp/run-paired.sh
