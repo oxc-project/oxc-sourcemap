@@ -58,3 +58,39 @@ extra = r'''
 assert t.count('    concat_group.finish();') == 1
 t = t.replace('    concat_group.finish();', '    concat_group.finish();\n' + extra)
 p.write_text(t)
+p = Path('benches/simple.rs')
+t = p.read_text()
+extra = r'''
+    // Worst-case guard: neither source nor name ids occur anywhere in a chunk.
+    let unmapped_maps: Vec<_> = nameless_maps.iter().map(|map| {
+        let mut parts = map.clone().into_parts();
+        parts.tokens = parts.tokens.iter().map(|token| oxc_sourcemap::Token::new(
+            token.get_dst_line(), token.get_dst_col(), token.get_src_line(), token.get_src_col(),
+            None, None,
+        )).collect();
+        parts.token_chunks = None;
+        SourceMap::from_parts(parts)
+    }).collect();
+    let mut offset = 0;
+    let unmapped_inputs: Vec<_> = unmapped_maps.iter().map(|map| {
+        let entry = (map, offset);
+        offset += token_line_span(map);
+        entry
+    }).collect();
+    let mut unmapped_group = c.benchmark_group(format!("{label}/concat_unmapped"));
+    unmapped_group.throughput(Throughput::Elements(unmapped_maps.iter().map(|map| map.get_tokens().len() as u64).sum()));
+    unmapped_group.bench_function("from_sourcemaps", |b| {
+        b.iter(|| black_box(ConcatSourceMapBuilder::from_sourcemaps(black_box(&unmapped_inputs)).into_sourcemap()));
+    });
+    unmapped_group.bench_function("add_sourcemap_loop", |b| {
+        b.iter(|| {
+            let mut builder = ConcatSourceMapBuilder::default();
+            for &(map, offset) in black_box(&unmapped_inputs) { builder.add_sourcemap(map, offset); }
+            black_box(builder.into_sourcemap());
+        });
+    });
+    unmapped_group.finish();
+'''
+assert t.count('    nameless_group.finish();') == 1
+t = t.replace('    nameless_group.finish();', '    nameless_group.finish();\n' + extra)
+p.write_text(t)

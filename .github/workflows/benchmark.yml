@@ -1,4 +1,4 @@
-name: Paired Zero Offset Benchmarks
+name: Paired Chunk ID Searches
 permissions: {}
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
       - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b
       - uses: oxc-project/setup-rust@3d6fb132fbe7cdcb66bf8ec193911c2945369d12
         with:
-          cache-key: benchmark-paired-zero-offset
+          cache-key: benchmark-paired-id-searches
           save-cache: false
           tools: cargo-codspeed
       - name: Build paired baseline and candidate
