@@ -36,6 +36,7 @@ jobs:
           bucket=walltime
           features=()
           if [ "$BENCH_MODE" = simulation ]; then bucket=analysis; features=(--features codspeed); fi
+          git fetch --depth 1 origin 45265ceecd4c98b2ed964a9fca5ff25d1f735d46
           for variant in base head; do
             git checkout --detach 45265ceecd4c98b2ed964a9fca5ff25d1f735d46
             if [ "$variant" = head ]; then git apply /tmp/zero-offset.patch; fi
