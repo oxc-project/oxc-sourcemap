@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    SourceViewToken,
+    LookupCursor, SourceViewToken,
     decode::{JSONSourceMap, decode, decode_from_string},
     encode::{encode, encode_to_string},
     error::Result,
@@ -254,6 +254,17 @@ impl<'a> SourceMap<'a> {
         }
         table[line as usize] = &self.tokens[start..];
         table
+    }
+
+    /// Create a [`LookupCursor`] for many lookups in this map.
+    ///
+    /// The cursor builds its own lookup table and starts each search from its previous result
+    /// when that cannot change the answer, so mostly-forward runs of lookups (such as tracing
+    /// every token of another map through this one) are cheaper than calling
+    /// [`lookup_token`](Self::lookup_token) or [`lookup_token_approx`](Self::lookup_token_approx)
+    /// for each position. Results are identical to those methods.
+    pub fn lookup_cursor(&self) -> LookupCursor<'_> {
+        LookupCursor::new(self)
     }
 
     /// Lookup a token by line and column, it will used at remapping.

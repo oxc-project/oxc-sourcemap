@@ -31,7 +31,7 @@ impl SourceMap<'_> {
         );
 
         let (tokens, fallback_names) = {
-            let lookup_table = input.generate_lookup_table();
+            let mut lookup = input.lookup_cursor();
             let mut name_ids = FxHashMap::default();
             for (name_id, name) in input.names.iter().enumerate() {
                 name_ids.entry(name.as_ref()).or_insert(name_id as u32);
@@ -52,11 +52,7 @@ impl SourceMap<'_> {
                 .iter()
                 .map(|token| {
                     let original = token.get_source_id().and_then(|_| {
-                        input.lookup_token_approx(
-                            &lookup_table,
-                            token.get_src_line(),
-                            token.get_src_col(),
-                        )
+                        lookup.lookup_token_approx(token.get_src_line(), token.get_src_col())
                     });
                     let Some(original) = original.filter(|t| t.get_source_id().is_some()) else {
                         return Token::unmapped(token.get_dst_line(), token.get_dst_col());
