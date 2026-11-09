@@ -172,6 +172,17 @@ fn validate_ignore_list(ignore_list: Option<&[u32]>, sources_len: usize) -> Resu
     Ok(())
 }
 
+/// ECMA-426 allows a line's segments in any order, but lookups search each line by column.
+/// Like other consumers (for example `@jridgewell/trace-mapping`), sort out-of-order lines by
+/// generated column. The sort is stable, so segments at the same column keep their order.
+fn sort_unsorted_lines(tokens: &mut [Token]) {
+    for line in tokens.chunk_by_mut(|a, b| a.dst_line == b.dst_line) {
+        if !line.is_sorted_by_key(|token| token.dst_col) {
+            line.sort_by_key(|token| token.dst_col);
+        }
+    }
+}
+
 fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
     let mapping = mapping.as_bytes();
 
@@ -196,6 +207,8 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
     // * `;` advances generated line and resets generated column
     let mut cursor = 0usize;
     let mut nums = [0i64; 5];
+    // A negative generated column delta within a line means that line is out of order.
+    let mut unsorted = false;
     while cursor < mapping.len() {
         match mapping[cursor] {
             b',' => {
@@ -216,6 +229,7 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                 if new_dst_col < 0 {
                     return Err(Error::BadSegmentSize(0)); // Negative column
                 }
+                unsorted |= nums[0] < 0;
                 dst_col = new_dst_col as u32;
 
                 let mut src = INVALID_ID;
@@ -267,6 +281,9 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
         }
     }
 
+    if unsorted {
+        sort_unsorted_lines(&mut tokens);
+    }
     Ok(tokens)
 }
 
@@ -703,8 +720,56 @@ mod tests {
         let slash = SourceMap::from_json_string(&slash_json).unwrap();
         let tokens: Vec<Token> = bang.get_tokens().collect();
         assert_eq!(tokens, slash.get_tokens().collect::<Vec<Token>>());
-        assert_eq!(tokens[0].get_dst_col(), 48);
-        assert_eq!(tokens[1].get_dst_col(), 1);
+        // The segments are columns 48 then 1 on one line, so decoding sorts them.
+        assert_eq!(tokens[0].get_dst_col(), 1);
+        assert_eq!(tokens[1].get_dst_col(), 48);
+    }
+
+    #[test]
+    fn decode_sorts_out_of_order_lines() {
+        // Encode tokens in the given order, then decode them. Each token's original column is
+        // its position in this list, so the decoded order shows where every token went.
+        let unsorted = [(0, 5), (0, 1), (0, 1), (0, 10), (1, 0), (1, 2), (2, 3), (2, 0)];
+        let tokens: Vec<Token> = unsorted
+            .iter()
+            .enumerate()
+            .map(|(i, &(line, col))| Token::new(line, col, 0, i as u32, Some(0), None))
+            .collect();
+        let json = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![Cow::Borrowed("a.js")],
+            vec![],
+            tokens.into_boxed_slice(),
+            None,
+        )
+        .to_json_string();
+        let sm = SourceMap::from_json_string(&json).unwrap();
+
+        // Lines 0 and 2 are sorted by column. Line 1 was already sorted. The two tokens at
+        // (0, 1) keep their original order.
+        let decoded: Vec<_> =
+            sm.get_tokens().map(|t| (t.get_dst_line(), t.get_dst_col(), t.get_src_col())).collect();
+        assert_eq!(
+            decoded,
+            [
+                (0, 1, 1),
+                (0, 1, 2),
+                (0, 5, 0),
+                (0, 10, 3),
+                (1, 0, 4),
+                (1, 2, 5),
+                (2, 0, 7),
+                (2, 3, 6)
+            ]
+        );
+
+        // Lookups on the sorted lines give the correct answers.
+        let table = sm.generate_lookup_table();
+        assert_eq!(sm.lookup_token(&table, 0, 3).map(|t| t.get_src_col()), Some(2));
+        assert_eq!(sm.lookup_token(&table, 0, 1).map(|t| t.get_src_col()), Some(1));
+        assert_eq!(sm.lookup_token(&table, 2, 2).map(|t| t.get_src_col()), Some(7));
     }
 
     #[test]

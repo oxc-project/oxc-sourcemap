@@ -33,6 +33,12 @@ pub struct SourceMap<'a> {
 }
 
 impl<'a> SourceMap<'a> {
+    /// Create a `SourceMap` from its parts.
+    ///
+    /// `tokens` must be sorted by generated line, and the tokens of each line by generated
+    /// column. Lookups rely on that order. Decoding with [`SourceMap::from_json_string`] or
+    /// [`SourceMap::from_json`] sorts out-of-order lines, but this constructor takes `tokens` as
+    /// given.
     pub fn new(
         file: Option<Cow<'a, str>>,
         names: Vec<Cow<'a, str>>,
@@ -56,6 +62,10 @@ impl<'a> SourceMap<'a> {
     }
 
     /// Convert the vlq sourcemap to `SourceMap`.
+    ///
+    /// ECMA-426 allows a line's mappings in any order. Lines with out-of-order mappings are
+    /// sorted by generated column, keeping the original order of mappings at the same column.
+    ///
     /// # Errors
     ///
     /// The `serde_json` deserialize Error.
@@ -67,6 +77,9 @@ impl<'a> SourceMap<'a> {
     ///
     /// The returned `SourceMap` borrows string data from `value` for any
     /// fields that have no JSON escape sequences; everything else is owned.
+    ///
+    /// ECMA-426 allows a line's mappings in any order. Lines with out-of-order mappings are
+    /// sorted by generated column, keeping the original order of mappings at the same column.
     ///
     /// # Errors
     ///
@@ -263,7 +276,7 @@ impl<'a> SourceMap<'a> {
     /// every token of another map through this one) are cheaper than calling
     /// [`lookup_token`](Self::lookup_token) or [`lookup_token_approx`](Self::lookup_token_approx)
     /// for each position. Results are identical to those methods when each line's tokens are
-    /// sorted by generated column, which both assume.
+    /// sorted by generated column, which all of them rely on. See [`LookupCursor`].
     pub fn lookup_cursor(&self) -> LookupCursor<'_> {
         LookupCursor::new(self)
     }

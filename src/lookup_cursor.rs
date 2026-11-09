@@ -19,9 +19,10 @@ const FORWARD_SCAN: usize = 8;
 /// return for the same map, in any query order, as long as each line's tokens are sorted by
 /// generated column.
 ///
-/// Like those lookups, the cursor assumes that order. Maps with unsorted segments on a line are
-/// not supported: the cursor's results for them are unspecified and can differ from the
-/// stateless lookups.
+/// Like those lookups, the cursor relies on that order. Maps decoded from JSON always have it,
+/// because decoding sorts out-of-order lines. A map built from tokens, for example with
+/// [`SourceMap::new`], must provide it: lookups on a line that is not sorted by column give
+/// unspecified results, and the cursor's can differ from the stateless lookups'.
 ///
 /// ```
 /// use oxc_sourcemap::SourceMapBuilder;
