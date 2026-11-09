@@ -45,12 +45,12 @@ const FORWARD_SCAN: usize = 8;
 pub struct LookupCursor<'a> {
     lines: Vec<&'a [Token]>,
     /// The line and token index of the previous result.
-    last: Option<(u32, usize)>,
+    prev: Option<(u32, usize)>,
 }
 
 impl<'a> LookupCursor<'a> {
     pub(crate) fn new(map: &'a SourceMap<'_>) -> Self {
-        Self { lines: map.generate_lookup_table(), last: None }
+        Self { lines: map.generate_lookup_table(), prev: None }
     }
 
     /// Lookup a token by line and column, like [`SourceMap::lookup_token`].
@@ -59,13 +59,13 @@ impl<'a> LookupCursor<'a> {
     /// `None` when `col` is before the line's first token, or the line is empty or missing.
     #[inline]
     pub fn lookup_token(&mut self, line: u32, col: u32) -> Option<Token> {
-        let (tokens, next) = self.search(line, col)?;
+        let (tokens, next) = self.first_at_or_after(line, col)?;
         let index = if tokens.get(next).is_some_and(|token| token.dst_col == col) {
             next
         } else {
             next.checked_sub(1)?
         };
-        self.select(line, tokens, index)
+        self.remember(line, tokens, index)
     }
 
     /// Lookup a token by line and column, like [`SourceMap::lookup_token_approx`].
@@ -74,24 +74,24 @@ impl<'a> LookupCursor<'a> {
     /// to the line's first token. Returns `None` when the line is empty or missing.
     #[inline]
     pub fn lookup_token_approx(&mut self, line: u32, col: u32) -> Option<Token> {
-        let (tokens, next) = self.search(line, col)?;
+        let (tokens, next) = self.first_at_or_after(line, col)?;
         let index = if tokens.get(next).is_some_and(|token| token.dst_col == col) {
             next
         } else {
             next.saturating_sub(1)
         };
-        self.select(line, tokens, index)
+        self.remember(line, tokens, index)
     }
 
     /// Returns `line`'s tokens and the index of the first token at or after `col`.
     #[inline]
-    fn search(&self, line: u32, col: u32) -> Option<(&'a [Token], usize)> {
+    fn first_at_or_after(&self, line: u32, col: u32) -> Option<(&'a [Token], usize)> {
         let tokens = *self.lines.get(line as usize)?;
         // The search may start at the previous result only when every token before it is before
         // `col`, so a previous result never changes the answer.
-        let mut next = match self.last {
-            Some((last_line, index))
-                if last_line == line && (index == 0 || tokens[index - 1].dst_col < col) =>
+        let mut next = match self.prev {
+            Some((prev_line, index))
+                if prev_line == line && (index == 0 || tokens[index - 1].dst_col < col) =>
             {
                 index
             }
@@ -111,9 +111,9 @@ impl<'a> LookupCursor<'a> {
     /// Returns the token at `index`, remembering it as the previous result. An empty line has no
     /// token.
     #[inline]
-    fn select(&mut self, line: u32, tokens: &[Token], index: usize) -> Option<Token> {
+    fn remember(&mut self, line: u32, tokens: &[Token], index: usize) -> Option<Token> {
         let token = *tokens.get(index)?;
-        self.last = Some((line, index));
+        self.prev = Some((line, index));
         Some(token)
     }
 }
