@@ -4,9 +4,7 @@ use std::{
     time::Duration,
 };
 
-use criterion::{
-    BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
-};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap, SourceMapBuilder};
 
 #[derive(Debug, Clone)]
@@ -115,33 +113,6 @@ fn token_line_span(sm: &SourceMap) -> u32 {
     sm.get_tokens().last().map_or(1, |token| token.get_dst_line() + 1)
 }
 
-/// Every token's generated position, alternating between an exact column and the column after
-/// it, in token order. This is the mostly-forward access pattern of sourcemap composition.
-fn sequential_lookup_keys(sm: &SourceMap) -> Vec<(u32, u32)> {
-    sm.get_tokens()
-        .enumerate()
-        .map(|(i, t)| (t.get_dst_line(), t.get_dst_col() + (i as u32 & 1)))
-        .collect()
-}
-
-/// A single-source map whose original positions are `sm`'s generated positions, so composing
-/// it with `sm` looks up every key from `sequential_lookup_keys`.
-fn transformation_map(sm: &SourceMap) -> SourceMap<'static> {
-    let mut builder = SourceMapBuilder::default();
-    let source_id = builder.add_source_and_content("intermediate.js", "");
-    for (token, (line, col)) in sm.get_tokens().zip(sequential_lookup_keys(sm)) {
-        builder.add_token(
-            token.get_dst_line(),
-            token.get_dst_col(),
-            line,
-            col,
-            Some(source_id),
-            None,
-        );
-    }
-    builder.into_sourcemap()
-}
-
 pub fn bench(c: &mut Criterion) {
     let smoke_input = r#"{
         "version": 3,
@@ -248,68 +219,6 @@ pub fn bench(c: &mut Criterion) {
         );
     }
     token_lookup_group.finish();
-
-    // The clamping lookup used when composing sourcemaps, probed sequentially like
-    // `lookup_token` above.
-    let mut approx_lookup_group = c.benchmark_group("lookup_token_approx");
-    for (name, _bytes, sourcemap) in &parsed_fixtures {
-        let table = sourcemap.generate_lookup_table();
-        let keys = sequential_lookup_keys(sourcemap);
-        approx_lookup_group.throughput(Throughput::Elements(keys.len() as u64));
-        approx_lookup_group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &(table, keys),
-            |b, (table, keys)| {
-                b.iter(|| {
-                    for &(line, col) in keys {
-                        black_box(sourcemap.lookup_token_approx(table, line, col));
-                    }
-                });
-            },
-        );
-    }
-    approx_lookup_group.finish();
-
-    // The same queries through a `LookupCursor`, which starts each search from its previous
-    // result.
-    let mut cursor_lookup_group = c.benchmark_group("lookup_cursor_approx");
-    for (name, _bytes, sourcemap) in &parsed_fixtures {
-        let keys = sequential_lookup_keys(sourcemap);
-        cursor_lookup_group.throughput(Throughput::Elements(keys.len() as u64));
-        cursor_lookup_group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &keys,
-            |b, keys| {
-                let mut cursor = sourcemap.lookup_cursor();
-                b.iter(|| {
-                    for &(line, col) in keys {
-                        black_box(cursor.lookup_token_approx(line, col));
-                    }
-                });
-            },
-        );
-    }
-    cursor_lookup_group.finish();
-
-    // Compose a single-source transformation map over each fixture. The transformation
-    // traces every fixture token, half of them at an exact column and half between columns.
-    let mut compose_group = c.benchmark_group("compose");
-    for (name, _bytes, sourcemap) in &parsed_fixtures {
-        let transformation = transformation_map(sourcemap);
-        compose_group.throughput(Throughput::Elements(transformation.get_tokens().len() as u64));
-        compose_group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &transformation,
-            |b, transformation| {
-                b.iter_batched(
-                    || (transformation.clone(), sourcemap.clone()),
-                    |(transformation, input)| black_box(transformation.compose(input)),
-                    BatchSize::SmallInput,
-                );
-            },
-        );
-    }
-    compose_group.finish();
 
     c.bench_function("builder/SourceMapBuilder::build_single", |b| {
         b.iter(|| {
