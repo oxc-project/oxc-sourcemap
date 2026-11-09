@@ -16,10 +16,12 @@ const FORWARD_SCAN: usize = 8;
 /// The previous result only changes where the search starts, never its answer:
 /// [`lookup_token`](Self::lookup_token) and [`lookup_token_approx`](Self::lookup_token_approx)
 /// return exactly what [`SourceMap::lookup_token`] and [`SourceMap::lookup_token_approx`]
-/// return for the same map, in any query order.
+/// return for the same map, in any query order, as long as each line's tokens are sorted by
+/// generated column.
 ///
-/// Like those lookups, the cursor assumes each line's tokens are sorted by generated column.
-/// Maps with unsorted segments on a line are not supported.
+/// Like those lookups, the cursor assumes that order. Maps with unsorted segments on a line are
+/// not supported: the cursor's results for them are unspecified and can differ from the
+/// stateless lookups.
 ///
 /// ```
 /// use oxc_sourcemap::SourceMapBuilder;

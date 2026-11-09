@@ -262,7 +262,8 @@ impl<'a> SourceMap<'a> {
     /// when that cannot change the answer, so mostly-forward runs of lookups (such as tracing
     /// every token of another map through this one) are cheaper than calling
     /// [`lookup_token`](Self::lookup_token) or [`lookup_token_approx`](Self::lookup_token_approx)
-    /// for each position. Results are identical to those methods.
+    /// for each position. Results are identical to those methods when each line's tokens are
+    /// sorted by generated column, which both assume.
     pub fn lookup_cursor(&self) -> LookupCursor<'_> {
         LookupCursor::new(self)
     }
