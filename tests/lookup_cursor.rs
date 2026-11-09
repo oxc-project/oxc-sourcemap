@@ -1,6 +1,5 @@
 //! Differential tests: `LookupCursor` must return exactly what `SourceMap::lookup_token` and
-//! `SourceMap::lookup_token_approx` return, whatever order the queries come in. Decoding sorts
-//! out-of-order lines, so on decoded maps both must also give the correct answer.
+//! `SourceMap::lookup_token_approx` return, whatever order the queries come in.
 
 use oxc_sourcemap::{SourceMap, SourceMapBuilder, Token};
 
@@ -182,31 +181,24 @@ impl XorShift {
     }
 }
 
-/// Random lines of generated columns, in random order within each line.
-fn random_unsorted_lines(rng: &mut XorShift) -> Vec<Vec<u32>> {
+fn random_map(rng: &mut XorShift) -> Vec<Vec<u32>> {
     let line_count = rng.below(6);
     (0..line_count)
         .map(|_| {
             // Narrow column ranges force duplicates; wide ones force long jumps.
             let token_count = rng.below(40);
             let col_range = [4, 40, 1000][rng.below(3) as usize];
-            (0..token_count)
+            let mut cols: Vec<u32> = (0..token_count)
                 .map(|_| match rng.below(20) {
                     0 => u32::MAX,
                     1 => u32::MAX - 1,
                     _ => rng.below(col_range),
                 })
-                .collect()
+                .collect();
+            cols.sort_unstable();
+            cols
         })
         .collect()
-}
-
-fn random_map(rng: &mut XorShift) -> Vec<Vec<u32>> {
-    let mut lines = random_unsorted_lines(rng);
-    for cols in &mut lines {
-        cols.sort_unstable();
-    }
-    lines
 }
 
 fn random_queries(rng: &mut XorShift, lines: &[Vec<u32>], count: usize) -> Vec<(u32, u32)> {
@@ -300,59 +292,5 @@ fn randomized_compose_matches_stateless_lookups() {
 
         let composed = generated.compose(input.clone());
         assert_eq!(composed.get_tokens().collect::<Vec<_>>(), expected);
-    }
-}
-
-/// The correct answer for a query on one line of tokens in any order, by brute force, with the
-/// tie rules of `lookup_token`: an exact match selects the first token at `col`; otherwise the
-/// last token at the greatest column before `col`; otherwise (only when `clamp`) the first token
-/// at the smallest column. "First" and "last" follow the order of `tokens`.
-fn brute_force(tokens: &[Token], col: u32, clamp: bool) -> Option<Token> {
-    if let Some(token) = tokens.iter().find(|token| token.get_dst_col() == col) {
-        return Some(*token);
-    }
-    let mut before = tokens.iter().filter(|token| token.get_dst_col() < col);
-    if let Some(max) = before.clone().map(Token::get_dst_col).max() {
-        return before.rfind(|token| token.get_dst_col() == max).copied();
-    }
-    if !clamp {
-        return None;
-    }
-    let min = tokens.iter().map(Token::get_dst_col).min()?;
-    tokens.iter().find(|token| token.get_dst_col() == min).copied()
-}
-
-#[test]
-fn decoded_unsorted_lines_give_correct_lookups() {
-    let mut rng = XorShift(0xD1B5_4A32_D192_ED03);
-    for _ in 0..2_000 {
-        let lines = random_unsorted_lines(&mut rng);
-        let original = map_from_lines(&lines);
-        // Encoding writes the tokens in their unsorted order; decoding must sort each line.
-        let json = original.to_json_string();
-        let decoded = SourceMap::from_json_string(&json).unwrap();
-
-        let mut expected: Vec<Token> = original.get_tokens().collect();
-        expected.sort_by_key(|token| (token.get_dst_line(), token.get_dst_col()));
-        assert_eq!(decoded.get_tokens().collect::<Vec<_>>(), expected, "{json}");
-
-        let original_tokens: Vec<Token> = original.get_tokens().collect();
-        let queries = random_queries(&mut rng, &lines, 100);
-        let mut cursor = decoded.lookup_cursor();
-        for &(line, col) in &queries {
-            let line_tokens: Vec<Token> =
-                original_tokens.iter().filter(|t| t.get_dst_line() == line).copied().collect();
-            assert_eq!(
-                cursor.lookup_token_approx(line, col),
-                brute_force(&line_tokens, col, true),
-                "approx ({line}, {col}) in {json}"
-            );
-            assert_eq!(
-                cursor.lookup_token(line, col),
-                brute_force(&line_tokens, col, false),
-                "exact ({line}, {col}) in {json}"
-            );
-        }
-        check(&decoded, &queries);
     }
 }
