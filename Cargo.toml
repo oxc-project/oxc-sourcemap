@@ -2,12 +2,10 @@
 name = "oxc_sourcemap"
 version = "9.0.0"
 authors = ["Boshen <boshenc@gmail.com>"]
-categories = []
 edition = "2024"
-include = ["build.rs", "/src", "/benches", "/LICENSE"]
+include = ["build.rs", "/src", "/benches", "/tests/fixtures/perf/*.map", "/LICENSE"]
 keywords = ["javascript", "sourcemap", "sourcemaps"]
 license = "BSD-3-Clause"
-publish = true
 readme = "README.md"
 repository = "https://github.com/oxc-project/oxc-sourcemap"
 rust-version = "1.95.0"
@@ -17,7 +15,7 @@ description = "Basic sourcemap handling for Rust"
 [lints.rust]
 absolute_paths_not_starting_with_crate = "warn"
 non_ascii_idents = "warn"
-unit-bindings = "warn"
+unit_bindings = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)", "cfg(coverage_nightly)"] }
 
 [lints.clippy]
