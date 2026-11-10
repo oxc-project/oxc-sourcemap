@@ -46,15 +46,19 @@ impl<'de> serde::Deserialize<'de> for JSONSourceMap {
         let json: BorrowedJSONSourceMap<'de> = serde::Deserialize::deserialize(deserializer)?;
         Ok(Self {
             version: json.version,
-            file: json.file.map(Cow::into_owned),
+            file: json.file.map(|s| s.0.into_owned()),
             mappings: json.mappings.into_owned(),
-            source_root: json.source_root.map(Cow::into_owned),
-            sources: json.sources.into_iter().map(|source| source.map(Cow::into_owned)).collect(),
-            sources_content: json
-                .sources_content
-                .map(|content| content.into_iter().map(|item| item.map(Cow::into_owned)).collect()),
-            names: json.names.into_iter().map(Cow::into_owned).collect(),
-            debug_id: json.debug_id.map(Cow::into_owned),
+            source_root: json.source_root.map(|s| s.0.into_owned()),
+            sources: json
+                .sources
+                .into_iter()
+                .map(|source| source.map(|s| s.0.into_owned()))
+                .collect(),
+            sources_content: json.sources_content.map(|content| {
+                content.into_iter().map(|item| item.map(|s| s.0.into_owned())).collect()
+            }),
+            names: json.names.into_iter().map(|s| s.0.into_owned()).collect(),
+            debug_id: json.debug_id.map(|s| s.0.into_owned()),
             ignore_list: resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)
                 .map_err(serde::de::Error::custom)?,
         })
@@ -99,6 +103,13 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
     })
 }
 
+// Serde's `borrow` attribute only specializes deserialization for a direct
+// `Cow<str>` field, not one nested inside `Option` or `Vec`. Wrap each string
+// so unescaped array entries and optional fields also borrow from the input.
+#[derive(serde::Deserialize)]
+#[serde(transparent)]
+struct BorrowedString<'a>(#[serde(borrow)] Cow<'a, str>);
+
 /// Private deserialization shape that borrows directly from the JSON input
 /// when no escapes are present. The lifetime `'a` is the input buffer's
 /// lifetime: each `Cow::Borrowed` is a zero-copy slice into that buffer, and
@@ -110,19 +121,19 @@ struct BorrowedJSONSourceMap<'a> {
     #[serde(deserialize_with = "deserialize_version")]
     version: u32,
     #[serde(borrow)]
-    file: Option<Cow<'a, str>>,
+    file: Option<BorrowedString<'a>>,
     #[serde(borrow)]
     mappings: Cow<'a, str>,
     #[serde(borrow)]
-    source_root: Option<Cow<'a, str>>,
+    source_root: Option<BorrowedString<'a>>,
     #[serde(borrow)]
-    sources: Vec<Option<Cow<'a, str>>>,
+    sources: Vec<Option<BorrowedString<'a>>>,
     #[serde(borrow)]
-    sources_content: Option<Vec<Option<Cow<'a, str>>>>,
+    sources_content: Option<Vec<Option<BorrowedString<'a>>>>,
     #[serde(borrow, default)]
-    names: Vec<Cow<'a, str>>,
+    names: Vec<BorrowedString<'a>>,
     #[serde(borrow)]
-    debug_id: Option<Cow<'a, str>>,
+    debug_id: Option<BorrowedString<'a>>,
     ignore_list: Option<Vec<u32>>,
     // Defer legacy type validation until fallback is needed. The standard
     // `ignoreList` takes precedence, even if the legacy value is malformed.
@@ -149,15 +160,20 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
 
     Ok(SourceMap {
-        file: json.file,
-        names: json.names,
-        source_root: json.source_root,
-        sources: json.sources,
-        source_contents: json.sources_content.unwrap_or_default(),
+        file: json.file.map(|s| s.0),
+        names: json.names.into_iter().map(|s| s.0).collect(),
+        source_root: json.source_root.map(|s| s.0),
+        sources: json.sources.into_iter().map(|source| source.map(|s| s.0)).collect(),
+        source_contents: json
+            .sources_content
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| item.map(|s| s.0))
+            .collect(),
         tokens: tokens.into_boxed_slice(),
         token_chunks: None,
         ignore_list,
-        debug_id: json.debug_id,
+        debug_id: json.debug_id.map(|s| s.0),
     })
 }
 
@@ -487,6 +503,75 @@ fn decode_sign(cur: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_borrows_unescaped_strings() {
+        let input = r#"{
+            "version": 3,
+            "file": "out.js",
+            "sourceRoot": "src",
+            "names": ["name"],
+            "sources": ["in.js", null],
+            "sourcesContent": ["content", null],
+            "debugId": "debug",
+            "mappings": "AAAAA"
+        }"#;
+        let sm = SourceMap::from_json_string(input).unwrap();
+        for value in [
+            sm.file.as_ref().unwrap(),
+            sm.source_root.as_ref().unwrap(),
+            &sm.names[0],
+            sm.sources[0].as_ref().unwrap(),
+            sm.source_contents[0].as_ref().unwrap(),
+            sm.debug_id.as_ref().unwrap(),
+        ] {
+            let Cow::Borrowed(value) = value else { panic!("string was copied: {value}") };
+            assert!(input.as_bytes().as_ptr_range().contains(&value.as_ptr()));
+        }
+        assert!(sm.sources[1].is_none());
+        assert!(sm.source_contents[1].is_none());
+    }
+
+    #[test]
+    fn decode_owns_escaped_strings() {
+        let input = r#"{
+            "version": 3,
+            "file": "out\t.js",
+            "sourceRoot": "src\t",
+            "names": ["name\t", "plain"],
+            "sources": ["in\t.js", "plain.js", null],
+            "sourcesContent": ["content\n", "plain", null],
+            "debugId": "debug\t",
+            "mappings": "AAAAA"
+        }"#;
+        let sm = SourceMap::from_json_string(input).unwrap();
+        for (value, expected) in [
+            (sm.file.as_ref().unwrap(), "out\t.js"),
+            (sm.source_root.as_ref().unwrap(), "src\t"),
+            (&sm.names[0], "name\t"),
+            (sm.sources[0].as_ref().unwrap(), "in\t.js"),
+            (sm.source_contents[0].as_ref().unwrap(), "content\n"),
+            (sm.debug_id.as_ref().unwrap(), "debug\t"),
+        ] {
+            assert!(matches!(value, Cow::Owned(_)));
+            assert_eq!(value, expected);
+        }
+        assert!(matches!(sm.names[1], Cow::Borrowed("plain")));
+        assert!(matches!(sm.sources[1], Some(Cow::Borrowed("plain.js"))));
+        assert!(matches!(sm.source_contents[1], Some(Cow::Borrowed("plain"))));
+
+        // The same deserialization shape must also accept readers and owned
+        // JSON values, which cannot lend string slices to the result.
+        let json_value: serde_json::Value = serde_json::from_str(input).unwrap();
+        for json in [
+            serde_json::from_str::<JSONSourceMap>(input).unwrap(),
+            serde_json::from_reader(input.as_bytes()).unwrap(),
+            serde_json::from_value(json_value).unwrap(),
+        ] {
+            let owned = SourceMap::from_json(json).unwrap();
+            assert_eq!(owned.to_json_string(), sm.to_json_string());
+        }
+    }
 
     #[test]
     fn decode_sourcemap() {
