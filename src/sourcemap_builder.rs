@@ -9,12 +9,11 @@ use crate::{
 
 /// Helper to build a [`SourceMap`].
 ///
-/// The builder **borrows** the names, sources and source contents you add for its lifetime `'a`,
-/// so building allocates essentially nothing beyond the tokens vector (the dedup maps key by
-/// `&'a str`, not owned copies).
+/// The builder borrows the names, sources and source contents you add for its lifetime `'a`.
+/// Its vectors and deduplication maps allocate storage, but the strings are not copied.
 ///
 /// The ownership decision is deferred to the end:
-/// * [`into_sourcemap`](Self::into_sourcemap) returns a borrowed [`SourceMap<'a>`] — zero copy.
+/// * [`into_sourcemap`](Self::into_sourcemap) returns a borrowed [`SourceMap<'a>`] without copying strings.
 /// * [`into_owned_sourcemap`](Self::into_owned_sourcemap) copies the strings once into a
 ///   `'static` [`crate::OwnedSourceMap`].
 #[derive(Debug, Default)]
@@ -30,7 +29,7 @@ pub struct SourceMapBuilder<'a> {
 }
 
 impl<'a> SourceMapBuilder<'a> {
-    /// Add a name, deduplicating. The name is borrowed for `'a` (no allocation).
+    /// Add a name, deduplicating. The name is borrowed for `'a` without copying it.
     pub fn add_name(&mut self, name: &'a str) -> u32 {
         *self.names_map.entry(name).or_insert_with(|| {
             let id = self.names.len() as u32;
@@ -40,7 +39,7 @@ impl<'a> SourceMapBuilder<'a> {
     }
 
     /// Add a source and its content, deduplicating on the source path.
-    /// Both are borrowed for `'a` (no allocation). Use this if `source` may be a duplicate.
+    /// Both are borrowed for `'a` without copying them. Use this if `source` may be a duplicate.
     pub fn add_source_and_content(&mut self, source: &'a str, source_content: &'a str) -> u32 {
         *self.sources_map.entry(source).or_insert_with(|| {
             let id = self.sources.len() as u32;
@@ -79,12 +78,12 @@ impl<'a> SourceMapBuilder<'a> {
         self.file = Some(file);
     }
 
-    /// Set the `SourceMap::token_chunks` to make the sourcemap to vlq mapping at parallel.
+    /// Set token ranges and their preceding mapping state for VLQ encoding.
     pub fn set_token_chunks(&mut self, token_chunks: Vec<TokenChunk>) {
         self.token_chunks = Some(token_chunks);
     }
 
-    /// Finish, borrowing the names/sources/contents for `'a` (zero copy).
+    /// Finish, borrowing the names, sources, and contents for `'a` without copying strings.
     pub fn into_sourcemap(mut self) -> SourceMap<'a> {
         // Names and sources are collected into new vectors below, and converting tokens
         // into a boxed slice already discards their spare capacity.

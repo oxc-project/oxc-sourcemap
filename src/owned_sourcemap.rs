@@ -133,11 +133,11 @@ impl OwnedSourceMap {
         self.inner.set_debug_id(debug_id);
     }
 
-    pub fn get_names(&self) -> impl Iterator<Item = &str> {
+    pub fn get_names(&self) -> impl ExactSizeIterator<Item = &str> {
         self.inner.get_names()
     }
 
-    pub fn get_sources(&self) -> impl Iterator<Item = Option<&str>> {
+    pub fn get_sources(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
         self.inner.get_sources()
     }
 
@@ -145,7 +145,7 @@ impl OwnedSourceMap {
         self.inner.set_sources(sources);
     }
 
-    pub fn get_source_contents(&self) -> impl Iterator<Item = Option<&str>> {
+    pub fn get_source_contents(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
         self.inner.get_source_contents()
     }
 
@@ -173,7 +173,7 @@ impl OwnedSourceMap {
         self.inner.get_token(index)
     }
 
-    pub fn get_tokens(&self) -> impl Iterator<Item = Token> {
+    pub fn get_tokens(&self) -> impl ExactSizeIterator<Item = Token> {
         self.inner.get_tokens()
     }
 
@@ -181,7 +181,9 @@ impl OwnedSourceMap {
         self.inner.get_source_view_token(index)
     }
 
-    pub fn get_source_view_tokens(&self) -> impl Iterator<Item = SourceViewToken<'_, 'static>> {
+    pub fn get_source_view_tokens(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SourceViewToken<'_, 'static>> {
         self.inner.get_source_view_tokens()
     }
 

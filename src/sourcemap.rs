@@ -10,12 +10,11 @@ use crate::{
 
 /// A parsed source map.
 ///
-/// `SourceMap` is parameterized by a lifetime `'a` because its string fields
-/// borrow directly from the source they were built from when possible. For a
-/// map parsed via [`SourceMap::from_json_string`], `'a` is the lifetime of the
-/// input JSON buffer — most strings (those without JSON escapes) are zero-copy
-/// views into that buffer; only escaped strings allocate. For maps built
-/// programmatically via the builder, the lifetime is `'static`.
+/// String fields borrow their input for `'a` when possible. Maps parsed via
+/// [`SourceMap::from_json_string`] borrow unescaped strings from the JSON buffer
+/// and own strings that require unescaping. Maps created by
+/// [`SourceMapBuilder`](crate::SourceMapBuilder) also borrow the builder's inputs.
+/// Use [`into_owned`](Self::into_owned) to detach a map from those inputs.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap<'a> {
     pub(crate) file: Option<Cow<'a, str>>,
@@ -55,22 +54,25 @@ impl<'a> SourceMap<'a> {
         }
     }
 
-    /// Convert the vlq sourcemap to `SourceMap`.
+    /// Decode a deserialized source map.
+    ///
     /// # Errors
     ///
-    /// The `serde_json` deserialize Error.
+    /// Returns an error for an unsupported version, malformed mappings, or invalid
+    /// source or name references.
     pub fn from_json(value: JSONSourceMap) -> Result<SourceMap<'static>> {
         decode(value)
     }
 
-    /// Convert the vlq sourcemap string to `SourceMap`.
+    /// Parse and decode a source map JSON string.
     ///
     /// The returned `SourceMap` borrows string data from `value` for any
     /// fields that have no JSON escape sequences; everything else is owned.
     ///
     /// # Errors
     ///
-    /// The `serde_json` deserialize Error.
+    /// Returns an error for invalid JSON, an unsupported version, malformed mappings,
+    /// or invalid source or name references.
     pub fn from_json_string(value: &'a str) -> Result<SourceMap<'a>> {
         decode_from_string(value)
     }
@@ -121,7 +123,7 @@ impl<'a> SourceMap<'a> {
         }
     }
 
-    /// Decompose this `SourceMap` into its constituent owned parts.
+    /// Decompose this `SourceMap` into its parts, preserving borrowed string data.
     ///
     /// Useful for downstream code that wants to consume the map (e.g.
     /// transform tokens, swap in a different `file` field) without
@@ -336,12 +338,11 @@ impl<'a> SourceMap<'a> {
     }
 }
 
-/// Owned destructured parts of a [`SourceMap`].
+/// Destructured parts of a [`SourceMap`].
 ///
-/// Returned by [`SourceMap::into_parts`] for downstream code that wants to
-/// take ownership of the internal string storage without going
-/// through accessors (which only return borrowed strings and force a clone to take
-/// ownership).
+/// Returned by [`SourceMap::into_parts`] to move the map's storage without copying
+/// strings. Borrowed strings retain their original lifetime `'a`; call
+/// [`SourceMap::into_owned`] before decomposing to obtain parts with owned strings.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMapParts<'a> {
     pub file: Option<Cow<'a, str>>,

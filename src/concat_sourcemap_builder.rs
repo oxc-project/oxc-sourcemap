@@ -25,7 +25,7 @@ pub struct ConcatSourceMapBuilder<'a> {
     pub(crate) sources: Vec<Option<Cow<'a, str>>>,
     pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
     pub(crate) tokens: Vec<Token>,
-    /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
+    /// Token ranges and their initial VLQ state for encoding each concatenated map.
     pub(crate) token_chunks: Vec<TokenChunk>,
     pub(crate) token_chunk_prev_source: (u32, u32, u32),
     pub(crate) token_chunk_prev_name_id: u32,
