@@ -254,6 +254,12 @@ impl<'a> SourceMap<'a> {
         // The dst line/dst col always has increasing order.
         let Some(last_token) = self.tokens.last() else { return vec![] };
         let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
+        // Minified output commonly puts every mapping on one generated line. Since tokens
+        // are sorted by generated position, matching endpoints cover the entire slice.
+        if self.tokens[0].dst_line == last_token.dst_line {
+            table[last_token.dst_line as usize] = &self.tokens;
+            return table;
+        }
         let mut start = 0;
         let mut line = 0;
         for (idx, token) in self.tokens.iter().enumerate() {
@@ -526,6 +532,31 @@ mod tests {
         let sm = SourceMap::default();
         assert!(sm.generate_lookup_table().is_empty());
         assert!(sm.lookup_token(&[], 0, 0).is_none());
+    }
+
+    #[test]
+    fn single_line_lookup_table() {
+        // Minified output can start after a banner. Keep the preceding lines empty,
+        // and preserve all tokens, including duplicate columns and unmapped segments.
+        for line in [0, 3] {
+            let tokens = vec![
+                Token::new(line, 2, 0, 0, Some(0), None),
+                Token::new(line, 2, 1, 0, Some(0), None),
+                Token::unmapped(line, 5),
+                Token::new(line, 9, 2, 0, Some(0), None),
+            ];
+            let sm = SourceMap::from_parts(SourceMapParts {
+                tokens: tokens.clone().into_boxed_slice(),
+                ..SourceMapParts::default()
+            });
+            let table = sm.generate_lookup_table();
+            assert_eq!(table.len(), line as usize + 1);
+            assert!(table[..line as usize].iter().all(|tokens| tokens.is_empty()));
+            assert_eq!(table[line as usize], tokens);
+            assert_eq!(sm.lookup_token(&table, line, 2), Some(tokens[0]));
+            assert_eq!(sm.lookup_token(&table, line, 6), Some(tokens[2]));
+            assert_eq!(sm.lookup_cursor().lookup_token(line, 9), Some(tokens[3]));
+        }
     }
 
     #[test]
