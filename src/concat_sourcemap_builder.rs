@@ -216,18 +216,28 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         // Unmapped segments only encode the generated column, so original coordinates and the
         // source id must carry over from the last mapped token. Scan the appended tokens for
         // that token and the last name; if absent, keep the previous chunk's baseline.
+        // Skip the unmapped tail once, then search only for the id still missing.
+        // A fully unmapped chunk is visited once rather than once for each id.
+        let mut appended = self.tokens[start..].iter().rev();
         let (mut prev_source, mut prev_name_id) = (None, None);
-        for token in self.tokens[start..].iter().rev() {
-            prev_source = prev_source.or_else(|| {
-                token.get_source_id().map(|id| (id, token.get_src_line(), token.get_src_col()))
-            });
-            prev_name_id = prev_name_id.or_else(|| token.get_name_id());
-            if prev_source.is_some() && prev_name_id.is_some() {
+        for token in appended.by_ref() {
+            prev_source =
+                token.get_source_id().map(|id| (id, token.get_src_line(), token.get_src_col()));
+            prev_name_id = token.get_name_id();
+            if prev_source.is_some() || prev_name_id.is_some() {
                 break;
             }
         }
-        self.token_chunk_prev_source = prev_source.unwrap_or(self.token_chunk_prev_source);
-        self.token_chunk_prev_name_id = prev_name_id.unwrap_or(chunk_prev_name_id);
+        self.token_chunk_prev_source = prev_source
+            .or_else(|| {
+                appended.find_map(|token| {
+                    token.get_source_id().map(|id| (id, token.get_src_line(), token.get_src_col()))
+                })
+            })
+            .unwrap_or(self.token_chunk_prev_source);
+        self.token_chunk_prev_name_id = prev_name_id
+            .or_else(|| appended.find_map(Token::get_name_id))
+            .unwrap_or(chunk_prev_name_id);
 
         // Record the chunk once boundary dedup has settled the actual end index.
         let end = self.tokens.len() as u32;
@@ -275,6 +285,58 @@ impl<'a> ConcatSourceMapBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_baselines_find_ids_independently_and_keep_them_across_unmapped_maps() {
+        let mapped = SourceMap::new(
+            None,
+            vec![Cow::Borrowed("name"); 4],
+            None,
+            vec![Cow::Borrowed("input.js"); 3],
+            vec![],
+            vec![
+                Token::new(0, 0, 0, 0, Some(0), Some(0)),
+                Token::new(1, 0, 0, 0, Some(0), Some(3)),
+                Token::new(2, 0, 0, 0, Some(2), None),
+                Token::new(3, 0, 0, 0, None, None),
+            ]
+            .into_boxed_slice(),
+            None,
+        );
+        let unmapped = SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![],
+            vec![],
+            vec![Token::new(0, 0, 0, 0, None, None)].into_boxed_slice(),
+            None,
+        );
+        let last = SourceMap::new(
+            None,
+            vec![Cow::Borrowed("last")],
+            None,
+            vec![Cow::Borrowed("last.js")],
+            vec![],
+            vec![Token::new(0, 0, 0, 0, Some(0), Some(0))].into_boxed_slice(),
+            None,
+        );
+        let mut builder = ConcatSourceMapBuilder::default();
+        builder.add_sourcemap_owned(mapped, 0);
+        builder.add_sourcemap_owned(unmapped, 10);
+        builder.add_sourcemap_owned(SourceMap::default(), 20);
+        builder.add_sourcemap_owned(last, 30);
+        for chunk in &builder.token_chunks[1..] {
+            assert_eq!(chunk.prev_source_id, 2);
+            assert_eq!(chunk.prev_name_id, 3);
+        }
+        assert_eq!(builder.token_chunk_prev_source, (3, 0, 0));
+        assert_eq!(builder.token_chunk_prev_name_id, 4);
+        let map = builder.into_sourcemap();
+        let json = map.to_json_string();
+        let decoded = SourceMap::from_json_string(&json).unwrap();
+        assert_eq!(decoded.tokens, map.tokens);
+    }
 
     fn build_test_inputs() -> [SourceMap<'static>; 3] {
         [
