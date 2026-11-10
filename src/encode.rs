@@ -490,7 +490,7 @@ impl PreAllocatedString {
     }
 
     fn as_mut_vec(&mut self) -> &mut Vec<u8> {
-        // SAFETY: we are sure that the string is not shared
+        // SAFETY: callers only append valid UTF-8 from JSON escaping or ASCII text.
         unsafe { self.0.as_mut_vec() }
     }
 
