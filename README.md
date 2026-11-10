@@ -25,8 +25,8 @@ cargo bench --benches
 cargo bench --bench lookup_token
 ```
 
-Operation groups run in separate binaries to reduce benchmark interference. CodSpeed also uses an
-allocator that always moves resized allocations. Fixtures are in `tests/fixtures/perf/*.map`.
+Operation groups run in separate binaries to reduce benchmark interference. Fixtures are in
+`tests/fixtures/perf/*.map`.
 
 [discord-badge]: https://img.shields.io/discord/1079625926024900739?logo=discord&label=Discord
 [discord-url]: https://discord.gg/9uXCAwqQZW

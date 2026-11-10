@@ -1,10 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use oxc_sourcemap::SourceMapBuilder;
 
-#[cfg(feature = "codspeed")]
-#[path = "common/allocator.rs"]
-mod allocator;
-
 pub fn bench(c: &mut Criterion) {
     c.bench_function("builder/SourceMapBuilder::build_single", |b| {
         b.iter(|| {

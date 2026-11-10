@@ -1,6 +1,3 @@
-#[cfg(feature = "codspeed")]
-mod allocator;
-
 pub struct Fixture {
     pub name: String,
     pub json: String,
