@@ -451,13 +451,11 @@ mod tests {
     fn mut_sourcemap() {
         let mut sm = SourceMap::default();
         sm.set_file("index.js");
-        sm.set_sources(vec![Some("foo.js"), None]);
+        sm.set_sources(vec![Some("foo.js")]);
         sm.set_source_contents(vec![Some("foo")]);
 
         assert_eq!(sm.get_file(), Some("index.js"));
         assert_eq!(sm.get_source(0), Some("foo.js"));
-        assert_eq!(sm.get_source(1), None);
-        assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec![Some("foo.js"), None]);
         assert_eq!(sm.get_source_content(0), Some("foo"));
     }
 

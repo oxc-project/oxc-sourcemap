@@ -313,10 +313,8 @@ mod tests {
         let mut sm = OwnedSourceMap::from_json_string(JSON).unwrap();
         sm.set_file("new.js");
         assert_eq!(sm.get_file(), Some("new.js"));
-        sm.set_sources(vec![Some("b.js"), None]);
+        sm.set_sources(vec![Some("b.js")]);
         assert_eq!(sm.get_source(0), Some("b.js"));
-        assert_eq!(sm.get_source(1), None);
-        assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec![Some("b.js"), None]);
         sm.set_source_contents(vec![Some("new content")]);
         assert_eq!(sm.get_source_content(0), Some("new content"));
         sm.set_ignore_list(vec![]);

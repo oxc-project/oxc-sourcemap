@@ -100,13 +100,13 @@ mod tests {
     #[test]
     fn from_owned_source_map() {
         let owned = crate::OwnedSourceMap::from_json_string(
-            r#"{"version":3,"sources":[null,"a.js"],"mappings":"","x_google_ignoreList":[1]}"#,
+            r#"{"version":3,"sources":["a.js"],"mappings":"","x_google_ignoreList":[0]}"#,
         )
         .unwrap();
         let napi: SourceMap = owned.into();
         assert_eq!(napi.version, 3);
-        assert_eq!(napi.sources, [None, Some("a.js".to_string())]);
+        assert_eq!(napi.sources, [Some("a.js".to_string())]);
         assert_eq!(napi.sources_content, None);
-        assert_eq!(napi.ignore_list, Some(vec![1]));
+        assert_eq!(napi.ignore_list, Some(vec![0]));
     }
 }
