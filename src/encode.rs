@@ -16,7 +16,7 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
             mappings
         },
         source_root: sourcemap.get_source_root().map(ToString::to_string),
-        sources: sourcemap.sources.iter().map(ToString::to_string).collect(),
+        sources: sourcemap.get_sources().map(|source| source.map(str::to_owned)).collect(),
         sources_content: sourcemap.source_contents.iter().any(Option::is_some).then(|| {
             sourcemap.get_source_contents().map(|content| content.map(str::to_owned)).collect()
         }),
@@ -55,7 +55,10 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     }
 
     for source in &sourcemap.sources {
-        total_string_bytes += source.len();
+        match source {
+            Some(source) => total_string_bytes += source.len(),
+            None => estimated_capacity += 4, // "null"
+        }
     }
 
     // Single pass over source_contents to check existence and accumulate byte lengths
@@ -122,7 +125,10 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     contents.push_list(sourcemap.names.iter(), |s, out| escape_into(&**s, out));
 
     contents.push("],\"sources\":[");
-    contents.push_list(sourcemap.sources.iter(), |s, out| escape_into(&**s, out));
+    contents.push_list(sourcemap.sources.iter(), |source, output| match source {
+        Some(source) => escape_into(source, output),
+        None => output.extend_from_slice(b"null"),
+    });
 
     if has_source_contents {
         let source_contents = &sourcemap.source_contents;
@@ -582,7 +588,7 @@ mod tests {
             None,
             vec!["name_length_greater_than_16_\0".into()],
             None,
-            vec!["\0".into()],
+            vec![Some("\0".into())],
             vec![Some("emoji-👀-\0".into())],
             vec![].into_boxed_slice(),
             None,
@@ -660,7 +666,7 @@ mod tests {
             None,
             vec!["a".into()],
             None,
-            vec!["a.js".into()],
+            vec![Some("a.js".into())],
             vec![],
             tokens.into_boxed_slice(),
             None,
@@ -677,7 +683,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec!["a.js".into(), "b.js".into()],
+            vec![Some("a.js".into()), Some("b.js".into())],
             vec![None, None],
             vec![].into_boxed_slice(),
             None,
@@ -695,7 +701,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec!["a.js".into(), "b.js".into()],
+            vec![Some("a.js".into()), Some("b.js".into())],
             vec![Some("content".into()), None],
             vec![].into_boxed_slice(),
             None,
@@ -768,7 +774,7 @@ mod tests {
             None,
             vec!["n".into()],
             None,
-            vec!["a.js".into()],
+            vec![Some("a.js".into())],
             vec![],
             tokens.into_boxed_slice(),
             None,
@@ -792,7 +798,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec!["a.js".into()],
+            vec![Some("a.js".into())],
             vec![],
             vec![Token::new(0, 536_870_912, 536_870_912, 536_870_912, Some(0), None)]
                 .into_boxed_slice(),
@@ -816,7 +822,7 @@ mod tests {
             None,
             vec!["name".into()],
             None,
-            vec!["a.js".into()],
+            vec![Some("a.js".into())],
             vec![],
             tokens.into_boxed_slice(),
             None,

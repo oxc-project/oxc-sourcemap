@@ -9,7 +9,7 @@ use napi_derive::napi;
 //  mappings: string;
 //  names: string[];
 //  sourceRoot?: string;
-//  sources: string[];
+//  sources: (string | null)[];
 //  sourcesContent?: string[];
 //  version: number;
 //  ignoreList?: number[];
@@ -21,7 +21,7 @@ pub struct SourceMap {
     pub mappings: String,
     pub names: Vec<String>,
     pub source_root: Option<String>,
-    pub sources: Vec<String>,
+    pub sources: Vec<Option<String>>,
     pub sources_content: Option<Vec<String>>,
     pub version: u8,
     #[napi(js_name = "ignoreList")]
@@ -63,7 +63,7 @@ mod tests {
             Some("out.js".into()),
             vec!["n0".into()],
             Some("root".into()),
-            vec!["a.js".into()],
+            vec![Some("a.js".into())],
             vec![Some("content".into())],
             vec![].into_boxed_slice(),
             None,
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(napi.file.as_deref(), Some("out.js"));
         assert_eq!(napi.source_root.as_deref(), Some("root"));
         assert_eq!(napi.names, vec!["n0".to_string()]);
-        assert_eq!(napi.sources, vec!["a.js".to_string()]);
+        assert_eq!(napi.sources, vec![Some("a.js".to_string())]);
         assert_eq!(napi.sources_content, Some(vec!["content".to_string()]));
         assert_eq!(napi.ignore_list, Some(vec![0]));
     }
@@ -88,7 +88,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec!["a.js".into(), "b.js".into()],
+            vec![Some("a.js".into()), Some("b.js".into())],
             vec![Some("x".into()), None],
             vec![].into_boxed_slice(),
             None,
@@ -100,13 +100,13 @@ mod tests {
     #[test]
     fn from_owned_source_map() {
         let owned = crate::OwnedSourceMap::from_json_string(
-            r#"{"version":3,"sources":["a.js"],"mappings":"","x_google_ignoreList":[0]}"#,
+            r#"{"version":3,"sources":[null,"a.js"],"mappings":"","x_google_ignoreList":[1]}"#,
         )
         .unwrap();
         let napi: SourceMap = owned.into();
         assert_eq!(napi.version, 3);
-        assert_eq!(napi.sources, ["a.js"]);
+        assert_eq!(napi.sources, [None, Some("a.js".to_string())]);
         assert_eq!(napi.sources_content, None);
-        assert_eq!(napi.ignore_list, Some(vec![0]));
+        assert_eq!(napi.ignore_list, Some(vec![1]));
     }
 }

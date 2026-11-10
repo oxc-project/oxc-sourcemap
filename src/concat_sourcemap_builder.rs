@@ -22,7 +22,7 @@ use crate::{SourceMap, Token, token::TokenChunk};
 #[derive(Debug, Default)]
 pub struct ConcatSourceMapBuilder<'a> {
     pub(crate) names: Vec<Cow<'a, str>>,
-    pub(crate) sources: Vec<Cow<'a, str>>,
+    pub(crate) sources: Vec<Option<Cow<'a, str>>>,
     pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
     pub(crate) tokens: Vec<Token>,
     /// The `token_chunks` is used for encode tokens to vlq mappings at parallel.
@@ -142,7 +142,7 @@ impl<'a> ConcatSourceMapBuilder<'a> {
 
         // Borrow strings directly from the input map — no allocations. The output `SourceMap`'s
         // lifetime is tied to `'a`, so the borrow checker enforces that input maps outlive it.
-        self.sources.extend(sourcemap.get_sources().map(Cow::Borrowed));
+        self.sources.extend(sourcemap.get_sources().map(|source| source.map(Cow::Borrowed)));
         self.source_contents
             .extend(sourcemap.get_source_contents().map(|content| content.map(Cow::Borrowed)));
         self.pad_source_contents();
@@ -292,7 +292,7 @@ mod tests {
             None,
             vec![Cow::Borrowed("name"); 4],
             None,
-            vec![Cow::Borrowed("input.js"); 3],
+            vec![Some(Cow::Borrowed("input.js")); 3],
             vec![],
             vec![
                 Token::new(0, 0, 0, 0, Some(0), Some(0)),
@@ -316,7 +316,7 @@ mod tests {
             None,
             vec![Cow::Borrowed("last")],
             None,
-            vec![Cow::Borrowed("last.js")],
+            vec![Some(Cow::Borrowed("last.js"))],
             vec![],
             vec![Token::new(0, 0, 0, 0, Some(0), Some(0))].into_boxed_slice(),
             None,
@@ -346,7 +346,7 @@ mod tests {
         ]
         .map(|(names, source, token)| SourceMap {
             names: names.into_iter().map(Cow::Borrowed).collect(),
-            sources: vec![source.into()],
+            sources: vec![Some(source.into())],
             tokens: Box::new([token]),
             ..SourceMap::default()
         })
@@ -362,7 +362,11 @@ mod tests {
                 Cow::Borrowed("abc"),
             ],
             None,
-            vec![Cow::Borrowed("foo.js"), Cow::Borrowed("bar.js"), Cow::Borrowed("abc.js")],
+            vec![
+                Some(Cow::Borrowed("foo.js")),
+                Some(Cow::Borrowed("bar.js")),
+                Some(Cow::Borrowed("abc.js")),
+            ],
             vec![],
             vec![
                 Token::new(1, 1, 1, 1, Some(0), Some(0)),
@@ -428,7 +432,7 @@ mod tests {
     #[test]
     fn serialization_after_unmapped_segments() {
         let mapped = |tokens: Vec<Token>| SourceMap {
-            sources: vec!["input.js".into()],
+            sources: vec![Some("input.js".into())],
             tokens: tokens.into_boxed_slice(),
             ..SourceMap::default()
         };
@@ -469,7 +473,7 @@ mod tests {
             None,
             vec![Cow::Owned("name_a".to_string())],
             None,
-            vec![Cow::Owned("a.js".to_string())],
+            vec![Some(Cow::Owned("a.js".to_string()))],
             vec![Some(Cow::Owned("a content".to_string()))],
             vec![Token::new(0, 0, 0, 0, Some(0), Some(0))].into_boxed_slice(),
             None,
@@ -478,7 +482,7 @@ mod tests {
             None,
             vec![Cow::Owned("name_b".to_string())],
             None,
-            vec![Cow::Owned("b.js".to_string())],
+            vec![Some(Cow::Owned("b.js".to_string()))],
             vec![Some(Cow::Owned("b content".to_string()))],
             vec![Token::new(0, 0, 0, 0, Some(0), Some(0))].into_boxed_slice(),
             None,
@@ -487,7 +491,7 @@ mod tests {
         let owned = ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(a, 0), (b, 5)])
             .into_owned_sourcemap();
 
-        assert_eq!(owned.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+        assert_eq!(owned.get_sources().collect::<Vec<_>>(), vec![Some("a.js"), Some("b.js")]);
         assert_eq!(owned.get_names().collect::<Vec<_>>(), vec!["name_a", "name_b"]);
         assert_eq!(owned.get_source_content(0), Some("a content"));
         assert_eq!(owned.get_source_content(1), Some("b content"));
@@ -503,7 +507,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Owned("a.js".to_string())],
+            vec![Some(Cow::Owned("a.js".to_string()))],
             vec![Some(Cow::Owned("a content".to_string()))],
             vec![].into_boxed_slice(),
             None,
@@ -512,7 +516,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Owned("b.js".to_string())],
+            vec![Some(Cow::Owned("b.js".to_string()))],
             vec![Some(Cow::Owned("b content".to_string()))],
             // Source id 0 within its own map; after concat it must point at "b.js" (combined index 1).
             vec![Token::new(0, 0, 0, 0, Some(0), None)].into_boxed_slice(),
@@ -523,7 +527,7 @@ mod tests {
             ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(tokenless, 0), (with_token, 0)])
                 .into_sourcemap();
 
-        assert_eq!(map.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+        assert_eq!(map.get_sources().collect::<Vec<_>>(), vec![Some("a.js"), Some("b.js")]);
         assert_eq!(map.get_token(0).unwrap().get_source_id(), Some(1));
         assert_eq!(map.get_source_content(1), Some("b content"));
     }
@@ -536,7 +540,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Owned("a.js".to_string())],
+            vec![Some(Cow::Owned("a.js".to_string()))],
             vec![],
             vec![Token::new(0, 0, 0, 0, Some(0), None)].into_boxed_slice(),
             None,
@@ -545,7 +549,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Owned("b.js".to_string())],
+            vec![Some(Cow::Owned("b.js".to_string()))],
             vec![Some(Cow::Owned("b content".to_string()))],
             vec![Token::new(0, 0, 0, 0, Some(0), None)].into_boxed_slice(),
             None,
@@ -555,7 +559,7 @@ mod tests {
             ConcatSourceMapBuilder::from_owned_sourcemaps(vec![(no_content, 0), (with_content, 1)])
                 .into_sourcemap();
 
-        assert_eq!(map.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+        assert_eq!(map.get_sources().collect::<Vec<_>>(), vec![Some("a.js"), Some("b.js")]);
         assert_eq!(map.get_source_content(0), None);
         assert_eq!(map.get_source_content(1), Some("b content"));
     }
@@ -570,7 +574,7 @@ mod tests {
             None,
             vec![Cow::Borrowed("name1")],
             None,
-            vec![Cow::Borrowed("file1.js")],
+            vec![Some(Cow::Borrowed("file1.js"))],
             vec![],
             vec![
                 Token::new(1, 1, 1, 1, Some(0), Some(0)),
@@ -585,7 +589,7 @@ mod tests {
             None,
             vec![Cow::Borrowed("name2")],
             None,
-            vec![Cow::Borrowed("file2.js")],
+            vec![Some(Cow::Borrowed("file2.js"))],
             vec![],
             vec![
                 Token::new(2, 5, 2, 5, Some(0), Some(0)), // Different source/name after offset
