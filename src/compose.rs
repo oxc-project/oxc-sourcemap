@@ -59,7 +59,7 @@ impl SourceMap<'_> {
                         )
                     });
                     let Some(original) = original.filter(|t| t.get_source_id().is_some()) else {
-                        return unmapped_token(token);
+                        return Token::unmapped(token.get_dst_line(), token.get_dst_col());
                     };
 
                     Token::new(
@@ -86,8 +86,4 @@ impl SourceMap<'_> {
         result.debug_id = generated.debug_id.map(|debug_id| Cow::Owned(debug_id.into_owned()));
         SourceMap::from_parts(result)
     }
-}
-
-fn unmapped_token(token: &Token) -> Token {
-    Token::new(token.get_dst_line(), token.get_dst_col(), 0, 0, None, None)
 }
