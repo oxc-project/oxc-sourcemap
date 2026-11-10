@@ -229,10 +229,7 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
 
                 // `nums[0]` is always generated column delta.
                 let new_dst_col = i64::from(dst_col) + nums[0];
-                if new_dst_col < 0 {
-                    return Err(Error::BadSegmentSize(0)); // Negative column
-                }
-                dst_col = new_dst_col as u32;
+                dst_col = u32::try_from(new_dst_col).map_err(|_| Error::BadSegmentSize(0))?;
 
                 let mut src = INVALID_ID;
                 let mut name = INVALID_ID;
@@ -251,20 +248,15 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                     src = src_id;
 
                     let new_src_line = i64::from(src_line) + nums[2];
-                    if new_src_line < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative line
-                    }
-                    src_line = new_src_line as u32;
+                    src_line = u32::try_from(new_src_line).map_err(|_| Error::BadSegmentSize(0))?;
 
                     let new_src_col = i64::from(src_col) + nums[3];
-                    if new_src_col < 0 {
-                        return Err(Error::BadSegmentSize(0)); // Negative column
-                    }
-                    src_col = new_src_col as u32;
+                    src_col = u32::try_from(new_src_col).map_err(|_| Error::BadSegmentSize(0))?;
 
                     if nums_len > 4 {
-                        name_id = (i64::from(name_id) + nums[4]) as u32;
-                        if name_id >= names_len as u32 {
+                        name_id = u32::try_from(i64::from(name_id) + nums[4])
+                            .map_err(|_| Error::BadNameReference(INVALID_ID))?;
+                        if name_id as usize >= names_len {
                             return Err(Error::BadNameReference(name_id));
                         }
                         name = name_id;
@@ -476,14 +468,12 @@ fn next_vlq(mapping: &[u8], cursor: &mut usize) -> Result<Option<i64>> {
             return Err(Error::VlqLeftover);
         }
         *cursor += 1;
-        // VLQ shift grows by 5 bits per continuation byte. Bail out before
-        // `payload << shift` could overflow i64: the largest safe shift for a
-        // 5-bit value is 62, and `shift` only ever takes multiples of 5, so
-        // the first offending shift is 65.
-        if shift > 62 {
+        let payload = enc & 0b11111;
+        // Check the payload as well as the shift count before it can overflow i64.
+        if shift > 62 || payload > i64::MAX >> shift {
             return Err(Error::VlqOverflow);
         }
-        cur |= (enc & 0b11111) << shift;
+        cur |= payload << shift;
         shift += 5;
         if enc < 32 {
             return Ok(Some(decode_sign(cur)));
@@ -629,9 +619,23 @@ mod tests {
 
     #[test]
     fn decode_mapping_bad_segment_size() {
-        let input = r#"{"version":3,"names":[],"sources":[],"sourcesContent":[],"mappings":"AA"}"#;
-        let err = SourceMap::from_json_string(input).unwrap_err();
-        assert!(matches!(err, Error::BadSegmentSize(2)));
+        for (mappings, expected) in [
+            ("AA", 2),
+            ("D", 0),
+            ("AADA", 0),
+            ("AAAD", 0),
+            ("ggggggI", 0),
+            ("AAggggggIA", 0),
+            ("AAAggggggI", 0),
+            ("+/////H,C", 0),
+        ] {
+            let input =
+                format!(r#"{{"version":3,"names":[],"sources":["a.js"],"mappings":"{mappings}"}}"#);
+            assert!(
+                matches!(SourceMap::from_json_string(&input), Err(Error::BadSegmentSize(n)) if n == expected),
+                "mappings {mappings:?}"
+            );
+        }
     }
 
     #[test]
@@ -643,12 +647,15 @@ mod tests {
 
     #[test]
     fn decode_mapping_vlq_overflow() {
-        // A long run of continuation bytes overflows the VLQ shift accumulator.
-        let mappings = "g".repeat(14);
-        let input =
-            format!(r#"{{"version":3,"names":[],"sources":["a.js"],"mappings":"{mappings}"}}"#);
-        let err = SourceMap::from_json_string(&input).unwrap_err();
-        assert!(matches!(err, Error::VlqOverflow));
+        // Reject overflowing shifts and payloads that reach or exceed the i64 sign bit.
+        for mappings in ["gggggggggggggg", "ggggggggggggI", "ggggggggggggQ"] {
+            let input =
+                format!(r#"{{"version":3,"names":[],"sources":[],"mappings":"{mappings}"}}"#);
+            assert!(
+                matches!(SourceMap::from_json_string(&input), Err(Error::VlqOverflow)),
+                "mappings {mappings:?}"
+            );
+        }
     }
 
     #[test]
@@ -661,10 +668,21 @@ mod tests {
 
     #[test]
     fn decode_mapping_bad_name_reference() {
-        // 5-field segment references name id 0, but there are no names.
-        let input = r#"{"version":3,"names":[],"sources":["a.js"],"mappings":"AAAAA"}"#;
-        let err = SourceMap::from_json_string(input).unwrap_err();
-        assert!(matches!(err, Error::BadNameReference(0)));
+        for (mappings, names, expected) in [
+            ("AAAAA", "[]", 0),
+            ("AAAAE", r#"["name"]"#, 2),
+            ("AAAAD", r#"["name"]"#, INVALID_ID),
+            ("AAAAggggggI", r#"["name"]"#, INVALID_ID),
+            ("AAAAhgggggI", r#"["name"]"#, INVALID_ID),
+        ] {
+            let input = format!(
+                r#"{{"version":3,"names":{names},"sources":["a.js"],"mappings":"{mappings}"}}"#
+            );
+            assert!(
+                matches!(SourceMap::from_json_string(&input), Err(Error::BadNameReference(n)) if n == expected),
+                "mappings {mappings:?}"
+            );
+        }
     }
 
     #[test]
