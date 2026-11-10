@@ -10,6 +10,7 @@ on:
       - "**/*.rs"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/benchmark.yml"
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - "**/*.rs"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
       - ".github/workflows/benchmark.yml"
 
 concurrency:
@@ -31,7 +33,7 @@ defaults:
 jobs:
   benchmark:
     name: Benchmark
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write # required for OIDC authentication with CodSpeed
     steps:
@@ -41,10 +43,10 @@ jobs:
         with:
           cache-key: benchmark
           save-cache: ${{ github.ref_name == 'main' }}
-          tools: cargo-codspeed
+          tools: cargo-codspeed@6.0.0
 
       - name: Build benchmark
-        run: cargo codspeed build --features codspeed
+        run: cargo codspeed build --features codspeed --locked
 
       - name: Run benchmark
         uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5 # v5.4.0
