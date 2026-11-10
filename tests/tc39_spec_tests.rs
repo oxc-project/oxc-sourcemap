@@ -59,14 +59,6 @@ fn tc39_source_map_spec_tests() {
     let mut skipped = 0;
 
     for test in test_suite.tests {
-        // Skip tests with null sources - not supported in our API
-        if test.name == "sourcesAndSourcesContentBothNull"
-            || test.name == "sourcesNullSourcesContentNonNull"
-        {
-            skipped += 1;
-            continue;
-        }
-
         let source_map_path = resources_dir.join(&test.source_map_file);
         let Ok(source_map_content) = fs::read_to_string(&source_map_path) else {
             eprintln!("⊘ {}: skipped (file not found)", test.name);
@@ -104,8 +96,8 @@ fn tc39_source_map_spec_tests() {
     println!("\n{passed} passed, {failed} failed, {skipped} skipped");
 
     // Don't panic on failures - some tests are expected to fail for unimplemented features
-    // (index maps, sourceRoot resolution, etc.) and we skip tests with null sources
-    assert!(passed >= 86, "Expected at least 86 tests to pass, but only {passed} passed");
+    // (index maps, sourceRoot resolution, etc.).
+    assert!(passed >= 88, "Expected at least 88 tests to pass, but only {passed} passed");
 }
 
 fn run_test_actions(test: &TestCase, source_map: &SourceMap) -> bool {
@@ -170,7 +162,8 @@ fn run_test_actions(test: &TestCase, source_map: &SourceMap) -> bool {
                 if let Some(indices) = ignore_list {
                     for source_name in present {
                         // Find the index of this source in the sources array
-                        let source_index = source_map.get_sources().position(|s| s == source_name);
+                        let source_index =
+                            source_map.get_sources().position(|s| s == Some(source_name.as_str()));
 
                         if let Some(idx) = source_index {
                             if !indices.contains(&(idx as u32)) {

@@ -21,7 +21,7 @@ pub struct SourceMap<'a> {
     pub(crate) file: Option<Cow<'a, str>>,
     pub(crate) names: Vec<Cow<'a, str>>,
     pub(crate) source_root: Option<Cow<'a, str>>,
-    pub(crate) sources: Vec<Cow<'a, str>>,
+    pub(crate) sources: Vec<Option<Cow<'a, str>>>,
     pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
     pub(crate) tokens: Box<[Token]>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
@@ -37,7 +37,7 @@ impl<'a> SourceMap<'a> {
         file: Option<Cow<'a, str>>,
         names: Vec<Cow<'a, str>>,
         source_root: Option<Cow<'a, str>>,
-        sources: Vec<Cow<'a, str>>,
+        sources: Vec<Option<Cow<'a, str>>>,
         source_contents: Vec<Option<Cow<'a, str>>>,
         tokens: Box<[Token]>,
         token_chunks: Option<Vec<TokenChunk>>,
@@ -104,7 +104,11 @@ impl<'a> SourceMap<'a> {
             file: self.file.map(|c| Cow::Owned(c.into_owned())),
             names: self.names.into_iter().map(|c| Cow::Owned(c.into_owned())).collect(),
             source_root: self.source_root.map(|c| Cow::Owned(c.into_owned())),
-            sources: self.sources.into_iter().map(|c| Cow::Owned(c.into_owned())).collect(),
+            sources: self
+                .sources
+                .into_iter()
+                .map(|opt| opt.map(|c| Cow::Owned(c.into_owned())))
+                .collect(),
             source_contents: self
                 .source_contents
                 .into_iter()
@@ -185,13 +189,17 @@ impl<'a> SourceMap<'a> {
         self.names.iter().map(AsRef::as_ref)
     }
 
-    /// Adjust `sources`.
-    pub fn set_sources<S: AsRef<str>, I: IntoIterator<Item = S>>(&mut self, sources: I) {
-        self.sources = sources.into_iter().map(|s| Cow::Owned(s.as_ref().to_owned())).collect();
+    /// Adjust `sources`. Use `None` for unknown source names.
+    pub fn set_sources<S: AsRef<str>, I: IntoIterator<Item = Option<S>>>(&mut self, sources: I) {
+        self.sources = sources
+            .into_iter()
+            .map(|source| source.map(|s| Cow::Owned(s.as_ref().to_owned())))
+            .collect();
     }
 
-    pub fn get_sources(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.sources.iter().map(AsRef::as_ref)
+    /// Iterate over source names, preserving `None` entries for unknown names.
+    pub fn get_sources(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
+        self.sources.iter().map(Option::as_deref)
     }
 
     /// Adjust `source_content`.
@@ -226,8 +234,9 @@ impl<'a> SourceMap<'a> {
         self.names.get(id as usize).map(AsRef::as_ref)
     }
 
+    /// Get a source name, or `None` if the name is unknown or the id is out of range.
     pub fn get_source(&self, id: u32) -> Option<&str> {
-        self.sources.get(id as usize).map(AsRef::as_ref)
+        self.sources.get(id as usize).and_then(Option::as_deref)
     }
 
     pub fn get_source_content(&self, id: u32) -> Option<&str> {
@@ -330,15 +339,16 @@ impl<'a> SourceMap<'a> {
 /// Owned destructured parts of a [`SourceMap`].
 ///
 /// Returned by [`SourceMap::into_parts`] for downstream code that wants to
-/// take ownership of the internal `Vec<Cow<'_, str>>` storage without going
-/// through accessors (which only return `&str` and force a clone to take
+/// take ownership of the internal string storage without going
+/// through accessors (which only return borrowed strings and force a clone to take
 /// ownership).
 #[derive(Debug, Clone, Default)]
 pub struct SourceMapParts<'a> {
     pub file: Option<Cow<'a, str>>,
     pub names: Vec<Cow<'a, str>>,
     pub source_root: Option<Cow<'a, str>>,
-    pub sources: Vec<Cow<'a, str>>,
+    /// Original source names, with `None` for unknown names.
+    pub sources: Vec<Option<Cow<'a, str>>>,
     pub source_contents: Vec<Option<Cow<'a, str>>>,
     pub tokens: Box<[Token]>,
     pub token_chunks: Option<Vec<TokenChunk>>,
@@ -422,7 +432,7 @@ mod tests {
             None,
             vec![Cow::Borrowed("foo")],
             None,
-            vec![Cow::Borrowed("foo.js")],
+            vec![Some(Cow::Borrowed("foo.js"))],
             vec![],
             vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
             None,
@@ -441,7 +451,7 @@ mod tests {
     fn mut_sourcemap() {
         let mut sm = SourceMap::default();
         sm.set_file("index.js");
-        sm.set_sources(vec!["foo.js"]);
+        sm.set_sources(vec![Some("foo.js")]);
         sm.set_source_contents(vec![Some("foo")]);
 
         assert_eq!(sm.get_file(), Some("index.js"));
@@ -485,7 +495,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Borrowed("a.js")],
+            vec![Some(Cow::Borrowed("a.js"))],
             vec![],
             vec![].into_boxed_slice(),
             None,
@@ -526,7 +536,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Borrowed("a.js")],
+            vec![Some(Cow::Borrowed("a.js"))],
             vec![],
             vec![Token::new(0, 5, 0, 0, Some(0), None)].into_boxed_slice(),
             None,
@@ -548,7 +558,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Borrowed("a.js")],
+            vec![Some(Cow::Borrowed("a.js"))],
             vec![],
             tokens.into_boxed_slice(),
             None,

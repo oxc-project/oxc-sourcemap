@@ -13,7 +13,15 @@ fn map_from_lines(lines: &[Vec<u32>]) -> SourceMap<'static> {
             tokens.push(Token::new(line as u32, col, 0, id, Some(0), None));
         }
     }
-    SourceMap::new(None, vec![], None, vec!["a.js".into()], vec![], tokens.into_boxed_slice(), None)
+    SourceMap::new(
+        None,
+        vec![],
+        None,
+        vec![Some("a.js".into())],
+        vec![],
+        tokens.into_boxed_slice(),
+        None,
+    )
 }
 
 /// Runs `queries` in order through one cursor per lookup kind, and through a third cursor that

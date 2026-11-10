@@ -21,8 +21,8 @@ pub struct JSONSourceMap {
     /// An optional source root, useful for relocating source files on a server or removing repeated values in the "sources" entry.
     /// This value is prepended to the individual entries in the "source" field.
     pub source_root: Option<String>,
-    /// A list of original sources used by the "mappings" entry.
-    pub sources: Vec<String>,
+    /// A list of original sources used by the "mappings" entry, with `None` for unknown names.
+    pub sources: Vec<Option<String>>,
     /// An optional list of source content, useful when the "source" can't be hosted.
     /// The contents are listed in the same order as the sources in line 5. "null" may be used if some original sources should be retrieved by name.
     pub sources_content: Option<Vec<Option<String>>>,
@@ -49,7 +49,7 @@ impl<'de> serde::Deserialize<'de> for JSONSourceMap {
             file: json.file.map(Cow::into_owned),
             mappings: json.mappings.into_owned(),
             source_root: json.source_root.map(Cow::into_owned),
-            sources: json.sources.into_iter().map(Cow::into_owned).collect(),
+            sources: json.sources.into_iter().map(|source| source.map(Cow::into_owned)).collect(),
             sources_content: json
                 .sources_content
                 .map(|content| content.into_iter().map(|item| item.map(Cow::into_owned)).collect()),
@@ -87,7 +87,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
         file: json.file.map(Cow::Owned),
         names: json.names.into_iter().map(Cow::Owned).collect(),
         source_root: json.source_root.map(Cow::Owned),
-        sources: json.sources.into_iter().map(Cow::Owned).collect(),
+        sources: json.sources.into_iter().map(|source| source.map(Cow::Owned)).collect(),
         source_contents: json
             .sources_content
             .map(|content| content.into_iter().map(|c| c.map(Cow::Owned)).collect())
@@ -116,7 +116,7 @@ struct BorrowedJSONSourceMap<'a> {
     #[serde(borrow)]
     source_root: Option<Cow<'a, str>>,
     #[serde(borrow)]
-    sources: Vec<Cow<'a, str>>,
+    sources: Vec<Option<Cow<'a, str>>>,
     #[serde(borrow)]
     sources_content: Option<Vec<Option<Cow<'a, str>>>>,
     #[serde(borrow, default)]

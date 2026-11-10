@@ -95,7 +95,7 @@ impl<'a> SourceMapBuilder<'a> {
             self.file.map(Cow::Borrowed),
             self.names.into_iter().map(Cow::Borrowed).collect(),
             None,
-            self.sources.into_iter().map(Cow::Borrowed).collect(),
+            self.sources.into_iter().map(|source| Some(Cow::Borrowed(source))).collect(),
             self.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
             self.tokens.into_boxed_slice(),
             self.token_chunks,
@@ -149,7 +149,7 @@ mod tests {
 
         let sm = builder.into_sourcemap();
         assert_eq!(sm.get_names().collect::<Vec<_>>(), vec!["foo", "bar"]);
-        assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec!["a.js", "b.js"]);
+        assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec![Some("a.js"), Some("b.js")]);
         // Source content for the first add wins; the second add returns the
         // existing id without overwriting.
         assert_eq!(sm.get_source_content(src_a), Some("content a"));

@@ -172,7 +172,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Borrowed("a.js"), Cow::Borrowed("b.js")],
+            vec![Some(Cow::Borrowed("a.js")), Some(Cow::Borrowed("b.js"))],
             vec![Some(Cow::Borrowed("hello\n")), None],
             vec![
                 Token::new(0, 0, 0, 0, None, None),
@@ -194,7 +194,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Borrowed("a.js")],
+            vec![Some(Cow::Borrowed("a.js"))],
             vec![Some(Cow::Borrowed("aa\r\nbb\r\n"))],
             vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)]
                 .into_boxed_slice(),
@@ -212,7 +212,7 @@ mod tests {
                 None,
                 vec![],
                 None,
-                vec!["a.js".into()],
+                vec![Some("a.js".into())],
                 vec![Some(code.as_str().into())],
                 vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)]
                     .into_boxed_slice(),
@@ -234,7 +234,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec!["a.js".into()],
+            vec![Some("a.js".into())],
             vec![Some("😀x".into())],
             vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(0, 1, 0, 1, Some(0), None)]
                 .into_boxed_slice(),
@@ -254,7 +254,7 @@ mod tests {
             None,
             vec![],
             None,
-            vec![Cow::Borrowed("a.js")],
+            vec![Some(Cow::Borrowed("a.js"))],
             vec![Some(Cow::Borrowed("aa\n"))],
             vec![Token::new(0, 0, 0, 0, Some(5), None)].into_boxed_slice(),
             None,

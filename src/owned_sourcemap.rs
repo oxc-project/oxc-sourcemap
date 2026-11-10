@@ -137,11 +137,11 @@ impl OwnedSourceMap {
         self.inner.get_names()
     }
 
-    pub fn get_sources(&self) -> impl Iterator<Item = &str> {
+    pub fn get_sources(&self) -> impl Iterator<Item = Option<&str>> {
         self.inner.get_sources()
     }
 
-    pub fn set_sources<S: AsRef<str>, I: IntoIterator<Item = S>>(&mut self, sources: I) {
+    pub fn set_sources<S: AsRef<str>, I: IntoIterator<Item = Option<S>>>(&mut self, sources: I) {
         self.inner.set_sources(sources);
     }
 
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(sm.get_ignore_list(), Some(&[0][..]));
         assert_eq!(sm.get_debug_id(), Some("dbg"));
         assert_eq!(sm.get_names().collect::<Vec<_>>(), vec!["n0"]);
-        assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec!["a.js"]);
+        assert_eq!(sm.get_sources().collect::<Vec<_>>(), vec![Some("a.js")]);
         assert_eq!(sm.get_source_contents().collect::<Vec<_>>(), vec![Some("AC")]);
         assert_eq!(sm.get_name(0), Some("n0"));
         assert_eq!(sm.get_source(0), Some("a.js"));
@@ -313,7 +313,7 @@ mod tests {
         let mut sm = OwnedSourceMap::from_json_string(JSON).unwrap();
         sm.set_file("new.js");
         assert_eq!(sm.get_file(), Some("new.js"));
-        sm.set_sources(vec!["b.js"]);
+        sm.set_sources(vec![Some("b.js")]);
         assert_eq!(sm.get_source(0), Some("b.js"));
         sm.set_source_contents(vec![Some("new content")]);
         assert_eq!(sm.get_source_content(0), Some("new content"));

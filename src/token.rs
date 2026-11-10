@@ -196,7 +196,7 @@ mod tests {
             None,
             vec![Cow::Borrowed("name0")],
             None,
-            vec![Cow::Borrowed("src0.js")],
+            vec![Some(Cow::Borrowed("src0.js"))],
             vec![Some(Cow::Borrowed("the source content"))],
             vec![Token::new(2, 3, 4, 5, Some(0), Some(0))].into_boxed_slice(),
             None,
