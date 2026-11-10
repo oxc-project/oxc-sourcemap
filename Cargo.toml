@@ -51,7 +51,27 @@ undocumented_unsafe_blocks = "allow"
 crate-type = ["lib", "cdylib"]
 
 [[bench]]
-name = "simple"
+name = "parse"
+harness = false
+
+[[bench]]
+name = "serialize"
+harness = false
+
+[[bench]]
+name = "lookup_table"
+harness = false
+
+[[bench]]
+name = "lookup_token"
+harness = false
+
+[[bench]]
+name = "builder"
+harness = false
+
+[[bench]]
+name = "concat"
 harness = false
 
 [package.metadata.cargo-shear]

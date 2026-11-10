@@ -10,6 +10,7 @@ on:
       - "**/*.rs"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/benchmark.yml"
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - "**/*.rs"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
       - ".github/workflows/benchmark.yml"
 
 concurrency:
@@ -47,7 +49,7 @@ jobs:
         run: cargo codspeed build --features codspeed
 
       - name: Run benchmark
-        uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5 # v5.4.0
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
         timeout-minutes: 15
         with:
           mode: simulation
