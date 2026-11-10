@@ -212,8 +212,15 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             if output.capacity() - output.len() < required {
                 output.reserve(required);
             }
-            // SAFETY: We have reserved sufficient capacity for `num_line_breaks` bytes
-            unsafe { push_bytes_unchecked(output, b';', num_line_breaks) };
+            // Most mapped lines are adjacent. Avoid a bulk fill for a single semicolon.
+            // SAFETY: We have reserved sufficient capacity for `num_line_breaks` bytes.
+            unsafe {
+                if num_line_breaks == 1 {
+                    push_byte_unchecked(output, b';');
+                } else {
+                    push_bytes_unchecked(output, b';', num_line_breaks);
+                }
+            }
             prev_dst_col = 0;
             prev_dst_line += num_line_breaks;
         } else if need_comma {
