@@ -46,15 +46,19 @@ impl<'de> serde::Deserialize<'de> for JSONSourceMap {
         let json: BorrowedJSONSourceMap<'de> = serde::Deserialize::deserialize(deserializer)?;
         Ok(Self {
             version: json.version,
-            file: json.file.map(Cow::into_owned),
+            file: json.file.map(|s| s.0.into_owned()),
             mappings: json.mappings.into_owned(),
-            source_root: json.source_root.map(Cow::into_owned),
-            sources: json.sources.into_iter().map(|source| source.map(Cow::into_owned)).collect(),
-            sources_content: json
-                .sources_content
-                .map(|content| content.into_iter().map(|item| item.map(Cow::into_owned)).collect()),
-            names: json.names.into_iter().map(Cow::into_owned).collect(),
-            debug_id: json.debug_id.map(Cow::into_owned),
+            source_root: json.source_root.map(|s| s.0.into_owned()),
+            sources: json
+                .sources
+                .into_iter()
+                .map(|source| source.map(|s| s.0.into_owned()))
+                .collect(),
+            sources_content: json.sources_content.map(|content| {
+                content.into_iter().map(|item| item.map(|s| s.0.into_owned())).collect()
+            }),
+            names: json.names.into_iter().map(|s| s.0.into_owned()).collect(),
+            debug_id: json.debug_id.map(|s| s.0.into_owned()),
             ignore_list: resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)
                 .map_err(serde::de::Error::custom)?,
         })
@@ -99,6 +103,13 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
     })
 }
 
+// Serde's `borrow` attribute only specializes deserialization for a direct
+// `Cow<str>` field, not one nested inside `Option` or `Vec`. Wrap each string
+// so unescaped array entries and optional fields also borrow from the input.
+#[derive(serde::Deserialize)]
+#[serde(transparent)]
+struct BorrowedString<'a>(#[serde(borrow)] Cow<'a, str>);
+
 /// Private deserialization shape that borrows directly from the JSON input
 /// when no escapes are present. The lifetime `'a` is the input buffer's
 /// lifetime: each `Cow::Borrowed` is a zero-copy slice into that buffer, and
@@ -110,19 +121,19 @@ struct BorrowedJSONSourceMap<'a> {
     #[serde(deserialize_with = "deserialize_version")]
     version: u32,
     #[serde(borrow)]
-    file: Option<Cow<'a, str>>,
+    file: Option<BorrowedString<'a>>,
     #[serde(borrow)]
     mappings: Cow<'a, str>,
     #[serde(borrow)]
-    source_root: Option<Cow<'a, str>>,
+    source_root: Option<BorrowedString<'a>>,
     #[serde(borrow)]
-    sources: Vec<Option<Cow<'a, str>>>,
+    sources: Vec<Option<BorrowedString<'a>>>,
     #[serde(borrow)]
-    sources_content: Option<Vec<Option<Cow<'a, str>>>>,
+    sources_content: Option<Vec<Option<BorrowedString<'a>>>>,
     #[serde(borrow, default)]
-    names: Vec<Cow<'a, str>>,
+    names: Vec<BorrowedString<'a>>,
     #[serde(borrow)]
-    debug_id: Option<Cow<'a, str>>,
+    debug_id: Option<BorrowedString<'a>>,
     ignore_list: Option<Vec<u32>>,
     // Defer legacy type validation until fallback is needed. The standard
     // `ignoreList` takes precedence, even if the legacy value is malformed.
@@ -149,15 +160,20 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
 
     Ok(SourceMap {
-        file: json.file,
-        names: json.names,
-        source_root: json.source_root,
-        sources: json.sources,
-        source_contents: json.sources_content.unwrap_or_default(),
+        file: json.file.map(|s| s.0),
+        names: json.names.into_iter().map(|s| s.0).collect(),
+        source_root: json.source_root.map(|s| s.0),
+        sources: json.sources.into_iter().map(|source| source.map(|s| s.0)).collect(),
+        source_contents: json
+            .sources_content
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| item.map(|s| s.0))
+            .collect(),
         tokens: tokens.into_boxed_slice(),
         token_chunks: None,
         ignore_list,
-        debug_id: json.debug_id,
+        debug_id: json.debug_id.map(|s| s.0),
     })
 }
 
