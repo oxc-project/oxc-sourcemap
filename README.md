@@ -12,24 +12,6 @@
 
 Forked version of [rust-sourcemap](https://github.com/getsentry/rust-sourcemap), modified for Oxc.
 
-## Migrating to v10
-
-Source names now preserve JSON `null` entries as `None`. Wrap known names in `Some` when using
-`SourceMap::new`, `SourceMapParts::sources`, `JSONSourceMap::sources`, or `napi::SourceMap::sources`.
-For both `SourceMap` and `OwnedSourceMap`, `set_sources` accepts optional names and `get_sources`
-returns an iterator of `Option<&str>`:
-
-```rust
-use oxc_sourcemap::SourceMap;
-
-let mut map = SourceMap::default();
-map.set_sources([Some("input.js"), None]);
-let sources: Vec<Option<&str>> = map.get_sources().collect();
-```
-
-Preserve `None` entries when rebuilding the source list: their positions are source IDs.
-A mapped token can have an unknown source name; use `get_source_id()` to distinguish it from an unmapped token.
-
 ## Benchmarking
 
 Run benchmarks with:
