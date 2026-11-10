@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use oxc_sourcemap::SourceMapBuilder;
 
@@ -21,12 +19,5 @@ pub fn bench(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    name = sourcemap;
-    config = Criterion::default()
-        .sample_size(30)
-        .warm_up_time(Duration::from_secs(1))
-        .measurement_time(Duration::from_secs(2));
-    targets = bench
-);
+criterion_group!(sourcemap, bench);
 criterion_main!(sourcemap);

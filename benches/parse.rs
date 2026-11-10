@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use oxc_sourcemap::SourceMap;
 
@@ -27,7 +25,7 @@ pub fn bench(c: &mut Criterion) {
 
     let mut parse_group = c.benchmark_group("parse");
     for fixture in &fixtures {
-        parse_group.throughput(Throughput::Bytes(fixture.bytes()));
+        parse_group.throughput(Throughput::Bytes(fixture.json.len() as u64));
         parse_group.bench_with_input(
             BenchmarkId::from_parameter(&fixture.name),
             fixture,
@@ -45,12 +43,5 @@ pub fn bench(c: &mut Criterion) {
     parse_group.finish();
 }
 
-criterion_group!(
-    name = sourcemap;
-    config = Criterion::default()
-        .sample_size(30)
-        .warm_up_time(Duration::from_secs(1))
-        .measurement_time(Duration::from_secs(2));
-    targets = bench
-);
+criterion_group!(sourcemap, bench);
 criterion_main!(sourcemap);

@@ -1,59 +1,22 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
 #[cfg(feature = "codspeed")]
 mod allocator;
 
-#[derive(Debug, Clone)]
 pub struct Fixture {
     pub name: String,
     pub json: String,
 }
 
-impl Fixture {
-    pub fn bytes(&self) -> u64 {
-        self.json.len() as u64
-    }
-}
-
 pub fn load_perf_fixtures() -> Vec<Fixture> {
-    let perf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/perf");
-    let entries = fs::read_dir(&perf_dir).unwrap_or_else(|err| {
-        panic!("failed to read perf fixtures at {}: {err}", perf_dir.display());
-    });
-
-    let mut fixture_paths = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("map"))
-        .collect::<Vec<PathBuf>>();
-    fixture_paths.sort_unstable();
-    assert!(!fixture_paths.is_empty(), "no perf fixtures found at {}", perf_dir.display());
-
-    let mut fixtures: Vec<Fixture> = fixture_paths
-        .into_iter()
-        .map(|path| {
-            let json = fs::read_to_string(&path).unwrap_or_else(|err| {
-                panic!("failed to read fixture {}: {err}", path.display());
-            });
-            let name =
-                path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("unnamed").to_string();
-            Fixture { name, json }
-        })
-        .collect();
-
-    // The on-disk fixtures top out at ~3 KB which leaves benchmarks dominated
-    // by per-iteration overhead. Append a synthesized "real_xlarge" by
-    // concatenating the largest fixture's source/mapping data so we exercise
-    // the parser on a workload closer to real bundler output.
-    if let Some(large) = fixtures.iter().find(|f| f.name == "real_large").cloned() {
-        const REPEATS: usize = 40;
-        let xlarge_json = synthesize_xlarge(&large.json, REPEATS);
-        fixtures.push(Fixture { name: "real_xlarge".to_string(), json: xlarge_json });
-    }
-
+    let mut fixtures: Vec<_> = [
+        ("real_large", include_str!("../../tests/fixtures/perf/real_large.map")),
+        ("real_medium", include_str!("../../tests/fixtures/perf/real_medium.map")),
+        ("real_small", include_str!("../../tests/fixtures/perf/real_small.map")),
+    ]
+    .into_iter()
+    .map(|(name, json)| Fixture { name: name.into(), json: json.into() })
+    .collect();
+    let json = synthesize_xlarge(&fixtures[0].json, 40);
+    fixtures.push(Fixture { name: "real_xlarge".into(), json });
     fixtures
 }
 

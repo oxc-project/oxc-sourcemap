@@ -25,20 +25,8 @@ cargo bench --benches
 cargo bench --bench lookup_token
 ```
 
-Each operation group has its own benchmark binary: `parse`, `serialize`, `lookup_table`, `lookup_token`,
-`builder`, and `concat`. This isolates unrelated operations' code layout and allocator history.
-Fixture-driven benchmarks load sorted maps from `tests/fixtures/perf/*.map`.
-
-CodSpeed builds with `--features codspeed --locked`. Its benchmark-only allocator always moves resized
-allocations, avoiding variation between in-place and copying reallocations while keeping allocation costs
-in the measurement. Ordinary `cargo bench` uses the system allocator. These choices follow
-[CodSpeed's variance guidance](https://codspeed.io/docs/instruments/cpu/reducing-variance).
-
-Criterion's sample count and timing settings apply only to local wall-time runs; the CodSpeed adapter
-runs one measured invocation after warmup. Moving the groups out of `simple.rs` gives them new CodSpeed
-identities, so new baselines must be collected on `main`. Compare repeated runs of the same commit
-on the same runner hardware when checking stability; pinning the Ubuntu release alone does not pin
-the CPU model.
+Operation groups run in separate binaries to reduce benchmark interference. CodSpeed also uses an
+allocator that always moves resized allocations. Fixtures are in `tests/fixtures/perf/*.map`.
 
 [discord-badge]: https://img.shields.io/discord/1079625926024900739?logo=discord&label=Discord
 [discord-url]: https://discord.gg/9uXCAwqQZW
