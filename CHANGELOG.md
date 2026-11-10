@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v9.0.0...v10.0.0) - 2026-11-10
+
+### Added
+
+- add `LookupCursor` for sequential token lookups ([#501](https://github.com/oxc-project/oxc-sourcemap/pull/501))
+- add `Token::unmapped` ([#487](https://github.com/oxc-project/oxc-sourcemap/pull/487))
+
+### Fixed
+
+- *(decode)* reject overflowing mapping values ([#512](https://github.com/oxc-project/oxc-sourcemap/pull/512))
+- [**breaking**] support null source names ([#504](https://github.com/oxc-project/oxc-sourcemap/pull/504))
+- *(concat)* retain mapped coordinates across unmapped segments ([#498](https://github.com/oxc-project/oxc-sourcemap/pull/498))
+
+### Other
+
+- align owned iterators and clarify ownership ([#511](https://github.com/oxc-project/oxc-sourcemap/pull/511))
+- *(deps)* remove unmaintained pin-utils ([#508](https://github.com/oxc-project/oxc-sourcemap/pull/508))
+- *(bench)* stabilize CodSpeed measurements ([#507](https://github.com/oxc-project/oxc-sourcemap/pull/507))
+- *(decode)* borrow nested JSON strings ([#505](https://github.com/oxc-project/oxc-sourcemap/pull/505))
+- *(encode)* optimize single line breaks ([#506](https://github.com/oxc-project/oxc-sourcemap/pull/506))
+- *(concat)* search only for missing chunk baseline IDs ([#500](https://github.com/oxc-project/oxc-sourcemap/pull/500))
+
 ## [9.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v8.1.2...v9.0.0) - 2026-09-25
 
 ### Added
