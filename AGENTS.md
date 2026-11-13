@@ -21,7 +21,7 @@ To build and develop this project, you'll need:
 
 ### Initial Setup
 
-`just init` has already been run, all tools (`typos-cli`, `cargo-shear`, `dprint`) are already installed, do not run `just init`.
+`just init` has already been run, all tools (`cargo-shear`, `dprint`) are already installed, do not run `just init`.
 
 Rust and `cargo` components `clippy`, `rust-docs` and `rustfmt` has already been installed, do not install them.
 
@@ -38,10 +38,9 @@ just fmt
 cargo check --all-targets --all-features  # Check compilation
 cargo test                                # Run tests
 cargo clippy --all-targets --all-features # Run linter
-typos                                     # Check for typos
 ```
 
-The `just ready` command runs a comprehensive check including git status verification, spell checking, compilation checks, tests, linting, and formatting.
+The `just ready` command runs a comprehensive check including git status verification, compilation checks, tests, linting, and formatting.
 
 ## Guidelines for AI Agent Contributions
 
