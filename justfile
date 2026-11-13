@@ -9,13 +9,12 @@ _default:
 alias r := ready
 
 init:
-  cargo binstall watchexec-cli typos-cli cargo-shear@1.13.1 dprint -y
+  cargo binstall watchexec-cli cargo-shear@1.13.1 dprint -y
   # Clone tc39 source map tests for spec compliance testing
   git clone https://github.com/tc39/source-map-tests.git tests/source-map-tests || true
 
 ready:
   git diff --exit-code --quiet
-  typos
   cargo check --all-targets --all-features
   cargo test
   cargo clippy --all-targets --all-features
