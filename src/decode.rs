@@ -177,6 +177,34 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     })
 }
 
+/// Like [`decode`], with the mappings written straight into [`Mappings`].
+pub fn decode_packed(json: JSONSourceMap) -> Result<PackedSourceMap<'static>> {
+    if json.version != 3 {
+        return Err(Error::BadJson(<serde_json::Error as serde::de::Error>::custom(format!(
+            "unsupported source map version: {}",
+            json.version
+        ))));
+    }
+    validate_ignore_list(json.ignore_list.as_deref(), json.sources.len())?;
+
+    let mappings = decode_mapping_packed(&json.mappings, json.names.len(), json.sources.len())?;
+    let strings = SourceMap {
+        file: json.file.map(Cow::Owned),
+        names: json.names.into_iter().map(Cow::Owned).collect(),
+        source_root: json.source_root.map(Cow::Owned),
+        sources: json.sources.into_iter().map(|source| source.map(Cow::Owned)).collect(),
+        source_contents: json
+            .sources_content
+            .map(|content| content.into_iter().map(|c| c.map(Cow::Owned)).collect())
+            .unwrap_or_default(),
+        tokens: Box::default(),
+        token_chunks: None,
+        ignore_list: json.ignore_list,
+        debug_id: json.debug_id.map(Cow::Owned),
+    };
+    Ok(PackedSourceMap::from_raw(strings, mappings))
+}
+
 /// Like [`decode_from_string`], with the mappings written straight into [`Mappings`]:
 /// the tokens are never held as an array.
 pub fn decode_packed_from_string(value: &str) -> Result<PackedSourceMap<'_>> {

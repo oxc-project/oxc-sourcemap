@@ -3,8 +3,10 @@
 use std::borrow::Cow;
 
 use crate::{
-    Mappings, MappingsIter, SourceMap, decode::decode_packed_from_string,
-    encode::encode_packed_to_string, error::Result,
+    Mappings, MappingsIter, SourceMap,
+    decode::{JSONSourceMap, decode_packed, decode_packed_from_string},
+    encode::encode_packed_to_string,
+    error::Result,
 };
 
 /// A source map that holds its mappings in [`Mappings`], about 3 bytes for each token.
@@ -45,6 +47,17 @@ impl<'a> PackedSourceMap<'a> {
         decode_packed_from_string(value)
     }
 
+    /// Convert from a [`JSONSourceMap`], like [`SourceMap::from_json`]. The mappings are
+    /// written straight into [`Mappings`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsupported version, malformed mappings, or invalid source or
+    /// name references.
+    pub fn from_json(value: JSONSourceMap) -> Result<PackedSourceMap<'static>> {
+        decode_packed(value)
+    }
+
     /// Serialize to JSON, like [`SourceMap::to_json_string`], without decoding the tokens.
     pub fn to_json_string(&self) -> String {
         encode_packed_to_string(&self.strings, &self.mappings)
@@ -63,6 +76,61 @@ impl<'a> PackedSourceMap<'a> {
     /// The number of tokens.
     pub fn token_count(&self) -> usize {
         self.mappings.len()
+    }
+
+    /// Create a map from its fields. `mappings` refers to `sources` and `names` by index.
+    pub fn new(
+        file: Option<Cow<'a, str>>,
+        names: Vec<Cow<'a, str>>,
+        source_root: Option<Cow<'a, str>>,
+        sources: Vec<Option<Cow<'a, str>>>,
+        source_contents: Vec<Option<Cow<'a, str>>>,
+        mappings: Mappings,
+    ) -> Self {
+        let strings = SourceMap::new(
+            file,
+            names,
+            source_root,
+            sources,
+            source_contents,
+            Box::default(),
+            None,
+        );
+        Self { strings, mappings }
+    }
+
+    /// Serialize to a `data:` URL, like [`SourceMap::to_data_url`].
+    pub fn to_data_url(&self) -> String {
+        let base_64_str = base64_simd::STANDARD.encode_to_string(self.to_json_string().as_bytes());
+        format!("data:application/json;charset=utf-8;base64,{base_64_str}")
+    }
+
+    pub fn get_file(&self) -> Option<&str> {
+        self.strings.get_file()
+    }
+
+    pub fn get_source_root(&self) -> Option<&str> {
+        self.strings.get_source_root()
+    }
+
+    pub fn get_names(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.strings.get_names()
+    }
+
+    pub fn get_sources(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
+        self.strings.get_sources()
+    }
+
+    pub fn get_source_contents(&self) -> impl ExactSizeIterator<Item = Option<&str>> {
+        self.strings.get_source_contents()
+    }
+
+    pub fn get_ignore_list(&self) -> Option<&[u32]> {
+        self.strings.get_ignore_list()
+    }
+
+    pub fn get_debug_id(&self) -> Option<&str> {
+        self.strings.get_debug_id()
     }
 
     /// The map without its tokens: `file`, `names`, `sources`, `sourcesContent` and the other

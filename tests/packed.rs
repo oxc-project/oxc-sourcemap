@@ -44,6 +44,11 @@ fn fixtures_round_trip() {
         assert_eq!(map.clone().into_packed().mappings(), packed.mappings());
         assert_eq!(&Mappings::from_tokens(tokens.iter().copied()), packed.mappings());
 
+        // The same from the owned JSON shape.
+        let from_json = PackedSourceMap::from_json(map.to_json()).unwrap();
+        assert_eq!(from_json.mappings(), packed.mappings());
+        assert_eq!(from_json.to_json_string(), encoded);
+
         // Unpacking gives the map back.
         assert_eq!(packed.unpack().to_json_string(), encoded);
         assert_eq!(packed.clone().into_sourcemap().to_json_string(), encoded);
@@ -138,6 +143,24 @@ fn strings_stay_editable() {
     map.set_debug_id("56431d54-c0a6-451d-8ea2-ba5de5d8ca2e");
 
     assert_eq!(packed.strings().get_file(), Some("out.js"));
+    assert_eq!(packed.get_file(), Some("out.js"));
+    assert_eq!(packed.get_source_root(), map.get_source_root());
+    assert!(packed.get_names().eq(map.get_names()));
+    assert!(packed.get_sources().eq(map.get_sources()));
+    assert!(packed.get_source_contents().eq(map.get_source_contents()));
+    assert_eq!(packed.get_ignore_list(), Some(&[0][..]));
+    assert_eq!(packed.get_debug_id(), map.get_debug_id());
+    assert_eq!(packed.to_data_url(), map.to_data_url());
+
+    let rebuilt = PackedSourceMap::new(
+        Some("out.js".into()),
+        packed.get_names().map(Into::into).collect(),
+        None,
+        packed.get_sources().map(|source| source.map(Into::into)).collect(),
+        vec![],
+        packed.mappings().clone(),
+    );
+    assert!(rebuilt.tokens().eq(packed.tokens()));
     assert_eq!(packed.to_json_string(), map.to_json_string());
 }
 
