@@ -7,7 +7,7 @@ use napi_derive::napi;
 
 use crate::error::{Error, Result};
 use crate::token::INVALID_ID;
-use crate::{SourceMap, Token};
+use crate::{Mappings, PackedSourceMap, SourceMap, Token};
 
 /// See <https://tc39.es/ecma426/#sec-source-map-format>.
 #[cfg_attr(feature = "napi", napi(object, js_name = "JSONSourceMap"))]
@@ -177,6 +177,35 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     })
 }
 
+/// Like [`decode_from_string`], with the mappings written straight into [`Mappings`]:
+/// the tokens are never held as an array.
+pub fn decode_packed_from_string(value: &str) -> Result<PackedSourceMap<'_>> {
+    let json: BorrowedJSONSourceMap<'_> = serde_json::from_str(value)?;
+
+    let ignore_list = resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)?;
+    validate_ignore_list(ignore_list.as_deref(), json.sources.len())?;
+
+    let mappings = decode_mapping_packed(&json.mappings, json.names.len(), json.sources.len())?;
+
+    let strings = SourceMap {
+        file: json.file.map(|s| s.0),
+        names: json.names.into_iter().map(|s| s.0).collect(),
+        source_root: json.source_root.map(|s| s.0),
+        sources: json.sources.into_iter().map(|source| source.map(|s| s.0)).collect(),
+        source_contents: json
+            .sources_content
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| item.map(|s| s.0))
+            .collect(),
+        tokens: Box::default(),
+        token_chunks: None,
+        ignore_list,
+        debug_id: json.debug_id.map(|s| s.0),
+    };
+    Ok(PackedSourceMap::from_raw(strings, mappings))
+}
+
 fn validate_ignore_list(ignore_list: Option<&[u32]>, sources_len: usize) -> Result<()> {
     if let Some(ignore_list) = ignore_list {
         for &idx in ignore_list {
@@ -276,6 +305,109 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
     }
 
     Ok(tokens)
+}
+
+/// Decode the `mappings` field straight into [`Mappings`].
+///
+/// Both formats store a token as deltas under the same rules, so each segment's deltas are
+/// written as they are. The absolute values are tracked only to validate them.
+fn decode_mapping_packed(mapping: &str, names_len: usize, sources_len: usize) -> Result<Mappings> {
+    let mapping = mapping.as_bytes();
+
+    let mut mappings = Mappings::with_byte_capacity(estimate_byte_capacity(mapping));
+
+    let mut dst_col = 0u32;
+    let mut src_id = 0;
+    let mut src_line = 0;
+    let mut src_col = 0;
+    let mut name_id = 0;
+    // The generated position of the last token, and the lines passed since it.
+    let mut token_line = 0u32;
+    let mut token_col = 0u32;
+    let mut pending_lines = 0u32;
+
+    // Source map segments are delta-encoded and interpreted relative to previous values.
+    //
+    // Segment arity:
+    // * 1 field: generated column
+    // * 4 fields: generated column, source id, source line, source column
+    // * 5 fields: 4-field segment + name id
+    //
+    // Delimiters:
+    // * `,` separates segments on the same generated line
+    // * `;` advances generated line and resets generated column
+    let mut cursor = 0usize;
+    let mut nums = [0i64; 5];
+    while cursor < mapping.len() {
+        match mapping[cursor] {
+            b',' => {
+                // Empty segment, skip.
+                cursor += 1;
+            }
+            b';' => {
+                // New destination line. Destination columns are line-relative.
+                pending_lines = pending_lines.wrapping_add(1);
+                dst_col = 0;
+                cursor += 1;
+            }
+            _ => {
+                let nums_len = parse_vlq_segment_into(mapping, &mut cursor, &mut nums)?;
+
+                // `nums[0]` is always generated column delta.
+                let new_dst_col = i64::from(dst_col) + nums[0];
+                dst_col = u32::try_from(new_dst_col).map_err(|_| Error::BadSegmentSize(0))?;
+
+                let mut source = None;
+                let mut name = None;
+
+                if nums_len > 1 {
+                    if nums_len != 4 && nums_len != 5 {
+                        return Err(Error::BadSegmentSize(nums_len as u32));
+                    }
+
+                    // Source/name fields are also delta-encoded.
+                    let new_src_id = i64::from(src_id) + nums[1];
+                    if new_src_id < 0 || new_src_id >= sources_len as i64 {
+                        return Err(Error::BadSourceReference(src_id));
+                    }
+                    src_id = new_src_id as u32;
+
+                    let new_src_line = i64::from(src_line) + nums[2];
+                    src_line = u32::try_from(new_src_line).map_err(|_| Error::BadSegmentSize(0))?;
+
+                    let new_src_col = i64::from(src_col) + nums[3];
+                    src_col = u32::try_from(new_src_col).map_err(|_| Error::BadSegmentSize(0))?;
+                    source = Some((nums[1], nums[2], nums[3]));
+
+                    if nums_len > 4 {
+                        name_id = u32::try_from(i64::from(name_id) + nums[4])
+                            .map_err(|_| Error::BadNameReference(INVALID_ID))?;
+                        if name_id as usize >= names_len {
+                            return Err(Error::BadNameReference(name_id));
+                        }
+                        name = Some(nums[4]);
+                    }
+                }
+
+                mappings.write(i64::from(pending_lines), nums[0], source, name);
+                token_line = token_line.wrapping_add(pending_lines);
+                token_col = dst_col;
+                pending_lines = 0;
+            }
+        }
+    }
+
+    mappings.set_end(token_line, token_col, src_id, src_line, src_col, name_id);
+    mappings.shrink_to_fit();
+    Ok(mappings)
+}
+
+/// Pick a byte capacity for the [`Mappings`] that `decode_mapping_packed` fills.
+///
+/// A segment is about five or six bytes of VLQ and about three bytes of [`Mappings`], so half
+/// the input length rarely needs to grow. `decode_mapping_packed` releases what is left over.
+fn estimate_byte_capacity(mapping: &[u8]) -> usize {
+    mapping.len() / 2 + 8
 }
 
 /// Fast path for the dominant sourcemap segment shapes: a 4- or 5-field

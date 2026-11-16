@@ -4,7 +4,11 @@ use std::ops::{Deref, DerefMut};
 
 use json_escape_simd::escape_into;
 
-use crate::{JSONSourceMap, SourceMap, Token, token::TokenChunk};
+use crate::{
+    JSONSourceMap, Mappings, SourceMap, Token,
+    mappings::{TAG_LINE, TAG_MAPPED, TAG_NAMED},
+    token::TokenChunk,
+};
 
 pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
     JSONSourceMap {
@@ -27,6 +31,28 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
 }
 
 pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
+    encode_to_string_with(sourcemap, estimate_mappings_length(sourcemap), |output| {
+        serialize_sourcemap_mappings(sourcemap, output);
+    })
+}
+
+/// Like [`encode_to_string`], with the `mappings` field written straight from [`Mappings`].
+/// `strings` holds every other field.
+pub fn encode_packed_to_string(strings: &SourceMap<'_>, mappings: &Mappings) -> String {
+    // A token is about three bytes stored and five or six bytes of VLQ. This is a heuristic,
+    // not an upper bound. Generated line breaks contribute once across the whole map.
+    let estimate = mappings.byte_len() * 5 / 2 + mappings.last_dst_line() as usize;
+    encode_to_string_with(strings, estimate, |output| serialize_packed_mappings(mappings, output))
+}
+
+/// Write `sourcemap` as JSON, with the `mappings` field written by `write_mappings`.
+/// `mappings_length` is an estimate of how long that field is.
+#[inline(always)]
+fn encode_to_string_with<F: FnOnce(&mut String)>(
+    sourcemap: &SourceMap<'_>,
+    mappings_length: usize,
+    write_mappings: F,
+) -> String {
     // Reserve for worst-case string escaping and an estimate of the mappings.
     // Large VLQ deltas can exceed the estimate; serialization reserves more as needed.
     let mut estimated_capacity = 0usize;
@@ -97,7 +123,7 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 
     // ],"mappings":"
     estimated_capacity += 14;
-    estimated_capacity += estimate_mappings_length(sourcemap);
+    estimated_capacity += mappings_length;
 
     // Optional ,"debugId":<escaped>
     if let Some(debug_id) = sourcemap.get_debug_id() {
@@ -147,7 +173,7 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     }
 
     contents.push("],\"mappings\":\"");
-    serialize_sourcemap_mappings(sourcemap, &mut contents);
+    write_mappings(&mut contents);
     contents.push("\"");
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
@@ -286,6 +312,103 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
 
         need_comma = true;
     }
+}
+
+/// Write [`Mappings`] as the `mappings` field.
+///
+/// Both formats store a token as deltas under the same rules, so each token's deltas are
+/// written as they are, without decoding the positions.
+fn serialize_packed_mappings(mappings: &Mappings, output: &mut String) {
+    let mut need_comma = false;
+
+    for token in mappings.raw_tokens() {
+        // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq` is 5.
+        // Also need 1 byte for each line number difference, or 1 byte if no line num difference.
+        // Reserve this amount of capacity in `rv` early, so can skip bounds checks in code below.
+        // As well as skipping the bounds checks, this also removes a function call to
+        // `alloc::raw_vec::RawVec::grow_one` for every byte that's pushed.
+        // https://godbolt.org/z/44G8jjss3
+        const MAX_TOTAL_VLQ_BYTES: usize = 5 * MAX_VLQ_BYTES;
+
+        // Tokens are in generated order, so a line change moves forward.
+        let num_line_breaks =
+            if token.tag & TAG_LINE != 0 { token.dst_line.max(0) as u32 } else { 0 };
+        if num_line_breaks != 0 {
+            let required = MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize;
+            if output.capacity() - output.len() < required {
+                output.reserve(required);
+            }
+            // Most mapped lines are adjacent. Avoid a bulk fill for a single semicolon.
+            // SAFETY: We have reserved sufficient capacity for `num_line_breaks` bytes.
+            unsafe {
+                if num_line_breaks == 1 {
+                    push_byte_unchecked(output, b';');
+                } else {
+                    push_bytes_unchecked(output, b';', num_line_breaks);
+                }
+            }
+        } else if need_comma {
+            let required = MAX_TOTAL_VLQ_BYTES + 1;
+            if output.capacity() - output.len() < required {
+                output.reserve(required);
+            }
+            // SAFETY: We have reserved sufficient capacity for 1 byte
+            unsafe { push_byte_unchecked(output, b',') };
+        } else {
+            // First token: no delimiter is emitted, but the five VLQ fields below
+            // still write up to 35 bytes, and the caller's estimate can be tighter
+            // than that, so capacity must still be ensured here.
+            if output.capacity() - output.len() < MAX_TOTAL_VLQ_BYTES {
+                output.reserve(MAX_TOTAL_VLQ_BYTES);
+            }
+        }
+
+        let v0 = vlq_delta(token.dst_col);
+        if token.tag & TAG_MAPPED != 0 {
+            // The dominant segment shape in real bundler output is 4 or 5
+            // single-digit VLQ fields (small deltas). Transform all field
+            // deltas up front so that shape can be detected with one test and
+            // written with a single 8-byte store, instead of running the
+            // digit-at-a-time VLQ loop per field.
+            let v1 = vlq_delta(token.source_id);
+            let v2 = vlq_delta(token.src_line);
+            let v3 = vlq_delta(token.src_col);
+
+            if token.tag & TAG_NAMED != 0 {
+                let v4 = vlq_delta(token.name_id);
+                if !try_push_fast_4_or_5_segment(output, [v0, v1, v2, v3, v4]) {
+                    // SAFETY: `MAX_TOTAL_VLQ_BYTES` (35) spare capacity was
+                    // ensured above — five `encode_vlq` calls need 7 bytes each.
+                    unsafe {
+                        encode_vlq(output, v0);
+                        encode_vlq(output, v1);
+                        encode_vlq(output, v2);
+                        encode_vlq(output, v3);
+                        encode_vlq(output, v4);
+                    }
+                }
+            } else if !try_push_fast_4_or_5_segment(output, [v0, v1, v2, v3]) {
+                // SAFETY: same as above, with only four fields.
+                unsafe {
+                    encode_vlq(output, v0);
+                    encode_vlq(output, v1);
+                    encode_vlq(output, v2);
+                    encode_vlq(output, v3);
+                }
+            }
+        } else {
+            // SAFETY: `MAX_TOTAL_VLQ_BYTES` spare capacity was ensured above.
+            unsafe { encode_vlq(output, v0) };
+        }
+
+        need_comma = true;
+    }
+}
+
+/// Transform a delta into its VLQ integer representation, like [`vlq_value`].
+#[inline]
+fn vlq_delta(delta: i64) -> u64 {
+    (delta.unsigned_abs() << 1) | u64::from(delta < 0)
 }
 
 /// Transform the diff `a - b` into its VLQ integer representation: the sign

@@ -2,7 +2,7 @@
 
 use std::{fs, path::PathBuf};
 
-use oxc_sourcemap::SourceMap;
+use oxc_sourcemap::{PackedSourceMap, SourceMap};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +67,13 @@ fn tc39_source_map_spec_tests() {
         };
 
         let result = SourceMap::from_json_string(&source_map_content);
+
+        // The packed decoder accepts and rejects the same maps, and holds the same map.
+        let packed = PackedSourceMap::from_json_string(&source_map_content);
+        assert_eq!(packed.is_ok(), result.is_ok(), "{}: packed decoder disagrees", test.name);
+        if let (Ok(packed), Ok(map)) = (&packed, &result) {
+            assert_eq!(packed.to_json_string(), map.to_json_string(), "{}", test.name);
+        }
 
         // Check if parsing result matches expected validity
         let parse_result_valid = result.is_ok();
