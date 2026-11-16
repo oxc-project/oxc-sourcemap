@@ -72,6 +72,10 @@ harness = false
 name = "concat"
 harness = false
 
+[[bench]]
+name = "packed"
+harness = false
+
 [package.metadata.cargo-shear]
 ignored = ["napi"]
 
