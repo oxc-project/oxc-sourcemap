@@ -534,7 +534,11 @@ impl PreAllocatedString {
             // four bytes, so every chunk is non-empty.
             let (chunk, tail) = rest.split_at(rest.floor_char_boundary(ESCAPE_CHUNK_LEN));
             scratch.clear();
-            escape_into(chunk, scratch);
+            // Pass `&&str` so this call gets its own instance of `escape_into`. Sharing the
+            // `&str` instance with `push_json_str` stops LLVM from inlining it there, which
+            // costs ~2% on serialize benchmarks made of many short strings.
+            #[expect(clippy::needless_borrows_for_generic_args)]
+            escape_into(&chunk, scratch);
             // Drop the quotes `escape_into` puts around each chunk.
             out.extend_from_slice(&scratch[1..scratch.len() - 1]);
             rest = tail;
