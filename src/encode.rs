@@ -27,8 +27,8 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
 }
 
 pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
-    // Reserve for worst-case string escaping and an estimate of the mappings.
-    // Large VLQ deltas can exceed the estimate; serialization reserves more as needed.
+    // Reserve for the escaped strings (see `estimate_escaped_strings_len`) and an
+    // estimate of the mappings. Both can be exceeded; serialization reserves more as needed.
     let mut estimated_capacity = 0usize;
 
     // {"version":3,
@@ -47,29 +47,35 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
     let sources_count = sourcemap.sources.len();
-    // Accumulate total string bytes across all collections
+    // Accumulate total string bytes across all collections, and the longest single string
     let mut total_string_bytes = 0usize;
+    let mut max_string_len = 0usize;
 
     for name in &sourcemap.names {
         total_string_bytes += name.len();
+        max_string_len = max_string_len.max(name.len());
     }
 
     for source in &sourcemap.sources {
         match source {
-            Some(source) => total_string_bytes += source.len(),
+            Some(source) => {
+                total_string_bytes += source.len();
+                max_string_len = max_string_len.max(source.len());
+            }
             None => estimated_capacity += 4, // "null"
         }
     }
 
     // Single pass over source_contents to check existence and accumulate byte lengths
-    let (has_source_contents, sc_bytes) =
-        sourcemap.source_contents.iter().fold((false, 0usize), |(has_some, bytes), content| {
-            match content {
-                Some(s) => (true, bytes + s.len()),
-                None => (has_some, bytes + 4), // "null"
-            }
-        });
+    let (has_source_contents, sc_bytes, sc_max_len) = sourcemap.source_contents.iter().fold(
+        (false, 0usize, 0usize),
+        |(has_some, bytes, max_len), content| match content {
+            Some(s) => (true, bytes + s.len(), max_len.max(s.len())),
+            None => (has_some, bytes + 4, max_len), // "null"
+        },
+    );
     total_string_bytes += sc_bytes;
+    max_string_len = max_string_len.max(sc_max_len);
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
 
     // Calculate total capacity needed
@@ -77,7 +83,7 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     if has_source_contents {
         estimated_capacity += 20; // ],"sourcesContent":[
     }
-    estimated_capacity += 6 * total_string_bytes; // worst-case escaping (* 6), \0 -> \\u0000
+    estimated_capacity += estimate_escaped_strings_len(total_string_bytes, max_string_len);
     estimated_capacity += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
     // Commas between array items
@@ -111,39 +117,37 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     contents.push("{\"version\":3,");
     if let Some(file) = sourcemap.get_file() {
         contents.push("\"file\":");
-        escape_into(file, contents.as_mut_vec());
+        contents.push_json_str(file);
         contents.push(",");
     }
 
     if let Some(source_root) = sourcemap.get_source_root() {
         contents.push("\"sourceRoot\":");
-        escape_into(source_root, contents.as_mut_vec());
+        contents.push_json_str(source_root);
         contents.push(",");
     }
 
     contents.push("\"names\":[");
-    contents.push_list(sourcemap.names.iter(), |s, out| escape_into(&**s, out));
+    contents.push_list(sourcemap.names.iter(), |s, out| out.push_json_str(s));
 
     contents.push("],\"sources\":[");
-    contents.push_list(sourcemap.sources.iter(), |source, output| match source {
-        Some(source) => escape_into(source, output),
-        None => output.extend_from_slice(b"null"),
+    contents.push_list(sourcemap.sources.iter(), |source, out| match source {
+        Some(source) => out.push_json_str(source),
+        None => out.push("null"),
     });
 
     if has_source_contents {
         let source_contents = &sourcemap.source_contents;
         contents.push("],\"sourcesContent\":[");
-        contents.push_list(source_contents.iter(), |v, output| match v {
-            Some(s) => escape_into(&**s, output),
-            None => output.extend_from_slice(b"null"),
+        contents.push_list(source_contents.iter(), |v, out| match v {
+            Some(s) => out.push_json_str(s),
+            None => out.push("null"),
         });
     }
 
     if let Some(ignore_list) = &sourcemap.ignore_list {
         contents.push("],\"ignoreList\":[");
-        contents.push_list(ignore_list.iter(), |s, output| {
-            output.extend_from_slice(s.to_string().as_bytes());
-        });
+        contents.push_list(ignore_list.iter(), |s, out| out.push(&s.to_string()));
     }
 
     contents.push("],\"mappings\":\"");
@@ -152,12 +156,38 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 
     if let Some(debug_id) = sourcemap.get_debug_id() {
         contents.push(",\"debugId\":");
-        escape_into(debug_id, contents.as_mut_vec());
+        contents.push_json_str(debug_id);
     }
 
     contents.push("}");
 
     contents.consume()
+}
+
+/// Strings longer than this are escaped in chunks of at most this many bytes, through a
+/// scratch buffer (see `PreAllocatedString::push_json_str`).
+const ESCAPE_CHUNK_LEN: usize = 16 * 1024;
+
+/// Spare capacity `escape_into` reserves past the end of its destination to escape `len`
+/// bytes, whatever the length of the escaped output: its SIMD kernels make full-register
+/// speculative stores and may expand each byte to six (`\u00XX`).
+const fn escape_into_spare_len(len: usize) -> usize {
+    len * 6 + 32 + 3
+}
+
+/// Capacity to reserve for the escaped `names`, `sources` and `sourcesContent` strings,
+/// excluding their quotes and separators.
+fn estimate_escaped_strings_len(total_string_bytes: usize, max_string_len: usize) -> usize {
+    // Every byte escaped to `\u00XX`. Always enough, and the smaller estimate for small maps.
+    let worst_case = total_string_bytes * 6;
+    // Escapes (mostly `\n` and `\"`) add a few percent to source text, about 5% in the perf
+    // fixtures; allow an eighth. On top of that, the spare capacity `escape_into` needs past
+    // the end for the longest single call, which chunking caps at `ESCAPE_CHUNK_LEN`. If
+    // escapes run denser than this, the buffer grows like any `String`.
+    let typical = total_string_bytes
+        + total_string_bytes / 8
+        + escape_into_spare_len(max_string_len.min(ESCAPE_CHUNK_LEN));
+    worst_case.min(typical)
 }
 
 fn estimate_mappings_length(sourcemap: &SourceMap<'_>) -> usize {
@@ -446,62 +476,98 @@ unsafe fn push_bytes_unchecked(out: &mut String, b: u8, repeats: u32) {
 }
 
 /// A preallocated JSON string buffer that grows as needed.
-#[repr(transparent)]
-struct PreAllocatedString(String);
+struct PreAllocatedString {
+    buf: String,
+    /// Escape output for one chunk of a long string; allocated on first use.
+    scratch: Vec<u8>,
+}
 
 impl Deref for PreAllocatedString {
     type Target = String;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.buf
     }
 }
 
 impl DerefMut for PreAllocatedString {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.buf
     }
 }
 
 impl PreAllocatedString {
     fn new(estimated_capacity: usize) -> Self {
-        Self(String::with_capacity(estimated_capacity))
+        Self { buf: String::with_capacity(estimated_capacity), scratch: Vec::new() }
     }
 
     #[inline]
     fn push(&mut self, s: &str) {
-        self.0.push_str(s);
+        self.buf.push_str(s);
+    }
+
+    /// Append `value` as a JSON string literal, quotes included.
+    #[inline]
+    fn push_json_str(&mut self, value: &str) {
+        if value.len() <= ESCAPE_CHUNK_LEN {
+            // SAFETY: `escape_into` appends valid UTF-8.
+            escape_into(value, unsafe { self.buf.as_mut_vec() });
+        } else {
+            self.push_json_str_chunked(value);
+        }
+    }
+
+    /// `escape_into` reserves six times its input past the end of its destination, however
+    /// little of that the escaped output uses. Escaping a long string (typically a
+    /// `sourcesContent` entry) straight into `buf` would grow `buf` by that much, so escape it
+    /// in bounded chunks through `scratch` instead and copy only the escaped bytes over.
+    #[inline(never)]
+    fn push_json_str_chunked(&mut self, value: &str) {
+        // SAFETY: only `"` and escaped chunks of valid UTF-8 are appended.
+        let out = unsafe { self.buf.as_mut_vec() };
+        let scratch = &mut self.scratch;
+        out.push(b'"');
+        let mut rest = value;
+        while !rest.is_empty() {
+            // JSON escaping maps each char independently, so escaping a string piecewise at
+            // char boundaries produces the same bytes as escaping it whole. A char is at most
+            // four bytes, so every chunk is non-empty.
+            let (chunk, tail) = rest.split_at(rest.floor_char_boundary(ESCAPE_CHUNK_LEN));
+            scratch.clear();
+            escape_into(chunk, scratch);
+            // Drop the quotes `escape_into` puts around each chunk.
+            out.extend_from_slice(&scratch[1..scratch.len() - 1]);
+            rest = tail;
+        }
+        out.push(b'"');
     }
 
     #[inline]
-    fn push_list<S, I>(&mut self, mut iter: I, encode: impl Fn(S, &mut Vec<u8>))
+    fn push_list<S, I>(&mut self, mut iter: I, encode: impl Fn(S, &mut Self))
     where
         I: Iterator<Item = S>,
     {
         let Some(first) = iter.next() else {
             return;
         };
-        encode(first, self.as_mut_vec());
+        encode(first, self);
 
         for other in iter {
-            self.0.push(',');
-            encode(other, self.as_mut_vec());
+            self.buf.push(',');
+            encode(other, self);
         }
-    }
-
-    fn as_mut_vec(&mut self) -> &mut Vec<u8> {
-        // SAFETY: callers only append valid UTF-8 from JSON escaping or ASCII text.
-        unsafe { self.0.as_mut_vec() }
     }
 
     #[inline]
     fn consume(self) -> String {
-        self.0
+        self.buf
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use json_escape_simd::escape;
+
     use super::*;
 
     #[test]
@@ -856,5 +922,106 @@ mod tests {
         let reparsed = SourceMap::from_json_string(&encoded).unwrap();
         assert!(sm.get_tokens().eq(reparsed.get_tokens()));
         assert!(reparsed.get_tokens().all(|token| token.get_source_id().is_none()));
+    }
+
+    fn source_content_map(content: &str) -> SourceMap<'_> {
+        SourceMap::new(
+            None,
+            vec![],
+            None,
+            vec![Some("a.js".into())],
+            vec![Some(content.into())],
+            vec![].into_boxed_slice(),
+            None,
+        )
+    }
+
+    /// Long strings are escaped in chunks; the result must be byte-identical to
+    /// escaping the whole string at once.
+    fn assert_escapes_like_unchunked(content: &str) {
+        let json = source_content_map(content).to_json_string();
+        let expected = format!("\"sourcesContent\":[{}]", escape(content));
+        assert!(
+            json.contains(&expected),
+            "content of {} bytes escaped differently",
+            content.len()
+        );
+        let reparsed = SourceMap::from_json_string(&json).unwrap();
+        assert_eq!(reparsed.get_source_content(0), Some(content));
+    }
+
+    #[test]
+    fn encode_long_source_content_at_chunk_boundaries() {
+        // Either side of the chunking threshold.
+        assert_escapes_like_unchunked(&"x".repeat(ESCAPE_CHUNK_LEN));
+        assert_escapes_like_unchunked(&"x".repeat(ESCAPE_CHUNK_LEN + 1));
+
+        // A multi-byte char or an escape straddling or touching the first chunk boundary.
+        for (pad, ch) in [
+            (1, "é"),
+            (1, "中"),
+            (2, "中"),
+            (1, "👀"),
+            (2, "👀"),
+            (3, "👀"),
+            (0, "\""),
+            (1, "\""),
+            (1, "\\"),
+            (1, "\n"),
+            (1, "\u{1}"),
+            (1, "\u{2028}"),
+        ] {
+            let mut content = "x".repeat(ESCAPE_CHUNK_LEN - pad);
+            content.push_str(ch);
+            content.push_str(&"y".repeat(ESCAPE_CHUNK_LEN));
+            assert_escapes_like_unchunked(&content);
+        }
+
+        // Mixed 1- to 4-byte chars and escapes across several chunks; each prefix
+        // shifts where the boundaries land.
+        for prefix in ["", "x", "xx", "xxx"] {
+            let mut content = String::from(prefix);
+            while content.len() < 3 * ESCAPE_CHUNK_LEN + 7 {
+                content.push_str("ab\"c\\d\n\té中👀\u{1}\u{7f}\u{2028}");
+            }
+            assert_escapes_like_unchunked(&content);
+        }
+
+        // Escape-dense content outgrows the typical-case estimate and must still
+        // serialize correctly once the buffer grows.
+        assert_escapes_like_unchunked(&"\u{1}\"".repeat(2 * ESCAPE_CHUNK_LEN + 3));
+    }
+
+    #[test]
+    fn encode_long_source_content_capacity_stays_near_length() {
+        // ~1 MiB of ordinary source text (~6% of its bytes escaped).
+        let content = "  if (value) {\n    return compute(value, 'key');\n  }\n".repeat(20_000);
+        let mut names = vec![];
+        let mut sources = vec![];
+        let mut source_contents = vec![];
+        for i in 0..4 {
+            names.push(format!("name{i}").into());
+            sources.push(Some(format!("src/file{i}.js").into()));
+            source_contents.push(Some(content.as_str().into()));
+        }
+        let sm = SourceMap::new(
+            None,
+            names,
+            None,
+            sources,
+            source_contents,
+            vec![].into_boxed_slice(),
+            None,
+        );
+        let json = sm.to_json_string();
+        // Reserving the worst case (6x the string bytes) would leave ~5x the length unused.
+        assert!(
+            json.capacity() < json.len() + json.len() / 4,
+            "capacity {} for length {}",
+            json.capacity(),
+            json.len()
+        );
+        let reparsed = SourceMap::from_json_string(&json).unwrap();
+        assert!(reparsed.get_source_contents().all(|c| c == Some(content.as_str())));
     }
 }
