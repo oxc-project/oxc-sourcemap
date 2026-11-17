@@ -941,11 +941,7 @@ mod tests {
     fn assert_escapes_like_unchunked(content: &str) {
         let json = source_content_map(content).to_json_string();
         let expected = format!("\"sourcesContent\":[{}]", escape(content));
-        assert!(
-            json.contains(&expected),
-            "content of {} bytes escaped differently",
-            content.len()
-        );
+        assert!(json.contains(&expected), "content of {} bytes escaped differently", content.len());
         let reparsed = SourceMap::from_json_string(&json).unwrap();
         assert_eq!(reparsed.get_source_content(0), Some(content));
     }
