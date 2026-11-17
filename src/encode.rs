@@ -47,35 +47,29 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     // Calculate string lengths in a single pass for better cache locality
     let names_count = sourcemap.names.len();
     let sources_count = sourcemap.sources.len();
-    // Accumulate total string bytes across all collections, and the longest single string
+    // Accumulate total string bytes across all collections
     let mut total_string_bytes = 0usize;
-    let mut max_string_len = 0usize;
 
     for name in &sourcemap.names {
         total_string_bytes += name.len();
-        max_string_len = max_string_len.max(name.len());
     }
 
     for source in &sourcemap.sources {
         match source {
-            Some(source) => {
-                total_string_bytes += source.len();
-                max_string_len = max_string_len.max(source.len());
-            }
+            Some(source) => total_string_bytes += source.len(),
             None => estimated_capacity += 4, // "null"
         }
     }
 
     // Single pass over source_contents to check existence and accumulate byte lengths
-    let (has_source_contents, sc_bytes, sc_max_len) = sourcemap.source_contents.iter().fold(
-        (false, 0usize, 0usize),
-        |(has_some, bytes, max_len), content| match content {
-            Some(s) => (true, bytes + s.len(), max_len.max(s.len())),
-            None => (has_some, bytes + 4, max_len), // "null"
-        },
-    );
+    let (has_source_contents, sc_bytes) =
+        sourcemap.source_contents.iter().fold((false, 0usize), |(has_some, bytes), content| {
+            match content {
+                Some(s) => (true, bytes + s.len()),
+                None => (has_some, bytes + 4), // "null"
+            }
+        });
     total_string_bytes += sc_bytes;
-    max_string_len = max_string_len.max(sc_max_len);
     let sc_count = if has_source_contents { sourcemap.source_contents.len() } else { 0 };
 
     // Calculate total capacity needed
@@ -83,7 +77,7 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     if has_source_contents {
         estimated_capacity += 20; // ],"sourcesContent":[
     }
-    estimated_capacity += estimate_escaped_strings_len(total_string_bytes, max_string_len);
+    estimated_capacity += estimate_escaped_strings_len(total_string_bytes);
     estimated_capacity += 2 * (names_count + sources_count + sc_count); // quotes around each item
 
     // Commas between array items
@@ -128,11 +122,13 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
     }
 
     contents.push("\"names\":[");
-    contents.push_list(sourcemap.names.iter(), |s, out| out.push_json_str(s));
+    // Names and sources are identifiers and paths, short enough to escape directly: skipping
+    // the length check of `push_json_str` for each one is measurable on maps with many names.
+    contents.push_list(sourcemap.names.iter(), |s, out| out.push_json_str_unchunked(s));
 
     contents.push("],\"sources\":[");
     contents.push_list(sourcemap.sources.iter(), |source, out| match source {
-        Some(source) => out.push_json_str(source),
+        Some(source) => out.push_json_str_unchunked(source),
         None => out.push("null"),
     });
 
@@ -177,16 +173,17 @@ const fn escape_into_spare_len(len: usize) -> usize {
 
 /// Capacity to reserve for the escaped `names`, `sources` and `sourcesContent` strings,
 /// excluding their quotes and separators.
-fn estimate_escaped_strings_len(total_string_bytes: usize, max_string_len: usize) -> usize {
+fn estimate_escaped_strings_len(total_string_bytes: usize) -> usize {
     // Every byte escaped to `\u00XX`. Always enough, and the smaller estimate for small maps.
     let worst_case = total_string_bytes * 6;
     // Escapes (mostly `\n` and `\"`) add a few percent to source text, about 5% in the perf
     // fixtures; allow an eighth. On top of that, the spare capacity `escape_into` needs past
-    // the end for the longest single call, which chunking caps at `ESCAPE_CHUNK_LEN`. If
+    // the end for a single call, which chunking caps at `ESCAPE_CHUNK_LEN` bytes of input.
+    // That cap is used rather than the longest string's length: tracking the longest string
+    // costs more on small maps than the at most ~96 KiB of extra capacity it would save. If
     // escapes run denser than this, the buffer grows like any `String`.
-    let typical = total_string_bytes
-        + total_string_bytes / 8
-        + escape_into_spare_len(max_string_len.min(ESCAPE_CHUNK_LEN));
+    let typical =
+        total_string_bytes + total_string_bytes / 8 + escape_into_spare_len(ESCAPE_CHUNK_LEN);
     worst_case.min(typical)
 }
 
@@ -510,11 +507,19 @@ impl PreAllocatedString {
     #[inline]
     fn push_json_str(&mut self, value: &str) {
         if value.len() <= ESCAPE_CHUNK_LEN {
-            // SAFETY: `escape_into` appends valid UTF-8.
-            escape_into(value, unsafe { self.buf.as_mut_vec() });
+            self.push_json_str_unchunked(value);
         } else {
             self.push_json_str_chunked(value);
         }
+    }
+
+    /// Like `push_json_str`, but always escapes `value` in one call, so `buf` gets the spare
+    /// capacity `escape_into` reserves for all of it. Correct for any string; use it for
+    /// strings that are short in practice.
+    #[inline]
+    fn push_json_str_unchunked(&mut self, value: &str) {
+        // SAFETY: `escape_into` appends valid UTF-8.
+        escape_into(value, unsafe { self.buf.as_mut_vec() });
     }
 
     /// `escape_into` reserves six times its input past the end of its destination, however
