@@ -837,6 +837,7 @@ fn concat_shifts_scope_info() {
 
     let concat =
         ConcatSourceMapBuilder::from_sourcemaps(&[(&first, 0), (&plain, 10), (&second, 20)])
+            .with_scopes(true)
             .into_sourcemap();
     let info = concat.decode_scope_info(ScopeDecodeMode::Strict).unwrap().unwrap();
 
@@ -867,15 +868,61 @@ fn concat_shifts_scope_info() {
         (plain.clone(), 10),
         (second.clone(), 20),
     ])
+    .with_scopes(true)
     .into_sourcemap();
     assert_eq!(owned.to_json_string(), concat.to_json_string());
+
+    // Enabling applies to maps added before and after the call.
+    let mut builder = ConcatSourceMapBuilder::default();
+    builder.add_sourcemap(&first, 0);
+    let mut builder = builder.with_scopes(true);
+    builder.add_sourcemap(&plain, 10);
+    builder.add_sourcemap(&second, 20);
+    assert_eq!(builder.into_sourcemap().to_json_string(), concat.to_json_string());
+}
+
+#[test]
+fn concat_scope_info_is_opt_in() {
+    let mut first = map_with(EXAMPLE_NAMES, &["file.js"]);
+    first.set_scope_info(&example_info()).unwrap();
+    let mut second = map_with(EXAMPLE_NAMES, &["other.js"]);
+    second.set_scope_info(&example_info()).unwrap();
+    let mut first_plain = first.clone();
+    first_plain.clear_scope_info();
+    let mut second_plain = second.clone();
+    second_plain.clear_scope_info();
+    let expected =
+        ConcatSourceMapBuilder::from_sourcemaps(&[(&first_plain, 0), (&second_plain, 20)])
+            .into_sourcemap()
+            .to_json_string();
+
+    // By default, or when disabled, scope information is dropped and the output is the same as
+    // for inputs without any.
+    for concat in [
+        ConcatSourceMapBuilder::from_sourcemaps(&[(&first, 0), (&second, 20)]),
+        ConcatSourceMapBuilder::from_sourcemaps(&[(&first, 0), (&second, 20)]).with_scopes(false),
+        ConcatSourceMapBuilder::from_owned_sourcemaps(vec![
+            (first.clone(), 0),
+            (second.clone(), 20),
+        ]),
+        ConcatSourceMapBuilder::from_sourcemaps(&[(&first, 0), (&second, 20)])
+            .with_scopes(true)
+            .with_scopes(false),
+    ] {
+        let concat = concat.into_sourcemap();
+        assert!(concat.get_encoded_scopes().is_none());
+        assert!(concat.get_encoded_ranges().is_none());
+        assert_eq!(concat.to_json_string(), expected);
+    }
 }
 
 #[test]
 fn concat_without_scope_info() {
     let a = map_with(&["a"], &["a.js"]);
     let b = map_with(&["b"], &["b.js"]);
-    let concat = ConcatSourceMapBuilder::from_sourcemaps(&[(&a, 0), (&b, 1)]).into_sourcemap();
+    let concat = ConcatSourceMapBuilder::from_sourcemaps(&[(&a, 0), (&b, 1)])
+        .with_scopes(true)
+        .into_sourcemap();
     assert!(concat.get_encoded_scopes().is_none());
     assert!(concat.get_encoded_ranges().is_none());
 
@@ -888,6 +935,7 @@ fn concat_without_scope_info() {
     malformed.ranges = Some(vec![Cow::Borrowed("EAA")]);
     let concat =
         ConcatSourceMapBuilder::from_sourcemaps(&[(&a, 0), (&with_scopes, 1), (&malformed, 2)])
+            .with_scopes(true)
             .into_sourcemap();
     assert_eq!(
         concat.get_encoded_scopes().unwrap().collect::<Vec<_>>(),
