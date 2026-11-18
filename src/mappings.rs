@@ -35,7 +35,7 @@ const NONE: u32 = u32::MAX;
 
 /// A tag byte and at most six varints. A delta of two `u32`s takes at most five bytes, and
 /// no `i64` takes more than ten, so [`Mappings::write`] never writes past this many bytes.
-const MAX_TOKEN_BYTES: usize = 1 + 6 * 10;
+pub(crate) const MAX_TOKEN_BYTES: usize = 1 + 6 * 10;
 
 /// The values that the deltas of the next token are relative to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -114,7 +114,7 @@ impl Mappings {
         for token in tokens {
             mappings.push(token);
         }
-        mappings.shrink_to_fit();
+        mappings.release_spare();
         mappings
     }
 
@@ -132,6 +132,12 @@ impl Mappings {
         self.bytes.len()
     }
 
+    /// The room left for encoded tokens before the buffer grows.
+    #[inline]
+    pub(crate) fn spare_bytes(&self) -> usize {
+        self.bytes.capacity() - self.bytes.len()
+    }
+
     /// Reserve room for `bytes` more bytes of encoded tokens.
     pub fn reserve_bytes(&mut self, bytes: usize) {
         self.bytes.reserve(bytes);
@@ -140,6 +146,15 @@ impl Mappings {
     /// Release unused capacity. Call this before holding mappings that are complete.
     pub fn shrink_to_fit(&mut self) {
         self.bytes.shrink_to_fit();
+    }
+
+    /// Release unused capacity when it is a lot: more than 64 bytes and more than an eighth of
+    /// the length. Shrinking reallocates and copies, which costs more than a little spare room.
+    pub(crate) fn release_spare(&mut self) {
+        let spare = self.bytes.capacity() - self.bytes.len();
+        if spare > 64 && spare > self.bytes.len() / 8 {
+            self.bytes.shrink_to_fit();
+        }
     }
 
     /// The generated line of the last token, or `0` when empty.
@@ -166,7 +181,7 @@ impl Mappings {
     }
 
     /// Add a token after the last one.
-    #[inline]
+    #[inline(always)]
     pub fn push(&mut self, token: Token) {
         // The usual token of generated code: on the same generated line as the last token, a
         // few columns along, and from the same line of the same source. It is two bytes.
@@ -194,6 +209,7 @@ impl Mappings {
     }
 
     /// Add a token of any shape after the last one.
+    #[inline(always)]
     fn push_any(&mut self, token: Token) {
         let (dst_line, dst_col, source, name) = deltas(&mut self.end, token);
         self.write(dst_line, dst_col, source, name);
@@ -210,6 +226,19 @@ impl Mappings {
         name: Option<i64>,
     ) {
         let at = self.bytes.len();
+        // The usual token, as in `push`: two bytes.
+        if let (0, 0..15, Some((0, 0, src_col @ -64..64)), None) = (dst_line, dst_col, source, name)
+        {
+            let tag = ((dst_col as u8 + 1) << 4) | TAG_MAPPED | TAG_SAME_SOURCE_LINE;
+            let zigzag = ((src_col << 1) ^ (src_col >> 63)) as u8;
+            self.bytes.extend_from_slice(&[tag, zigzag]);
+            if self.first_mapped == NONE {
+                self.first_mapped = at as u32;
+            }
+            self.last_tag = TAG_MAPPED;
+            self.len += 1;
+            return;
+        }
         self.bytes.reserve(MAX_TOKEN_BYTES);
         // SAFETY: `MAX_TOKEN_BYTES` bytes are reserved after `at`.
         let tag = unsafe {
@@ -613,44 +642,135 @@ pub struct MappingsIter<'a> {
     state: State,
 }
 
-/// The stream was written from `u32` values, so every delta leads back to a `u32`.
-#[inline(always)]
-fn apply(prev: u32, delta: i64) -> u32 {
-    (i64::from(prev) + delta) as u32
-}
-
 impl Iterator for MappingsIter<'_> {
     type Item = Token;
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<Token> {
-        let raw = self.raw.next()?;
-        let state = &mut self.state;
-        if raw.tag & TAG_LINE != 0 {
-            state.dst_line = apply(state.dst_line, raw.dst_line);
-            state.dst_col = 0;
+        if self.raw.remaining == 0 {
+            return None;
         }
-        state.dst_col = apply(state.dst_col, raw.dst_col);
-
-        let mut token = Token::unmapped(state.dst_line, state.dst_col);
-        if raw.tag & TAG_MAPPED != 0 {
-            state.source_id = apply(state.source_id, raw.source_id);
-            state.src_line = apply(state.src_line, raw.src_line);
-            state.src_col = apply(state.src_col, raw.src_col);
-            token.source_id = state.source_id;
-            token.src_line = state.src_line;
-            token.src_col = state.src_col;
-        }
-        if raw.tag & TAG_NAMED != 0 {
-            state.name_id = apply(state.name_id, raw.name_id);
-            token.name_id = state.name_id;
-        }
+        self.raw.remaining -= 1;
+        // Decode with local copies, so that the position and the state are not written back
+        // after each varint when the iterator itself is in memory.
+        let (mut pos, mut state) = (self.raw.pos, self.state);
+        // SAFETY: `Mappings::bytes` holds `Mappings::len` whole tokens written by
+        // `Mappings::write`, and `remaining` counted the ones not read yet.
+        let token = unsafe { decode_one(&mut pos, &mut state) };
+        (self.raw.pos, self.state) = (pos, state);
         Some(token)
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.raw.size_hint()
+    }
+
+    #[inline]
+    fn fold<B, F: FnMut(B, Token) -> B>(self, init: B, mut f: F) -> B {
+        let (mut pos, mut state) = (self.raw.pos, self.state);
+        let mut acc = init;
+        for _ in 0..self.raw.remaining {
+            // SAFETY: as in `next`.
+            acc = f(acc, unsafe { decode_one(&mut pos, &mut state) });
+        }
+        acc
+    }
+}
+
+/// Decode the token at `*pos` given the state before it, and move both past it.
+///
+/// The deltas apply as wrapping `u32` steps: the stream was written from `u32` values.
+///
+/// # SAFETY
+/// `*pos` must point at a token written by [`Mappings::write`], and `state` must be the state
+/// after the tokens before it.
+#[inline(always)]
+unsafe fn decode_one(pos: &mut *const u8, state: &mut State) -> Token {
+    // SAFETY: the caller guarantees a complete token at `*pos`, so the tag and every varint
+    // that the tag announces are there to read.
+    unsafe {
+        let tag = pos.read();
+        // The usual token, as written by `push`: a small generated column step, the same
+        // source and original line as the previous mapped token, a one-byte original column
+        // delta and no name. A mapped tag is followed by its original column varint.
+        if tag & 0x0f == TAG_MAPPED | TAG_SAME_SOURCE_LINE
+            && tag >= 0x10
+            && let byte = pos.add(1).read()
+            && byte < 0x80
+        {
+            *pos = pos.add(2);
+            state.dst_col = state.dst_col.wrapping_add(u32::from(tag >> 4) - 1);
+            state.src_col = state.src_col.wrapping_add(unzigzag(byte));
+            return Token {
+                dst_line: state.dst_line,
+                dst_col: state.dst_col,
+                src_line: state.src_line,
+                src_col: state.src_col,
+                source_id: state.source_id,
+                name_id: INVALID_ID,
+            };
+        }
+        *pos = pos.add(1);
+        let dst_col = match tag >> 4 {
+            0 => read_step(pos),
+            small => u32::from(small) - 1,
+        };
+        if tag & TAG_LINE != 0 {
+            state.dst_line = state.dst_line.wrapping_add(read_step(pos));
+            state.dst_col = 0;
+        }
+        state.dst_col = state.dst_col.wrapping_add(dst_col);
+        let mut token = Token::unmapped(state.dst_line, state.dst_col);
+        if tag & TAG_MAPPED != 0 {
+            if tag & TAG_SAME_SOURCE_LINE == 0 {
+                state.source_id = state.source_id.wrapping_add(read_step(pos));
+                state.src_line = state.src_line.wrapping_add(read_step(pos));
+            }
+            state.src_col = state.src_col.wrapping_add(read_step(pos));
+            token.source_id = state.source_id;
+            token.src_line = state.src_line;
+            token.src_col = state.src_col;
+        }
+        if tag & TAG_NAMED != 0 {
+            state.name_id = state.name_id.wrapping_add(read_step(pos));
+            token.name_id = state.name_id;
+        }
+        token
+    }
+}
+
+/// The step of a one-byte zigzag varint.
+#[inline(always)]
+fn unzigzag(zigzag: u8) -> u32 {
+    u32::from(zigzag >> 1) ^ u32::from(zigzag & 1).wrapping_neg()
+}
+
+/// Read a zigzag varint at `*pos` as a wrapping `u32` step, and move `*pos` past it.
+///
+/// # SAFETY
+/// `*pos` must point at a varint written by [`write_varint`].
+#[inline(always)]
+unsafe fn read_step(pos: &mut *const u8) -> u32 {
+    // SAFETY: the caller guarantees a complete varint at `*pos`.
+    unsafe {
+        let byte = pos.read();
+        *pos = pos.add(1);
+        if byte < 0x80 {
+            return unzigzag(byte);
+        }
+        let mut zigzag = u64::from(byte & 0x7f);
+        let mut shift = 7;
+        loop {
+            let byte = pos.read();
+            *pos = pos.add(1);
+            zigzag |= u64::from(byte & 0x7f) << shift;
+            shift += 7;
+            if byte < 0x80 {
+                break;
+            }
+        }
+        (((zigzag >> 1) as i64) ^ -((zigzag & 1) as i64)) as u32
     }
 }
 
@@ -674,17 +794,27 @@ impl LookupTable {
         if mappings.is_empty() {
             return Self::default();
         }
-        let mut tokens = Vec::with_capacity(mappings.len());
+        let len = mappings.len();
+        let mut tokens: Vec<Token> = Vec::with_capacity(len);
         let mut line_starts = Vec::with_capacity(mappings.last_dst_line() as usize + 2);
         line_starts.push(0);
-        for token in mappings.tokens() {
-            // Lines without tokens are empty ranges.
-            while (line_starts.len() as u32) <= token.dst_line {
-                line_starts.push(tokens.len() as u32);
+        let out = tokens.as_mut_ptr();
+        let (mut line, mut index) = (0, 0);
+        mappings.tokens().for_each(|token| {
+            if token.dst_line != line {
+                line = token.dst_line;
+                // Lines without tokens are empty ranges.
+                while (line_starts.len() as u32) <= line {
+                    line_starts.push(index as u32);
+                }
             }
-            tokens.push(token);
-        }
-        line_starts.push(tokens.len() as u32);
+            // SAFETY: `tokens` has room for the `len` tokens of `mappings`.
+            unsafe { out.add(index).write(token) };
+            index += 1;
+        });
+        // SAFETY: the loop wrote all `len` tokens.
+        unsafe { tokens.set_len(len) };
+        line_starts.push(len as u32);
         Self { tokens, line_starts }
     }
 
@@ -700,9 +830,11 @@ impl LookupTable {
     /// The tokens of generated line `line`, or `None` past the last line with a token.
     #[inline]
     pub fn get(&self, line: usize) -> Option<&[Token]> {
-        let start = *self.line_starts.get(line)? as usize;
-        let end = *self.line_starts.get(line + 1)? as usize;
-        Some(&self.tokens[start..end])
+        let [start, end] = *self.line_starts.get(line..line.checked_add(2)?)? else {
+            return None;
+        };
+        // SAFETY: `line_starts` is nondecreasing and ends at `tokens.len()`.
+        Some(unsafe { self.tokens.get_unchecked(start as usize..end as usize) })
     }
 
     /// All tokens, in generated order.

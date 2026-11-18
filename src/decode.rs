@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use napi_derive::napi;
 
 use crate::error::{Error, Result};
+use crate::mappings::MAX_TOKEN_BYTES;
 use crate::token::INVALID_ID;
 use crate::{Mappings, SourceMap};
 
@@ -268,6 +269,9 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                     }
                 }
 
+                if mappings.spare_bytes() < MAX_TOKEN_BYTES {
+                    reserve_for_remaining(&mut mappings, mapping.len() - cursor);
+                }
                 mappings.write(i64::from(pending_lines), nums[0], source, name);
                 token_line = token_line.wrapping_add(pending_lines);
                 token_col = dst_col;
@@ -277,7 +281,7 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
     }
 
     mappings.set_end(token_line, token_col, src_id, src_line, src_col, name_id);
-    mappings.shrink_to_fit();
+    mappings.release_spare();
     Ok(mappings)
 }
 
@@ -386,10 +390,20 @@ const fn build_b64_decode() -> Aligned64 {
 
 /// Pick a byte capacity for the [`Mappings`] that `decode_mapping` fills.
 ///
-/// A segment is about five or six bytes of VLQ and about three bytes of [`Mappings`], so half
-/// the input length rarely needs to grow. `decode_mapping` releases what is left over.
+/// Real maps take a little more than half a byte of [`Mappings`] for each byte of VLQ, so this
+/// rarely needs to grow, and [`Mappings::write`] always finds room for a token at the start.
+/// `decode_mapping` releases what is left over when it is a lot.
 fn estimate_byte_capacity(mapping: &[u8]) -> usize {
-    mapping.len() / 2 + 8
+    mapping.len() / 8 * 5 + MAX_TOKEN_BYTES
+}
+
+/// Make room for the tokens of the `remaining` bytes of VLQ, when the estimate was short.
+///
+/// [`Mappings::write`] would double the buffer, and copy it, to make room for one token.
+#[cold]
+#[inline(never)]
+fn reserve_for_remaining(mappings: &mut Mappings, remaining: usize) {
+    mappings.reserve_bytes(remaining / 8 * 5 + MAX_TOKEN_BYTES);
 }
 
 /// Parse one VLQ segment at `cursor` and stop at `,` / `;` / end-of-input.

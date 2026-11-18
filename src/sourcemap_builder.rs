@@ -78,7 +78,7 @@ impl<'a> SourceMapBuilder<'a> {
     /// Finish, borrowing the names, sources, and contents for `'a` without copying strings.
     pub fn into_sourcemap(mut self) -> SourceMap<'a> {
         // Names and sources are collected into new vectors below.
-        self.mappings.shrink_to_fit();
+        self.mappings.release_spare();
         SourceMap::new(
             self.file.map(Cow::Borrowed),
             self.names.into_iter().map(Cow::Borrowed).collect(),
