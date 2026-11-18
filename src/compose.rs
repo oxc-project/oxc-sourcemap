@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use rustc_hash::FxHashMap;
 
-use crate::{SourceMap, Token};
+use crate::{Mappings, SourceMap, Token};
 
 impl SourceMap<'_> {
     /// Compose this source map with the source map for its input.
@@ -30,7 +30,7 @@ impl SourceMap<'_> {
             generated.sources.len()
         );
 
-        let (tokens, fallback_names) = {
+        let (mappings, fallback_names) = {
             let mut lookup = input.lookup_cursor();
             let mut name_ids = FxHashMap::default();
             for (name_id, name) in input.names.iter().enumerate() {
@@ -47,9 +47,9 @@ impl SourceMap<'_> {
                 }))
             };
 
-            let tokens = generated
-                .tokens
-                .iter()
+            let mappings: Mappings = generated
+                .mappings
+                .tokens()
                 .map(|token| {
                     let original = token.get_source_id().and_then(|_| {
                         lookup.lookup_token_approx(token.get_src_line(), token.get_src_col())
@@ -71,14 +71,13 @@ impl SourceMap<'_> {
                 })
                 .collect();
 
-            (tokens, fallback_names)
+            (mappings, fallback_names)
         };
 
         let mut result = input.into_parts();
         result.file = generated.file.map(|file| Cow::Owned(file.into_owned()));
         result.names.extend(fallback_names.into_iter().map(Cow::Owned));
-        result.tokens = tokens;
-        result.token_chunks = None;
+        result.mappings = mappings;
         result.debug_id = generated.debug_id.map(|debug_id| Cow::Owned(debug_id.into_owned()));
         SourceMap::from_parts(result)
     }

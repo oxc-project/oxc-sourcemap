@@ -2,10 +2,7 @@ use std::borrow::Cow;
 
 use rustc_hash::FxHashMap;
 
-use crate::{
-    SourceMap,
-    token::{Token, TokenChunk},
-};
+use crate::{Mappings, SourceMap, token::Token};
 
 /// Helper to build a [`SourceMap`].
 ///
@@ -24,8 +21,7 @@ pub struct SourceMapBuilder<'a> {
     pub(crate) sources: Vec<&'a str>,
     pub(crate) sources_map: FxHashMap<&'a str, u32>,
     pub(crate) source_contents: Vec<Option<&'a str>>,
-    pub(crate) tokens: Vec<Token>,
-    pub(crate) token_chunks: Option<Vec<TokenChunk>>,
+    pub(crate) mappings: Mappings,
 }
 
 impl<'a> SourceMapBuilder<'a> {
@@ -60,7 +56,8 @@ impl<'a> SourceMapBuilder<'a> {
         count
     }
 
-    /// Add item to `SourceMap::tokens`.
+    /// Add a token. Tokens are encoded as they are added, see [`Mappings`].
+    #[inline]
     pub fn add_token(
         &mut self,
         dst_line: u32,
@@ -70,7 +67,7 @@ impl<'a> SourceMapBuilder<'a> {
         src_id: Option<u32>,
         name_id: Option<u32>,
     ) {
-        self.tokens.push(Token::new(dst_line, dst_col, src_line, src_col, src_id, name_id));
+        self.mappings.push(Token::new(dst_line, dst_col, src_line, src_col, src_id, name_id));
     }
 
     /// Set the generated file name. Borrowed for `'a` (no allocation).
@@ -78,26 +75,17 @@ impl<'a> SourceMapBuilder<'a> {
         self.file = Some(file);
     }
 
-    /// Set token ranges and their preceding mapping state for VLQ encoding.
-    pub fn set_token_chunks(&mut self, token_chunks: Vec<TokenChunk>) {
-        self.token_chunks = Some(token_chunks);
-    }
-
     /// Finish, borrowing the names, sources, and contents for `'a` without copying strings.
     pub fn into_sourcemap(mut self) -> SourceMap<'a> {
-        // Names and sources are collected into new vectors below, and converting tokens
-        // into a boxed slice already discards their spare capacity.
-        if let Some(c) = self.token_chunks.as_mut() {
-            c.shrink_to_fit()
-        }
+        // Names and sources are collected into new vectors below.
+        self.mappings.shrink_to_fit();
         SourceMap::new(
             self.file.map(Cow::Borrowed),
             self.names.into_iter().map(Cow::Borrowed).collect(),
             None,
             self.sources.into_iter().map(|source| Some(Cow::Borrowed(source))).collect(),
             self.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
-            self.tokens.into_boxed_slice(),
-            self.token_chunks,
+            self.mappings,
         )
     }
 
@@ -155,16 +143,14 @@ mod tests {
     }
 
     #[test]
-    fn add_token_and_chunks() {
+    fn add_tokens() {
         let mut builder = SourceMapBuilder::default();
         let name_id = builder.add_name("n");
         let source_id = builder.add_source_and_content("s.js", "src");
         builder.add_token(0, 0, 0, 0, Some(source_id), Some(name_id));
         builder.add_token(0, 4, 0, 4, Some(source_id), None);
-        builder.set_token_chunks(vec![TokenChunk::new(0, 2, 0, 0, 0, 0, 0, 0)]);
 
         let sm = builder.into_sourcemap();
-        assert!(sm.token_chunks.is_some());
         assert_eq!(sm.get_tokens().count(), 2);
         assert_eq!(sm.get_token(0), Some(Token::new(0, 0, 0, 0, Some(0), Some(0))));
     }
@@ -176,7 +162,6 @@ mod tests {
         let name_id = builder.add_name("n");
         let source_id = builder.add_source_and_content("s.js", "src");
         builder.add_token(0, 0, 0, 0, Some(source_id), Some(name_id));
-        builder.set_token_chunks(vec![TokenChunk::new(0, 1, 0, 0, 0, 0, 0, 0)]);
 
         let owned = builder.into_owned_sourcemap();
         assert_eq!(owned.get_file(), Some("f.js"));
@@ -191,6 +176,5 @@ mod tests {
         // No token chunks set: exercises the `None` branch of the chunk shrink.
         let owned = SourceMapBuilder::default().into_owned_sourcemap();
         assert_eq!(owned.get_tokens().count(), 0);
-        assert!(owned.as_source_map().token_chunks.is_none());
     }
 }

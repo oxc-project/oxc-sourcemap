@@ -11,8 +11,8 @@ pub struct Token {
     pub(crate) dst_col: u32,
     pub(crate) src_line: u32,
     pub(crate) src_col: u32,
-    source_id: u32,
-    name_id: u32,
+    pub(crate) source_id: u32,
+    pub(crate) name_id: u32,
 }
 
 impl Token {
@@ -29,6 +29,8 @@ impl Token {
         source_id: Option<u32>,
         name_id: Option<u32>,
     ) -> Self {
+        // An unmapped token has no original position: keep it out of comparisons.
+        let (src_line, src_col) = if source_id.is_some() { (src_line, src_col) } else { (0, 0) };
         Self {
             dst_line,
             dst_col,
@@ -43,7 +45,7 @@ impl Token {
     /// `line_offset` and renumber the source/name ids by `source_offset` / `name_offset`,
     /// preserving the missing-id sentinel. Operates on the raw ids so there is no `Option`
     /// round-trip in the concat hot loop.
-    #[inline]
+    #[cfg(test)]
     pub(crate) fn translated(self, line_offset: u32, source_offset: u32, name_offset: u32) -> Self {
         let shift = |id: u32, offset: u32| if id == INVALID_ID { INVALID_ID } else { id + offset };
         Self {
@@ -82,43 +84,6 @@ impl Token {
     #[inline]
     pub fn get_source_id(&self) -> Option<u32> {
         if self.source_id == INVALID_ID { None } else { Some(self.source_id) }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TokenChunk {
-    pub start: u32,
-    pub end: u32,
-    pub prev_dst_line: u32,
-    pub prev_dst_col: u32,
-    pub prev_src_line: u32,
-    pub prev_src_col: u32,
-    pub prev_name_id: u32,
-    pub prev_source_id: u32,
-}
-
-impl TokenChunk {
-    #[expect(clippy::too_many_arguments)]
-    pub fn new(
-        start: u32,
-        end: u32,
-        prev_dst_line: u32,
-        prev_dst_col: u32,
-        prev_src_line: u32,
-        prev_src_col: u32,
-        prev_name_id: u32,
-        prev_source_id: u32,
-    ) -> Self {
-        Self {
-            start,
-            end,
-            prev_dst_line,
-            prev_dst_col,
-            prev_src_line,
-            prev_src_col,
-            prev_name_id,
-            prev_source_id,
-        }
     }
 }
 
@@ -198,8 +163,7 @@ mod tests {
             None,
             vec![Some(Cow::Borrowed("src0.js"))],
             vec![Some(Cow::Borrowed("the source content"))],
-            vec![Token::new(2, 3, 4, 5, Some(0), Some(0))].into_boxed_slice(),
-            None,
+            vec![Token::new(2, 3, 4, 5, Some(0), Some(0))],
         )
     }
 
@@ -267,8 +231,7 @@ mod tests {
             None,
             vec![],
             vec![],
-            vec![Token::new(0, 0, 0, 0, None, None)].into_boxed_slice(),
-            None,
+            vec![Token::new(0, 0, 0, 0, None, None)],
         );
         let token = sm.get_source_view_token(0).unwrap();
         assert_eq!(token.get_name(), None);

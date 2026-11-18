@@ -7,7 +7,7 @@ use napi_derive::napi;
 
 use crate::error::{Error, Result};
 use crate::token::INVALID_ID;
-use crate::{SourceMap, Token};
+use crate::{Mappings, SourceMap};
 
 /// See <https://tc39.es/ecma426/#sec-source-map-format>.
 #[cfg_attr(feature = "napi", napi(object, js_name = "JSONSourceMap"))]
@@ -86,7 +86,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
     }
     validate_ignore_list(json.ignore_list.as_deref(), json.sources.len())?;
 
-    let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
+    let mappings = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
     Ok(SourceMap {
         file: json.file.map(Cow::Owned),
         names: json.names.into_iter().map(Cow::Owned).collect(),
@@ -96,8 +96,7 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
             .sources_content
             .map(|content| content.into_iter().map(|c| c.map(Cow::Owned)).collect())
             .unwrap_or_default(),
-        tokens: tokens.into_boxed_slice(),
-        token_chunks: None,
+        mappings,
         ignore_list: json.ignore_list,
         debug_id: json.debug_id.map(Cow::Owned),
     })
@@ -157,7 +156,7 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
     let ignore_list = resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)?;
     validate_ignore_list(ignore_list.as_deref(), json.sources.len())?;
 
-    let tokens = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
+    let mappings = decode_mapping(&json.mappings, json.names.len(), json.sources.len())?;
 
     Ok(SourceMap {
         file: json.file.map(|s| s.0),
@@ -170,8 +169,7 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
             .into_iter()
             .map(|item| item.map(|s| s.0))
             .collect(),
-        tokens: tokens.into_boxed_slice(),
-        token_chunks: None,
+        mappings,
         ignore_list,
         debug_id: json.debug_id.map(|s| s.0),
     })
@@ -188,17 +186,24 @@ fn validate_ignore_list(ignore_list: Option<&[u32]>, sources_len: usize) -> Resu
     Ok(())
 }
 
-fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Vec<Token>> {
+/// Decode the `mappings` field straight into [`Mappings`].
+///
+/// Both formats store a token as deltas under the same rules, so each segment's deltas are
+/// written as they are. The absolute values are tracked only to validate them.
+fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result<Mappings> {
     let mapping = mapping.as_bytes();
 
-    let mut tokens: Vec<Token> = Vec::with_capacity(estimate_token_capacity(mapping));
+    let mut mappings = Mappings::with_byte_capacity(estimate_byte_capacity(mapping));
 
-    let mut dst_line = 0u32;
     let mut dst_col = 0u32;
     let mut src_id = 0;
     let mut src_line = 0;
     let mut src_col = 0;
     let mut name_id = 0;
+    // The generated position of the last token, and the lines passed since it.
+    let mut token_line = 0u32;
+    let mut token_col = 0u32;
+    let mut pending_lines = 0u32;
 
     // Source map segments are delta-encoded and interpreted relative to previous values.
     //
@@ -220,7 +225,7 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
             }
             b';' => {
                 // New destination line. Destination columns are line-relative.
-                dst_line = dst_line.wrapping_add(1);
+                pending_lines = pending_lines.wrapping_add(1);
                 dst_col = 0;
                 cursor += 1;
             }
@@ -231,8 +236,8 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                 let new_dst_col = i64::from(dst_col) + nums[0];
                 dst_col = u32::try_from(new_dst_col).map_err(|_| Error::BadSegmentSize(0))?;
 
-                let mut src = INVALID_ID;
-                let mut name = INVALID_ID;
+                let mut source = None;
+                let mut name = None;
 
                 if nums_len > 1 {
                     if nums_len != 4 && nums_len != 5 {
@@ -245,13 +250,13 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                         return Err(Error::BadSourceReference(src_id));
                     }
                     src_id = new_src_id as u32;
-                    src = src_id;
 
                     let new_src_line = i64::from(src_line) + nums[2];
                     src_line = u32::try_from(new_src_line).map_err(|_| Error::BadSegmentSize(0))?;
 
                     let new_src_col = i64::from(src_col) + nums[3];
                     src_col = u32::try_from(new_src_col).map_err(|_| Error::BadSegmentSize(0))?;
+                    source = Some((nums[1], nums[2], nums[3]));
 
                     if nums_len > 4 {
                         name_id = u32::try_from(i64::from(name_id) + nums[4])
@@ -259,23 +264,21 @@ fn decode_mapping(mapping: &str, names_len: usize, sources_len: usize) -> Result
                         if name_id as usize >= names_len {
                             return Err(Error::BadNameReference(name_id));
                         }
-                        name = name_id;
+                        name = Some(nums[4]);
                     }
                 }
 
-                tokens.push(Token::new(
-                    dst_line,
-                    dst_col,
-                    src_line,
-                    src_col,
-                    if src == INVALID_ID { None } else { Some(src) },
-                    if name == INVALID_ID { None } else { Some(name) },
-                ));
+                mappings.write(i64::from(pending_lines), nums[0], source, name);
+                token_line = token_line.wrapping_add(pending_lines);
+                token_col = dst_col;
+                pending_lines = 0;
             }
         }
     }
 
-    Ok(tokens)
+    mappings.set_end(token_line, token_col, src_id, src_line, src_col, name_id);
+    mappings.shrink_to_fit();
+    Ok(mappings)
 }
 
 /// Fast path for the dominant sourcemap segment shapes: a 4- or 5-field
@@ -381,32 +384,12 @@ const fn build_b64_decode() -> Aligned64 {
     Aligned64(table)
 }
 
-/// Pick a `Vec<Token>` capacity for `decode_mapping`.
+/// Pick a byte capacity for the [`Mappings`] that `decode_mapping` fills.
 ///
-/// Two regimes:
-/// * Small mappings (< 256 bytes) — exact `,`/`;` count. The scan itself is
-///   cheap on a few hundred bytes, and getting capacity *exact* lets the
-///   trailing `Vec::into_boxed_slice` in `decode_from_string` skip its
-///   shrink-realloc. That realloc dominates the per-iteration cost on tiny
-///   benchmarks (32-byte fixtures), so an over-estimate would regress them.
-/// * Larger mappings — `len / 4 + 1`. The scan would itself become the
-///   dominant cost (~15-20 µs on the xlarge perf fixture). The heuristic is
-///   close to typical sourcemap density (~4-5 bytes per segment); `Vec::push`
-///   handles under-estimates via geometric growth, and the trailing
-///   `into_boxed_slice` shrinks any over-allocation back to exact size.
-fn estimate_token_capacity(mapping: &[u8]) -> usize {
-    const EXACT_SCAN_THRESHOLD: usize = 256;
-    if mapping.len() < EXACT_SCAN_THRESHOLD {
-        let mut n = 1usize;
-        for &b in mapping {
-            if b == b',' || b == b';' {
-                n += 1;
-            }
-        }
-        n
-    } else {
-        mapping.len() / 4 + 1
-    }
+/// A segment is about five or six bytes of VLQ and about three bytes of [`Mappings`], so half
+/// the input length rarely needs to grow. `decode_mapping` releases what is left over.
+fn estimate_byte_capacity(mapping: &[u8]) -> usize {
+    mapping.len() / 2 + 8
 }
 
 /// Parse one VLQ segment at `cursor` and stop at `,` / `;` / end-of-input.
@@ -493,6 +476,7 @@ fn decode_sign(cur: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Token;
 
     #[test]
     fn decode_sourcemap() {

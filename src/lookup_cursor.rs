@@ -1,4 +1,4 @@
-use crate::{SourceMap, Token};
+use crate::{LookupTable, SourceMap, Token};
 
 /// Lookups through a cursor mostly move forward along a line, so a lookup scans this many tokens
 /// from the previous result before it falls back to binary search.
@@ -42,14 +42,14 @@ const FORWARD_SCAN: usize = 8;
 /// assert_eq!(cursor.lookup_token(0, 0), None);
 /// ```
 #[derive(Debug, Clone)]
-pub struct LookupCursor<'a> {
-    lines: Vec<&'a [Token]>,
+pub struct LookupCursor {
+    lines: LookupTable,
     /// The line and token index of the previous result.
     prev: Option<(u32, usize)>,
 }
 
-impl<'a> LookupCursor<'a> {
-    pub(crate) fn new(map: &'a SourceMap<'_>) -> Self {
+impl LookupCursor {
+    pub(crate) fn new(map: &SourceMap<'_>) -> Self {
         Self { lines: map.generate_lookup_table(), prev: None }
     }
 
@@ -65,7 +65,9 @@ impl<'a> LookupCursor<'a> {
         } else {
             next.checked_sub(1)?
         };
-        self.remember(line, tokens, index)
+        let token = *tokens.get(index)?;
+        self.prev = Some((line, index));
+        Some(token)
     }
 
     /// Lookup a token by line and column, like [`SourceMap::lookup_token_approx`].
@@ -80,13 +82,16 @@ impl<'a> LookupCursor<'a> {
         } else {
             next.saturating_sub(1)
         };
-        self.remember(line, tokens, index)
+        // An empty line has no token.
+        let token = *tokens.get(index)?;
+        self.prev = Some((line, index));
+        Some(token)
     }
 
     /// Returns `line`'s tokens and the index of the first token at or after `col`.
     #[inline]
-    fn first_at_or_after(&self, line: u32, col: u32) -> Option<(&'a [Token], usize)> {
-        let tokens = *self.lines.get(line as usize)?;
+    fn first_at_or_after(&self, line: u32, col: u32) -> Option<(&[Token], usize)> {
+        let tokens = self.lines.get(line as usize)?;
         // The search may start at the previous result only when every token before it is before
         // `col`, so a previous result never changes the answer.
         let mut next = match self.prev {
@@ -106,14 +111,5 @@ impl<'a> LookupCursor<'a> {
             next += tokens[next..].partition_point(|token| token.dst_col < col);
         }
         Some((tokens, next))
-    }
-
-    /// Returns the token at `index`, remembering it as the previous result. An empty line has no
-    /// token.
-    #[inline]
-    fn remember(&mut self, line: u32, tokens: &[Token], index: usize) -> Option<Token> {
-        let token = *tokens.get(index)?;
-        self.prev = Some((line, index));
-        Some(token)
     }
 }

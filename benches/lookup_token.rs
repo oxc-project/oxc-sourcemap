@@ -20,7 +20,7 @@ pub fn bench(c: &mut Criterion) {
             &(table, keys),
             |b, (table, keys)| {
                 b.iter(|| {
-                    let table = black_box(table.as_slice());
+                    let table = black_box(table);
                     let keys = black_box(keys.as_slice());
                     for &(line, col) in keys {
                         black_box(sourcemap.lookup_token(table, line, col));

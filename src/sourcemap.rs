@@ -1,11 +1,11 @@
 use std::borrow::Cow;
 
 use crate::{
-    LookupCursor, SourceViewToken,
+    LookupCursor, LookupTable, Mappings, MappingsIter, SourceViewToken,
     decode::{JSONSourceMap, decode, decode_from_string},
     encode::{encode, encode_to_string},
     error::Result,
-    token::{Token, TokenChunk},
+    token::Token,
 };
 
 /// A parsed source map.
@@ -15,6 +15,11 @@ use crate::{
 /// and own strings that require unescaping. Maps created by
 /// [`SourceMapBuilder`](crate::SourceMapBuilder) also borrow the builder's inputs.
 /// Use [`into_owned`](Self::into_owned) to detach a map from those inputs.
+///
+/// The mappings are stored as [`Mappings`], about 3 bytes for each token.
+/// [`get_tokens`](Self::get_tokens) decodes them in order, and
+/// [`generate_lookup_table`](Self::generate_lookup_table) or
+/// [`lookup_cursor`](Self::lookup_cursor) decode them once for position lookups.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap<'a> {
     pub(crate) file: Option<Cow<'a, str>>,
@@ -22,8 +27,7 @@ pub struct SourceMap<'a> {
     pub(crate) source_root: Option<Cow<'a, str>>,
     pub(crate) sources: Vec<Option<Cow<'a, str>>>,
     pub(crate) source_contents: Vec<Option<Cow<'a, str>>>,
-    pub(crate) tokens: Box<[Token]>,
-    pub(crate) token_chunks: Option<Vec<TokenChunk>>,
+    pub(crate) mappings: Mappings,
     /// Identifies third-party sources (such as framework code or bundler-generated code), allowing developers to avoid code that they don't want to see or step through, without having to configure this beforehand.
     /// The `ignoreList` field refers to the `sources` array, and lists the indices of all the known third-party sources in that source map.
     /// When parsing the source map, developer tools can use this to determine sections of the code that the browser loads and runs that could be automatically ignore-listed.
@@ -32,14 +36,13 @@ pub struct SourceMap<'a> {
 }
 
 impl<'a> SourceMap<'a> {
-    pub fn new(
+    pub fn new<M: Into<Mappings>>(
         file: Option<Cow<'a, str>>,
         names: Vec<Cow<'a, str>>,
         source_root: Option<Cow<'a, str>>,
         sources: Vec<Option<Cow<'a, str>>>,
         source_contents: Vec<Option<Cow<'a, str>>>,
-        tokens: Box<[Token]>,
-        token_chunks: Option<Vec<TokenChunk>>,
+        mappings: M,
     ) -> Self {
         Self {
             file,
@@ -47,8 +50,7 @@ impl<'a> SourceMap<'a> {
             source_root,
             sources,
             source_contents,
-            tokens,
-            token_chunks,
+            mappings: mappings.into(),
             ignore_list: None,
             debug_id: None,
         }
@@ -116,8 +118,7 @@ impl<'a> SourceMap<'a> {
                 .into_iter()
                 .map(|opt| opt.map(|c| Cow::Owned(c.into_owned())))
                 .collect(),
-            tokens: self.tokens,
-            token_chunks: self.token_chunks,
+            mappings: self.mappings,
             ignore_list: self.ignore_list,
             debug_id: self.debug_id.map(|c| Cow::Owned(c.into_owned())),
         }
@@ -136,8 +137,7 @@ impl<'a> SourceMap<'a> {
             source_root: self.source_root,
             sources: self.sources,
             source_contents: self.source_contents,
-            tokens: self.tokens,
-            token_chunks: self.token_chunks,
+            mappings: self.mappings,
             ignore_list: self.ignore_list,
             debug_id: self.debug_id,
         }
@@ -151,8 +151,7 @@ impl<'a> SourceMap<'a> {
             source_root: parts.source_root,
             sources: parts.sources,
             source_contents: parts.source_contents,
-            tokens: parts.tokens,
-            token_chunks: parts.token_chunks,
+            mappings: parts.mappings,
             ignore_list: parts.ignore_list,
             debug_id: parts.debug_id,
         }
@@ -214,22 +213,36 @@ impl<'a> SourceMap<'a> {
         self.source_contents.iter().map(Option::as_deref)
     }
 
+    /// Get the token at `index`.
+    ///
+    /// The tokens are decoded from the start, so this takes time proportional to `index`.
+    /// Use [`get_tokens`](Self::get_tokens) to visit every token.
     pub fn get_token(&self, index: u32) -> Option<Token> {
-        self.tokens.get(index as usize).copied()
+        self.mappings.tokens().nth(index as usize)
     }
 
     pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_, 'a>> {
         self.get_token(index).map(|token| SourceViewToken::new(token, self))
     }
 
-    /// Get raw tokens.
-    pub fn get_tokens(&self) -> impl ExactSizeIterator<Item = Token> {
-        self.tokens.iter().copied()
+    /// Decode the tokens, in generated order.
+    pub fn get_tokens(&self) -> MappingsIter<'_> {
+        self.mappings.tokens()
+    }
+
+    /// The number of tokens.
+    pub fn token_count(&self) -> usize {
+        self.mappings.len()
+    }
+
+    /// The mappings as stored.
+    pub fn mappings(&self) -> &Mappings {
+        &self.mappings
     }
 
     /// Get source view tokens. See [`SourceViewToken`] for more information.
     pub fn get_source_view_tokens(&self) -> impl ExactSizeIterator<Item = SourceViewToken<'_, 'a>> {
-        self.tokens.iter().map(|&token| SourceViewToken::new(token, self))
+        self.mappings.tokens().map(|token| SourceViewToken::new(token, self))
     }
 
     pub fn get_name(&self, id: u32) -> Option<&str> {
@@ -250,21 +263,10 @@ impl<'a> SourceMap<'a> {
     }
 
     /// Generate a lookup table, it will be used at `lookup_token` or `lookup_source_view_token`.
-    pub fn generate_lookup_table(&self) -> Vec<LineLookupTable<'_>> {
-        // The dst line/dst col always has increasing order.
-        let Some(last_token) = self.tokens.last() else { return vec![] };
-        let mut table = vec![&self.tokens[..0]; last_token.dst_line as usize + 1];
-        let mut start = 0;
-        let mut line = 0;
-        for (idx, token) in self.tokens.iter().enumerate() {
-            if token.dst_line != line {
-                table[line as usize] = &self.tokens[start..idx];
-                start = idx;
-                line = token.dst_line;
-            }
-        }
-        table[line as usize] = &self.tokens[start..];
-        table
+    ///
+    /// The table holds every token decoded, 24 bytes each. Drop it when the lookups are done.
+    pub fn generate_lookup_table(&self) -> LookupTable {
+        LookupTable::new(&self.mappings)
     }
 
     /// Create a [`LookupCursor`] for many lookups in this map.
@@ -275,18 +277,13 @@ impl<'a> SourceMap<'a> {
     /// [`lookup_token`](Self::lookup_token) or [`lookup_token_approx`](Self::lookup_token_approx)
     /// for each position. Results are identical to those methods when each line's tokens are
     /// sorted by generated column, which both assume.
-    pub fn lookup_cursor(&self) -> LookupCursor<'_> {
+    pub fn lookup_cursor(&self) -> LookupCursor {
         LookupCursor::new(self)
     }
 
     /// Lookup a token by line and column, it will used at remapping.
     #[inline]
-    pub fn lookup_token(
-        &self,
-        lookup_table: &[LineLookupTable],
-        line: u32,
-        col: u32,
-    ) -> Option<Token> {
+    pub fn lookup_token(&self, lookup_table: &LookupTable, line: u32, col: u32) -> Option<Token> {
         // Every token in `lookup_table[line]` has `dst_line == line` (see `generate_lookup_table`),
         // so the line component of the key is constant across the slice. Binary searching on
         // `dst_col` alone avoids building and lexicographically comparing a `(dst_line, dst_col)`
@@ -297,7 +294,7 @@ impl<'a> SourceMap<'a> {
     /// Lookup a token by line and column, it will used at remapping. See `SourceViewToken`.
     pub fn lookup_source_view_token(
         &self,
-        lookup_table: &[LineLookupTable],
+        lookup_table: &LookupTable,
         line: u32,
         col: u32,
     ) -> Option<SourceViewToken<'_, 'a>> {
@@ -315,7 +312,7 @@ impl<'a> SourceMap<'a> {
     /// An empty line (or a line past the end of the table) still returns `None`.
     pub fn lookup_token_approx(
         &self,
-        lookup_table: &[LineLookupTable],
+        lookup_table: &LookupTable,
         line: u32,
         col: u32,
     ) -> Option<Token> {
@@ -329,7 +326,7 @@ impl<'a> SourceMap<'a> {
     /// The [`SourceViewToken`] counterpart of [`lookup_token_approx`](Self::lookup_token_approx).
     pub fn lookup_source_view_token_approx(
         &self,
-        lookup_table: &[LineLookupTable],
+        lookup_table: &LookupTable,
         line: u32,
         col: u32,
     ) -> Option<SourceViewToken<'_, 'a>> {
@@ -351,8 +348,7 @@ pub struct SourceMapParts<'a> {
     /// Original source names, with `None` for unknown names.
     pub sources: Vec<Option<Cow<'a, str>>>,
     pub source_contents: Vec<Option<Cow<'a, str>>>,
-    pub tokens: Box<[Token]>,
-    pub token_chunks: Option<Vec<TokenChunk>>,
+    pub mappings: Mappings,
     pub ignore_list: Option<Vec<u32>>,
     pub debug_id: Option<Cow<'a, str>>,
 }
@@ -362,8 +358,6 @@ impl<'a> From<SourceMapParts<'a>> for SourceMap<'a> {
         SourceMap::from_parts(parts)
     }
 }
-
-type LineLookupTable<'a> = &'a [Token];
 
 fn greatest_lower_bound<'a, T, K: Ord, F: Fn(&'a T) -> K>(
     slice: &'a [T],
@@ -435,8 +429,7 @@ mod tests {
             None,
             vec![Some(Cow::Borrowed("foo.js"))],
             vec![],
-            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))].into_boxed_slice(),
-            None,
+            vec![Token::new(1, 1, 1, 1, Some(0), Some(0))],
         );
         let mut source_view_tokens = sm.get_source_view_tokens();
         assert_eq!(
@@ -492,15 +485,8 @@ mod tests {
         assert_eq!(sm.get_source_and_content(99), None);
 
         // Source present but its content is absent: the second `?` returns `None`.
-        let no_content = SourceMap::new(
-            None,
-            vec![],
-            None,
-            vec![Some(Cow::Borrowed("a.js"))],
-            vec![],
-            vec![].into_boxed_slice(),
-            None,
-        );
+        let no_content =
+            SourceMap::new(None, vec![], None, vec![Some(Cow::Borrowed("a.js"))], vec![], vec![]);
         assert_eq!(no_content.get_source(0), Some("a.js"));
         assert_eq!(no_content.get_source_and_content(0), None);
     }
@@ -525,7 +511,7 @@ mod tests {
         // No tokens => empty table, and lookups return `None`.
         let sm = SourceMap::default();
         assert!(sm.generate_lookup_table().is_empty());
-        assert!(sm.lookup_token(&[], 0, 0).is_none());
+        assert!(sm.lookup_token(&LookupTable::default(), 0, 0).is_none());
     }
 
     #[test]
@@ -539,8 +525,7 @@ mod tests {
             None,
             vec![Some(Cow::Borrowed("a.js"))],
             vec![],
-            vec![Token::new(0, 5, 0, 0, Some(0), None)].into_boxed_slice(),
-            None,
+            vec![Token::new(0, 5, 0, 0, Some(0), None)],
         );
         let table = sm.generate_lookup_table();
         assert!(sm.lookup_token(&table, 0, 0).is_none());
@@ -555,15 +540,8 @@ mod tests {
         for src_line in 1..=5 {
             tokens.push(Token::new(0, 7, src_line, 0, Some(0), None));
         }
-        let sm = SourceMap::new(
-            None,
-            vec![],
-            None,
-            vec![Some(Cow::Borrowed("a.js"))],
-            vec![],
-            tokens.into_boxed_slice(),
-            None,
-        );
+        let sm =
+            SourceMap::new(None, vec![], None, vec![Some(Cow::Borrowed("a.js"))], vec![], tokens);
         let table = sm.generate_lookup_table();
         // The earliest token at column 7 wins (src_line 1).
         assert_eq!(sm.lookup_token(&table, 0, 7).unwrap().get_src_line(), 1);

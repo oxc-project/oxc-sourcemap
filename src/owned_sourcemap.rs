@@ -1,5 +1,6 @@
 use crate::{
-    JSONSourceMap, SourceMap, SourceViewToken, Token, error::Result, sourcemap::SourceMapParts,
+    JSONSourceMap, LookupTable, SourceMap, SourceViewToken, Token, error::Result,
+    sourcemap::SourceMapParts,
 };
 
 /// An owned, lifetime-free source map.
@@ -187,17 +188,17 @@ impl OwnedSourceMap {
         self.inner.get_source_view_tokens()
     }
 
-    pub fn generate_lookup_table(&self) -> Vec<&[Token]> {
+    pub fn generate_lookup_table(&self) -> LookupTable {
         self.inner.generate_lookup_table()
     }
 
-    pub fn lookup_token(&self, lookup_table: &[&[Token]], line: u32, col: u32) -> Option<Token> {
+    pub fn lookup_token(&self, lookup_table: &LookupTable, line: u32, col: u32) -> Option<Token> {
         self.inner.lookup_token(lookup_table, line, col)
     }
 
     pub fn lookup_source_view_token(
         &self,
-        lookup_table: &[&[Token]],
+        lookup_table: &LookupTable,
         line: u32,
         col: u32,
     ) -> Option<SourceViewToken<'_, 'static>> {
@@ -206,7 +207,7 @@ impl OwnedSourceMap {
 
     pub fn lookup_token_approx(
         &self,
-        lookup_table: &[&[Token]],
+        lookup_table: &LookupTable,
         line: u32,
         col: u32,
     ) -> Option<Token> {
@@ -215,7 +216,7 @@ impl OwnedSourceMap {
 
     pub fn lookup_source_view_token_approx(
         &self,
-        lookup_table: &[&[Token]],
+        lookup_table: &LookupTable,
         line: u32,
         col: u32,
     ) -> Option<SourceViewToken<'_, 'static>> {
