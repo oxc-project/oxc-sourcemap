@@ -23,6 +23,10 @@ pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
         names: sourcemap.names.iter().map(ToString::to_string).collect(),
         debug_id: sourcemap.get_debug_id().map(ToString::to_string),
         ignore_list: sourcemap.ignore_list.clone(),
+        scopes: sourcemap
+            .get_encoded_scopes()
+            .map(|scopes| scopes.map(|scope| scope.map(str::to_owned)).collect()),
+        ranges: sourcemap.get_encoded_ranges().map(|ranges| ranges.map(str::to_owned).collect()),
     }
 }
 
@@ -95,6 +99,20 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
         estimated_capacity += 10 * ig_count + ig_count.saturating_sub(1);
     }
 
+    // Optional ],"scopes":[ and ],"ranges":[
+    // Encoded scopes and ranges are base64 VLQs and commas, which never need escaping.
+    if let Some(scopes) = &sourcemap.scopes {
+        estimated_capacity += 12; // ],"scopes":[
+        for scope in scopes {
+            // Quotes and a comma, or null and a comma.
+            estimated_capacity += scope.as_ref().map_or(5, |scope| scope.len() + 3);
+        }
+    }
+    if let Some(ranges) = &sourcemap.ranges {
+        estimated_capacity += 12; // ],"ranges":[
+        estimated_capacity += ranges.iter().map(|segment| segment.len() + 3).sum::<usize>();
+    }
+
     // ],"mappings":"
     estimated_capacity += 14;
     estimated_capacity += estimate_mappings_length(sourcemap);
@@ -144,6 +162,19 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
         contents.push_list(ignore_list.iter(), |s, output| {
             output.extend_from_slice(s.to_string().as_bytes());
         });
+    }
+
+    if let Some(scopes) = &sourcemap.scopes {
+        contents.push("],\"scopes\":[");
+        contents.push_list(scopes.iter(), |scope, output| match scope {
+            Some(scope) => escape_into(scope, output),
+            None => output.extend_from_slice(b"null"),
+        });
+    }
+
+    if let Some(ranges) = &sourcemap.ranges {
+        contents.push("],\"ranges\":[");
+        contents.push_list(ranges.iter(), escape_into);
     }
 
     contents.push("],\"mappings\":\"");
