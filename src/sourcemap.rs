@@ -213,18 +213,6 @@ impl<'a> SourceMap<'a> {
         self.source_contents.iter().map(Option::as_deref)
     }
 
-    /// Get the token at `index`.
-    ///
-    /// The tokens are decoded from the start, so this takes time proportional to `index`.
-    /// Use [`get_tokens`](Self::get_tokens) to visit every token.
-    pub fn get_token(&self, index: u32) -> Option<Token> {
-        self.mappings.tokens().nth(index as usize)
-    }
-
-    pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_, 'a>> {
-        self.get_token(index).map(|token| SourceViewToken::new(token, self))
-    }
-
     /// Decode the tokens, in generated order.
     pub fn get_tokens(&self) -> MappingsIter<'_> {
         self.mappings.tokens()
@@ -436,9 +424,6 @@ mod tests {
             source_view_tokens.next().unwrap().to_tuple(),
             (Some("foo.js"), 1, 1, Some("foo"))
         );
-        // Indexed source-view token accessor, including out-of-range.
-        assert!(sm.get_source_view_token(0).is_some());
-        assert!(sm.get_source_view_token(99).is_none());
     }
 
     #[test]

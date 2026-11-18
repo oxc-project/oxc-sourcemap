@@ -170,16 +170,8 @@ impl OwnedSourceMap {
         self.inner.get_source_and_content(id)
     }
 
-    pub fn get_token(&self, index: u32) -> Option<Token> {
-        self.inner.get_token(index)
-    }
-
     pub fn get_tokens(&self) -> impl ExactSizeIterator<Item = Token> {
         self.inner.get_tokens()
-    }
-
-    pub fn get_source_view_token(&self, index: u32) -> Option<SourceViewToken<'_, 'static>> {
-        self.inner.get_source_view_token(index)
     }
 
     pub fn get_source_view_tokens(
@@ -305,9 +297,7 @@ mod tests {
         assert_eq!(sm.get_source(0), Some("a.js"));
         assert_eq!(sm.get_source_content(0), Some("AC"));
         assert_eq!(sm.get_source_and_content(0), Some(("a.js", "AC")));
-        assert!(sm.get_token(0).is_some());
         assert_eq!(sm.get_tokens().count(), 1);
-        assert!(sm.get_source_view_token(0).is_some());
         assert_eq!(sm.get_source_view_tokens().count(), 1);
     }
 

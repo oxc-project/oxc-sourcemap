@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn source_view_token_accessors() {
         let sm = sample_map();
-        let token = sm.get_source_view_token(0).unwrap();
+        let token = sm.get_source_view_tokens().next().unwrap();
         assert_eq!(token.get_dst_line(), 2);
         assert_eq!(token.get_dst_col(), 3);
         assert_eq!(token.get_src_line(), 4);
@@ -233,7 +233,7 @@ mod tests {
             vec![],
             vec![Token::new(0, 0, 0, 0, None, None)],
         );
-        let token = sm.get_source_view_token(0).unwrap();
+        let token = sm.get_source_view_tokens().next().unwrap();
         assert_eq!(token.get_name(), None);
         assert_eq!(token.get_source(), None);
         assert_eq!(token.get_source_content(), None);

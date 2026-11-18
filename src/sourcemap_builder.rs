@@ -152,7 +152,7 @@ mod tests {
 
         let sm = builder.into_sourcemap();
         assert_eq!(sm.get_tokens().count(), 2);
-        assert_eq!(sm.get_token(0), Some(Token::new(0, 0, 0, 0, Some(0), Some(0))));
+        assert_eq!(sm.get_tokens().next(), Some(Token::new(0, 0, 0, 0, Some(0), Some(0))));
     }
 
     #[test]

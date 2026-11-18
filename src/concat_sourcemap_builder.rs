@@ -380,7 +380,7 @@ mod tests {
         assert_eq!(owned.get_source_content(0), Some("a content"));
         assert_eq!(owned.get_source_content(1), Some("b content"));
         // `b`'s token is shifted by the line offset and renumbered onto the combined ids.
-        assert_eq!(owned.get_token(1), Some(Token::new(5, 0, 0, 0, Some(1), Some(1))));
+        assert_eq!(owned.get_tokens().nth(1), Some(Token::new(5, 0, 0, 0, Some(1), Some(1))));
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
                 .into_sourcemap();
 
         assert_eq!(map.get_sources().collect::<Vec<_>>(), vec![Some("a.js"), Some("b.js")]);
-        assert_eq!(map.get_token(0).unwrap().get_source_id(), Some(1));
+        assert_eq!(map.get_tokens().next().unwrap().get_source_id(), Some(1));
         assert_eq!(map.get_source_content(1), Some("b content"));
     }
 
@@ -515,7 +515,7 @@ mod tests {
 
         // 2 from map1 + 1 from map2 (its first token was deduplicated at the seam).
         assert_eq!(concat_sm.token_count(), 3);
-        assert_eq!(concat_sm.get_token(1), Some(Token::new(2, 3, 0, 0, None, None)));
-        assert_eq!(concat_sm.get_token(2), Some(Token::new(3, 9, 0, 0, None, None)));
+        assert_eq!(concat_sm.get_tokens().nth(1), Some(Token::new(2, 3, 0, 0, None, None)));
+        assert_eq!(concat_sm.get_tokens().nth(2), Some(Token::new(3, 9, 0, 0, None, None)));
     }
 }
