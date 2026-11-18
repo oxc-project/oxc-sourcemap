@@ -34,7 +34,7 @@ fn compose_sourcemaps_with_approx_lookup_keeps_indented_lines() {
     let table = codegen_map.generate_lookup_table();
     assert!(codegen_map.lookup_token(&table, 1, 0).is_none());
     let composed = bundler_map.compose(codegen_map);
-    let origin = composed.get_source_view_token(0).unwrap();
+    let origin = composed.get_source_view_tokens().next().unwrap();
 
     assert_eq!(origin.get_source(), Some("a.js"));
     assert_eq!(origin.get_source_content(), Some("globalThis.side = 1;"));

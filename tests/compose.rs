@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use oxc_sourcemap::{OwnedSourceMap, SourceMap, SourceMapBuilder, TokenChunk};
+use oxc_sourcemap::{OwnedSourceMap, SourceMap, SourceMapBuilder};
 
 #[test]
 fn compose_traces_mappings_and_preserves_metadata() {
@@ -20,12 +20,11 @@ fn compose_traces_mappings_and_preserves_metadata() {
     generated.add_source_and_content("intermediate.js", "\n compiled();");
     let name_id = generated.add_name("compiledName");
     generated.add_token(3, 7, 1, 1, Some(0), Some(name_id));
-    generated.set_token_chunks(vec![TokenChunk::default()]);
     let mut generated = generated.into_sourcemap();
     generated.set_debug_id("generated-debug-id");
 
     let composed = generated.compose(SourceMap::from_parts(input));
-    let token = composed.get_source_view_token(0).unwrap();
+    let token = composed.get_source_view_tokens().next().unwrap();
 
     assert_eq!((token.get_dst_line(), token.get_dst_col()), (3, 7));
     assert_eq!((token.get_src_line(), token.get_src_col()), (4, 5));
@@ -36,7 +35,6 @@ fn compose_traces_mappings_and_preserves_metadata() {
     assert_eq!(composed.get_source_root(), Some("../src"));
     assert_eq!(composed.get_debug_id(), Some("generated-debug-id"));
     assert_eq!(composed.get_ignore_list(), Some(&[0][..]));
-    assert!(composed.into_parts().token_chunks.is_none());
 }
 
 #[test]
@@ -57,8 +55,8 @@ fn compose_uses_generated_names_as_deduplicated_fallbacks() {
     let composed = generated.into_sourcemap().compose(input.into_sourcemap());
 
     assert_eq!(composed.get_names().collect::<Vec<_>>(), ["shared", "fallback"]);
-    assert_eq!(composed.get_source_view_token(0).unwrap().get_name(), Some("shared"));
-    assert_eq!(composed.get_source_view_token(1).unwrap().get_name(), Some("fallback"));
+    assert_eq!(composed.get_source_view_tokens().next().unwrap().get_name(), Some("shared"));
+    assert_eq!(composed.get_source_view_tokens().nth(1).unwrap().get_name(), Some("fallback"));
 }
 
 #[test]

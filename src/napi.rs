@@ -65,8 +65,7 @@ mod tests {
             Some("root".into()),
             vec![Some("a.js".into())],
             vec![Some("content".into())],
-            vec![].into_boxed_slice(),
-            None,
+            vec![],
         );
         inner.set_ignore_list(vec![0]);
 
@@ -90,8 +89,7 @@ mod tests {
             None,
             vec![Some("a.js".into()), Some("b.js".into())],
             vec![Some("x".into()), None],
-            vec![].into_boxed_slice(),
-            None,
+            vec![],
         );
         let napi: SourceMap = inner.into();
         assert_eq!(napi.sources_content, Some(vec!["x".to_string(), String::new()]));
