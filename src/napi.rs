@@ -13,6 +13,8 @@ use napi_derive::napi;
 //  sourcesContent?: string[];
 //  version: number;
 //  ignoreList?: number[];
+//  scopes?: (string | null)[];
+//  ranges?: string[];
 // }
 // ```
 #[napi(object)]
@@ -26,6 +28,10 @@ pub struct SourceMap {
     pub version: u8,
     #[napi(js_name = "ignoreList")]
     pub ignore_list: Option<Vec<u32>>,
+    /// Encoded original scopes, one entry per source (ECMA-426 Scopes proposal).
+    pub scopes: Option<Vec<Option<String>>>,
+    /// Encoded generated ranges, one entry per segment (ECMA-426 Scopes proposal).
+    pub ranges: Option<Vec<String>>,
 }
 
 impl From<crate::SourceMap<'_>> for SourceMap {
@@ -42,6 +48,8 @@ impl From<crate::SourceMap<'_>> for SourceMap {
                 .map(|content| content.into_iter().map(Option::unwrap_or_default).collect()),
             version: 3,
             ignore_list: json.ignore_list,
+            scopes: json.scopes,
+            ranges: json.ranges,
         }
     }
 }

@@ -1,5 +1,6 @@
 use crate::{
-    JSONSourceMap, SourceMap, SourceViewToken, Token, error::Result, sourcemap::SourceMapParts,
+    JSONSourceMap, ScopeDecodeMode, ScopeInfo, SourceMap, SourceViewToken, Token, error::Result,
+    sourcemap::SourceMapParts,
 };
 
 /// An owned, lifetime-free source map.
@@ -131,6 +132,27 @@ impl OwnedSourceMap {
 
     pub fn set_debug_id(&mut self, debug_id: &str) {
         self.inner.set_debug_id(debug_id);
+    }
+
+    /// See [`SourceMap::decode_scope_info`].
+    ///
+    /// # Errors
+    /// Only in [`ScopeDecodeMode::Strict`], for malformed scope information.
+    pub fn decode_scope_info(&self, mode: ScopeDecodeMode) -> Result<Option<ScopeInfo>> {
+        self.inner.decode_scope_info(mode)
+    }
+
+    /// See [`SourceMap::set_scope_info`].
+    ///
+    /// # Errors
+    /// Returns an error when `info` is malformed or does not match this map.
+    pub fn set_scope_info(&mut self, info: &ScopeInfo) -> Result<()> {
+        self.inner.set_scope_info(info)
+    }
+
+    /// See [`SourceMap::clear_scope_info`].
+    pub fn clear_scope_info(&mut self) {
+        self.inner.clear_scope_info();
     }
 
     pub fn get_names(&self) -> impl ExactSizeIterator<Item = &str> {

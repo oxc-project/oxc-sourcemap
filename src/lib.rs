@@ -5,6 +5,7 @@ mod encode;
 mod error;
 mod lookup_cursor;
 mod owned_sourcemap;
+mod scopes;
 mod sourcemap;
 mod sourcemap_builder;
 mod sourcemap_visualizer;
@@ -18,6 +19,10 @@ pub use decode::JSONSourceMap;
 pub use error::Error;
 pub use lookup_cursor::LookupCursor;
 pub use owned_sourcemap::OwnedSourceMap;
+pub use scopes::{
+    Binding, GeneratedRange, OriginalPosition, OriginalScope, Position, ScopeDecodeMode, ScopeInfo,
+    ScopeRef, StackFrameType,
+};
 pub use sourcemap::{SourceMap, SourceMapParts};
 pub use sourcemap_builder::SourceMapBuilder;
 pub use sourcemap_visualizer::SourcemapVisualizer;
