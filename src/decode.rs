@@ -22,9 +22,11 @@ pub struct JSONSourceMap {
     /// This value is prepended to the individual entries in the "source" field.
     pub source_root: Option<String>,
     /// A list of original sources used by the "mappings" entry, with `None` for unknown names.
+    #[cfg_attr(feature = "napi", napi(ts_type = "Array<string | null>"))]
     pub sources: Vec<Option<String>>,
     /// An optional list of source content, useful when the "source" can't be hosted.
     /// The contents are listed in the same order as the sources in line 5. "null" may be used if some original sources should be retrieved by name.
+    #[cfg_attr(feature = "napi", napi(ts_type = "Array<string | null>"))]
     pub sources_content: Option<Vec<Option<String>>>,
     /// A list of symbol names used by the "mappings" entry.
     pub names: Vec<String>,
