@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.1](https://github.com/oxc-project/oxc-sourcemap/compare/v10.0.0...v10.0.1) - 2026-11-26
+
+### Fixed
+
+- *(napi)* type `sources` as `Array<string | null>` ([#527](https://github.com/oxc-project/oxc-sourcemap/pull/527))
+
 ## [10.0.0](https://github.com/oxc-project/oxc-sourcemap/compare/v9.0.0...v10.0.0) - 2026-11-10
 
 ### Added
