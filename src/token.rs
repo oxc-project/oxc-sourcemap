@@ -11,8 +11,8 @@ pub struct Token {
     pub(crate) dst_col: u32,
     pub(crate) src_line: u32,
     pub(crate) src_col: u32,
-    source_id: u32,
-    name_id: u32,
+    pub(crate) source_id: u32,
+    pub(crate) name_id: u32,
 }
 
 impl Token {
