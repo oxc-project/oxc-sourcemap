@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 
 use crate::{
-    LookupCursor, SourceViewToken,
+    LookupCursor, ScopeDecodeMode, ScopeInfo, SourceViewToken,
     decode::{JSONSourceMap, decode, decode_from_string},
     encode::{encode, encode_to_string},
-    error::Result,
+    error::{Error, Result},
+    scopes::{Offsets, decode_scope_info, encode_scope_info},
     token::{Token, TokenChunk},
 };
 
@@ -29,6 +30,12 @@ pub struct SourceMap<'a> {
     /// When parsing the source map, developer tools can use this to determine sections of the code that the browser loads and runs that could be automatically ignore-listed.
     pub(crate) ignore_list: Option<Vec<u32>>,
     pub(crate) debug_id: Option<Cow<'a, str>>,
+    /// The encoded `scopes` field: one entry per source, `None` for sources without scope
+    /// information. Kept encoded so parsing and serializing stay cheap; see
+    /// [`decode_scope_info`](Self::decode_scope_info).
+    pub(crate) scopes: Option<Vec<Option<Cow<'a, str>>>>,
+    /// The encoded `ranges` field: a list of independently decodable segments.
+    pub(crate) ranges: Option<Vec<Cow<'a, str>>>,
 }
 
 impl<'a> SourceMap<'a> {
@@ -51,6 +58,8 @@ impl<'a> SourceMap<'a> {
             token_chunks,
             ignore_list: None,
             debug_id: None,
+            scopes: None,
+            ranges: None,
         }
     }
 
@@ -120,6 +129,12 @@ impl<'a> SourceMap<'a> {
             token_chunks: self.token_chunks,
             ignore_list: self.ignore_list,
             debug_id: self.debug_id.map(|c| Cow::Owned(c.into_owned())),
+            scopes: self.scopes.map(|scopes| {
+                scopes.into_iter().map(|opt| opt.map(|c| Cow::Owned(c.into_owned()))).collect()
+            }),
+            ranges: self
+                .ranges
+                .map(|ranges| ranges.into_iter().map(|c| Cow::Owned(c.into_owned())).collect()),
         }
     }
 
@@ -140,6 +155,8 @@ impl<'a> SourceMap<'a> {
             token_chunks: self.token_chunks,
             ignore_list: self.ignore_list,
             debug_id: self.debug_id,
+            scopes: self.scopes,
+            ranges: self.ranges,
         }
     }
 
@@ -155,6 +172,8 @@ impl<'a> SourceMap<'a> {
             token_chunks: parts.token_chunks,
             ignore_list: parts.ignore_list,
             debug_id: parts.debug_id,
+            scopes: parts.scopes,
+            ranges: parts.ranges,
         }
     }
 
@@ -185,6 +204,64 @@ impl<'a> SourceMap<'a> {
 
     pub fn get_debug_id(&self) -> Option<&str> {
         self.debug_id.as_deref()
+    }
+
+    /// Decode the `scopes` and `ranges` fields
+    /// ([ECMA-426 Scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)).
+    ///
+    /// Returns `Ok(None)` when the map has neither field. Parsing a source map does not validate
+    /// these fields, so a malformed value only surfaces here. See [`ScopeDecodeMode`] for how
+    /// malformed input is handled.
+    ///
+    /// # Errors
+    ///
+    /// Only in [`ScopeDecodeMode::Strict`]: returns an error for malformed or inconsistent scope
+    /// information.
+    pub fn decode_scope_info(&self, mode: ScopeDecodeMode) -> Result<Option<ScopeInfo>> {
+        decode_scope_info(
+            self.scopes.as_deref(),
+            self.ranges.as_deref(),
+            self.names.len(),
+            self.sources.len(),
+            mode,
+        )
+    }
+
+    /// Encode `info` into the `scopes` and `ranges` fields, replacing any existing ones.
+    ///
+    /// Name indices in `info` refer to this map's `names`; add any missing names first.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error, leaving the map unchanged, when `info.scopes` does not have one entry
+    /// per source, an index refers to a missing name, source or scope, scopes or ranges are not
+    /// sorted and properly nested, bindings do not match the variables of the range's
+    /// definition, or an inlined range (one with a call site) is inconsistent.
+    pub fn set_scope_info(&mut self, info: &ScopeInfo) -> Result<()> {
+        if info.scopes.len() != self.sources.len() {
+            return Err(Error::InvalidScopes("\"scopes\" must have one entry per source"));
+        }
+        let encoded = encode_scope_info(info, Some(self.names.len()), Offsets::default())?;
+        self.scopes =
+            Some(encoded.scopes.into_iter().map(|scopes| scopes.map(Cow::Owned)).collect());
+        self.ranges = encoded.ranges.map(|ranges| vec![Cow::Owned(ranges)]);
+        Ok(())
+    }
+
+    /// Remove the `scopes` and `ranges` fields.
+    pub fn clear_scope_info(&mut self) {
+        self.scopes = None;
+        self.ranges = None;
+    }
+
+    /// The encoded `scopes` field, one entry per source with `None` for sources without scopes.
+    pub fn get_encoded_scopes(&self) -> Option<impl ExactSizeIterator<Item = Option<&str>>> {
+        self.scopes.as_ref().map(|scopes| scopes.iter().map(Option::as_deref))
+    }
+
+    /// The encoded `ranges` field, one entry per segment.
+    pub fn get_encoded_ranges(&self) -> Option<impl ExactSizeIterator<Item = &str>> {
+        self.ranges.as_ref().map(|ranges| ranges.iter().map(AsRef::as_ref))
     }
 
     pub fn get_names(&self) -> impl ExactSizeIterator<Item = &str> {
@@ -355,6 +432,10 @@ pub struct SourceMapParts<'a> {
     pub token_chunks: Option<Vec<TokenChunk>>,
     pub ignore_list: Option<Vec<u32>>,
     pub debug_id: Option<Cow<'a, str>>,
+    /// The encoded `scopes` field: one entry per source, `None` for sources without scopes.
+    pub scopes: Option<Vec<Option<Cow<'a, str>>>>,
+    /// The encoded `ranges` field: one entry per segment.
+    pub ranges: Option<Vec<Cow<'a, str>>>,
 }
 
 impl<'a> From<SourceMapParts<'a>> for SourceMap<'a> {

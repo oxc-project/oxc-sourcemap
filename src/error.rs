@@ -16,6 +16,8 @@ pub enum Error {
     BadSourceReference(u32),
     /// a reference to a non existing name was encountered
     BadNameReference(u32),
+    /// the `scopes` or `ranges` information is malformed or inconsistent
+    InvalidScopes(&'static str),
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,6 +35,7 @@ impl fmt::Display for Error {
             Error::BadNameReference(idx) => {
                 write!(f, "Reference to non-existing name at position {idx}")
             }
+            Error::InvalidScopes(reason) => write!(f, "Invalid scopes or ranges: {reason}"),
         }
     }
 }
@@ -88,6 +91,10 @@ mod tests {
         assert_eq!(
             Error::BadNameReference(9).to_string(),
             "Reference to non-existing name at position 9"
+        );
+        assert_eq!(
+            Error::InvalidScopes("empty item").to_string(),
+            "Invalid scopes or ranges: empty item"
         );
     }
 

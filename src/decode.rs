@@ -38,6 +38,17 @@ pub struct JSONSourceMap {
     /// JSON input falls back to the deprecated `x_google_ignoreList` when `ignoreList` is missing or null.
     #[cfg_attr(feature = "napi", napi(js_name = "ignoreList"))]
     pub ignore_list: Option<Vec<u32>>,
+    /// Encoded original scopes, one entry per source with `None` for sources without scope
+    /// information. See [`SourceMap::decode_scope_info`].
+    ///
+    /// JSON input that is not a list (such as the single-string encoding of earlier drafts of
+    /// the proposal) is ignored.
+    pub scopes: Option<Vec<Option<String>>>,
+    /// Encoded generated ranges, as a list of segments. See [`SourceMap::decode_scope_info`].
+    ///
+    /// JSON input that is a single string is read as one segment, anything else that is not a
+    /// list is ignored.
+    pub ranges: Option<Vec<String>>,
 }
 
 impl<'de> serde::Deserialize<'de> for JSONSourceMap {
@@ -63,6 +74,11 @@ impl<'de> serde::Deserialize<'de> for JSONSourceMap {
             debug_id: json.debug_id.map(|s| s.0.into_owned()),
             ignore_list: resolve_ignore_list(json.ignore_list, json.x_google_ignore_list)
                 .map_err(serde::de::Error::custom)?,
+            scopes: json
+                .scopes
+                .0
+                .map(|scopes| scopes.into_iter().map(|scope| scope.map(Cow::into_owned)).collect()),
+            ranges: json.ranges.0.map(|ranges| ranges.into_iter().map(Cow::into_owned).collect()),
         })
     }
 }
@@ -102,6 +118,8 @@ pub fn decode(json: JSONSourceMap) -> Result<SourceMap<'static>> {
         token_chunks: None,
         ignore_list: json.ignore_list,
         debug_id: json.debug_id.map(Cow::Owned),
+        scopes: json.scopes.map(|scopes| scopes.into_iter().map(|s| s.map(Cow::Owned)).collect()),
+        ranges: json.ranges.map(|ranges| ranges.into_iter().map(Cow::Owned).collect()),
     })
 }
 
@@ -141,6 +159,172 @@ struct BorrowedJSONSourceMap<'a> {
     // `ignoreList` takes precedence, even if the legacy value is malformed.
     #[serde(rename = "x_google_ignoreList")]
     x_google_ignore_list: Option<serde_json::Value>,
+    #[serde(borrow, default)]
+    scopes: LenientScopes<'a>,
+    #[serde(borrow, default)]
+    ranges: LenientRanges<'a>,
+}
+
+/// The `scopes` field: a list of strings or nulls. A value of any other shape is ignored rather
+/// than failing the whole source map, as the spec asks of consumers. This also covers the
+/// single-string encoding of earlier drafts, which the current encoding cannot read.
+#[derive(Default)]
+struct LenientScopes<'a>(Option<Vec<Option<Cow<'a, str>>>>);
+
+/// The `ranges` field: a list of strings. A single string, as in earlier drafts, is one segment.
+/// A value of any other shape is ignored.
+#[derive(Default)]
+struct LenientRanges<'a>(Option<Vec<Cow<'a, str>>>);
+
+/// A string, or `None` for a value of any other type.
+struct LenientString<'a>(Option<Cow<'a, str>>);
+
+/// Defines a visitor that accepts any JSON value, with the given handlers for strings and arrays
+/// and `$default` for everything else.
+macro_rules! lenient_visitor {
+    (
+        $visitor:ident -> $value:ty, $expecting:literal,
+        str($s:ident) => $str:expr,
+        seq($seq:ident) => $seq_expr:expr,
+        default => $default:expr $(,)?
+    ) => {
+        struct $visitor<'a>(std::marker::PhantomData<&'a ()>);
+
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for $visitor<'a> {
+            type Value = $value;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str($expecting)
+            }
+
+            fn visit_borrowed_str<E: serde::de::Error>(
+                self,
+                v: &'de str,
+            ) -> std::result::Result<Self::Value, E> {
+                let $s: Cow<'a, str> = Cow::Borrowed(v);
+                Ok($str)
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> std::result::Result<Self::Value, E> {
+                let $s: Cow<'a, str> = Cow::Owned(v.to_owned());
+                Ok($str)
+            }
+
+            fn visit_string<E: serde::de::Error>(
+                self,
+                v: String,
+            ) -> std::result::Result<Self::Value, E> {
+                let $s: Cow<'a, str> = Cow::Owned(v);
+                Ok($str)
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut $seq: A,
+            ) -> std::result::Result<Self::Value, A::Error> {
+                $seq_expr
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> std::result::Result<Self::Value, A::Error> {
+                while map.next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?.is_some() {}
+                Ok($default)
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> std::result::Result<Self::Value, E> {
+                Ok($default)
+            }
+
+            fn visit_none<E: serde::de::Error>(self) -> std::result::Result<Self::Value, E> {
+                Ok($default)
+            }
+
+            fn visit_bool<E: serde::de::Error>(
+                self,
+                _: bool,
+            ) -> std::result::Result<Self::Value, E> {
+                Ok($default)
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, _: i64) -> std::result::Result<Self::Value, E> {
+                Ok($default)
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, _: u64) -> std::result::Result<Self::Value, E> {
+                Ok($default)
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, _: f64) -> std::result::Result<Self::Value, E> {
+                Ok($default)
+            }
+        }
+    };
+}
+
+lenient_visitor! {
+    LenientStringVisitor -> LenientString<'a>, "a string",
+    str(s) => LenientString(Some(s)),
+    seq(seq) => {
+        while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+        Ok(LenientString(None))
+    },
+    default => LenientString(None),
+}
+
+lenient_visitor! {
+    LenientScopesVisitor -> LenientScopes<'a>, "a list of strings",
+    str(_s) => LenientScopes(None),
+    seq(seq) => {
+        let mut scopes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+        while let Some(LenientString(scope)) = seq.next_element()? {
+            scopes.push(scope);
+        }
+        Ok(LenientScopes(Some(scopes)))
+    },
+    default => LenientScopes(None),
+}
+
+lenient_visitor! {
+    LenientRangesVisitor -> LenientRanges<'a>, "a list of strings",
+    str(s) => LenientRanges(Some(vec![s])),
+    seq(seq) => {
+        let mut ranges = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+        while let Some(LenientString(segment)) = seq.next_element()? {
+            // Per the spec, a non-string entry reads as an empty string.
+            ranges.push(segment.unwrap_or_default());
+        }
+        Ok(LenientRanges(Some(ranges)))
+    },
+    default => LenientRanges(None),
+}
+
+impl<'de: 'a, 'a> serde::Deserialize<'de> for LenientString<'a> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        deserializer.deserialize_any(LenientStringVisitor(std::marker::PhantomData))
+    }
+}
+
+impl<'de: 'a, 'a> serde::Deserialize<'de> for LenientScopes<'a> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        deserializer.deserialize_any(LenientScopesVisitor(std::marker::PhantomData))
+    }
+}
+
+impl<'de: 'a, 'a> serde::Deserialize<'de> for LenientRanges<'a> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        deserializer.deserialize_any(LenientRangesVisitor(std::marker::PhantomData))
+    }
 }
 
 fn resolve_ignore_list(
@@ -176,6 +360,8 @@ pub fn decode_from_string(value: &str) -> Result<SourceMap<'_>> {
         token_chunks: None,
         ignore_list,
         debug_id: json.debug_id.map(|s| s.0),
+        scopes: json.scopes.0,
+        ranges: json.ranges.0,
     })
 }
 

@@ -19,6 +19,11 @@ impl SourceMap<'_> {
     /// positions and source metadata come from `input`. An input name takes
     /// precedence over a name from `self` at the same mapping.
     ///
+    /// The original scopes (`scopes`) of `input` are kept, since they describe
+    /// the original sources. Generated ranges (`ranges`) are dropped: those of
+    /// `input` describe the intermediate code, and those of `self` refer to the
+    /// intermediate code's scopes.
+    ///
     /// # Panics
     ///
     /// Panics when `self` contains more than one source.
@@ -80,6 +85,7 @@ impl SourceMap<'_> {
         result.tokens = tokens;
         result.token_chunks = None;
         result.debug_id = generated.debug_id.map(|debug_id| Cow::Owned(debug_id.into_owned()));
+        result.ranges = None;
         SourceMap::from_parts(result)
     }
 }

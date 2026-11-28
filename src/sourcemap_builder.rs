@@ -3,7 +3,9 @@ use std::borrow::Cow;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    SourceMap,
+    ScopeInfo, SourceMap,
+    error::{Error, Result},
+    scopes::{Offsets, encode_scope_info},
     token::{Token, TokenChunk},
 };
 
@@ -26,6 +28,8 @@ pub struct SourceMapBuilder<'a> {
     pub(crate) source_contents: Vec<Option<&'a str>>,
     pub(crate) tokens: Vec<Token>,
     pub(crate) token_chunks: Option<Vec<TokenChunk>>,
+    pub(crate) scopes: Option<Vec<Option<String>>>,
+    pub(crate) ranges: Option<String>,
 }
 
 impl<'a> SourceMapBuilder<'a> {
@@ -83,6 +87,25 @@ impl<'a> SourceMapBuilder<'a> {
         self.token_chunks = Some(token_chunks);
     }
 
+    /// Encode `info` as the map's `scopes` and `ranges`
+    /// ([ECMA-426 Scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)).
+    ///
+    /// Call this once all sources are added: `info.scopes` needs one entry per source. Name
+    /// indices refer to names returned by [`add_name`](Self::add_name).
+    ///
+    /// # Errors
+    ///
+    /// See [`SourceMap::set_scope_info`].
+    pub fn set_scope_info(&mut self, info: &ScopeInfo) -> Result<()> {
+        if info.scopes.len() != self.sources.len() {
+            return Err(Error::InvalidScopes("\"scopes\" must have one entry per source"));
+        }
+        let encoded = encode_scope_info(info, Some(self.names.len()), Offsets::default())?;
+        self.scopes = Some(encoded.scopes);
+        self.ranges = encoded.ranges;
+        Ok(())
+    }
+
     /// Finish, borrowing the names, sources, and contents for `'a` without copying strings.
     pub fn into_sourcemap(mut self) -> SourceMap<'a> {
         // Names and sources are collected into new vectors below, and converting tokens
@@ -90,7 +113,7 @@ impl<'a> SourceMapBuilder<'a> {
         if let Some(c) = self.token_chunks.as_mut() {
             c.shrink_to_fit()
         }
-        SourceMap::new(
+        let mut sourcemap = SourceMap::new(
             self.file.map(Cow::Borrowed),
             self.names.into_iter().map(Cow::Borrowed).collect(),
             None,
@@ -98,7 +121,11 @@ impl<'a> SourceMapBuilder<'a> {
             self.source_contents.into_iter().map(|content| content.map(Cow::Borrowed)).collect(),
             self.tokens.into_boxed_slice(),
             self.token_chunks,
-        )
+        );
+        sourcemap.scopes =
+            self.scopes.map(|scopes| scopes.into_iter().map(|s| s.map(Cow::Owned)).collect());
+        sourcemap.ranges = self.ranges.map(|ranges| vec![Cow::Owned(ranges)]);
+        sourcemap
     }
 
     /// Same as [`Self::into_sourcemap`], but copies the strings once into an owned
