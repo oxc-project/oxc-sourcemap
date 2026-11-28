@@ -38,7 +38,7 @@ impl<'a, 'sm> SourcemapVisualizer<'a, 'sm> {
 
         let output_lines = Self::generate_line_utf16_tables(self.code);
 
-        let tokens = &self.sourcemap.tokens;
+        let tokens: Vec<crate::Token> = self.sourcemap.get_tokens().collect();
 
         let mut s = String::new();
         let mut last_source = None;
@@ -178,9 +178,7 @@ mod tests {
                 Token::new(0, 0, 0, 0, None, None),
                 Token::new(0, 1, 0, 0, Some(1), None),
                 Token::new(0, 2, 0, 0, Some(0), None),
-            ]
-            .into_boxed_slice(),
-            None,
+            ],
         );
         let text = SourcemapVisualizer::new("hello\n", &sm).get_text();
         assert!(text.contains("- a.js"), "{text}");
@@ -196,9 +194,7 @@ mod tests {
             None,
             vec![Some(Cow::Borrowed("a.js"))],
             vec![Some(Cow::Borrowed("aa\r\nbb\r\n"))],
-            vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)]
-                .into_boxed_slice(),
-            None,
+            vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)],
         );
         let text = SourcemapVisualizer::new("aa\r\nbb\r\n", &sm).get_text();
         assert!(text.contains("- a.js"), "{text}");
@@ -214,9 +210,7 @@ mod tests {
                 None,
                 vec![Some("a.js".into())],
                 vec![Some(code.as_str().into())],
-                vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)]
-                    .into_boxed_slice(),
-                None,
+                vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(1, 0, 1, 0, Some(0), None)],
             );
             let first_line = format!("é{separator}");
             assert_eq!(
@@ -236,9 +230,7 @@ mod tests {
             None,
             vec![Some("a.js".into())],
             vec![Some("😀x".into())],
-            vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(0, 1, 0, 1, Some(0), None)]
-                .into_boxed_slice(),
-            None,
+            vec![Token::new(0, 0, 0, 0, Some(0), None), Token::new(0, 1, 0, 1, Some(0), None)],
         );
         assert_eq!(
             SourcemapVisualizer::new("😀x", &sm).get_text(),
@@ -256,8 +248,7 @@ mod tests {
             None,
             vec![Some(Cow::Borrowed("a.js"))],
             vec![Some(Cow::Borrowed("aa\n"))],
-            vec![Token::new(0, 0, 0, 0, Some(5), None)].into_boxed_slice(),
-            None,
+            vec![Token::new(0, 0, 0, 0, Some(5), None)],
         );
         assert_eq!(SourcemapVisualizer::new("aa\n", &sm).get_text(), "");
     }

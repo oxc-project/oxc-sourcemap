@@ -4,7 +4,10 @@ use std::ops::{Deref, DerefMut};
 
 use json_escape_simd::escape_into;
 
-use crate::{JSONSourceMap, SourceMap, Token, token::TokenChunk};
+use crate::{
+    JSONSourceMap, Mappings, SourceMap,
+    mappings::{TAG_LINE, TAG_MAPPED, TAG_NAMED},
+};
 
 pub fn encode(sourcemap: &SourceMap<'_>) -> JSONSourceMap {
     JSONSourceMap {
@@ -161,43 +164,27 @@ pub fn encode_to_string(sourcemap: &SourceMap<'_>) -> String {
 }
 
 fn estimate_mappings_length(sourcemap: &SourceMap<'_>) -> usize {
-    // Twelve bytes per token is a heuristic, not an upper bound. Generated line
-    // breaks contribute once across the whole map, regardless of chunk boundaries.
-    sourcemap.tokens.len() * 12 + sourcemap.tokens.last().map_or(0, |t| t.dst_line as usize)
+    // A token is about three bytes stored and five or six bytes of VLQ. This is a heuristic,
+    // not an upper bound. Generated line breaks contribute once across the whole map.
+    let mappings = &sourcemap.mappings;
+    mappings.byte_len() * 5 / 2 + mappings.last_dst_line() as usize
 }
 
 fn serialize_sourcemap_mappings(sm: &SourceMap<'_>, output: &mut String) {
-    if let Some(token_chunks) = sm.token_chunks.as_ref() {
-        token_chunks.iter().for_each(|token_chunk| {
-            serialize_mappings(&sm.tokens, token_chunk, output);
-        })
-    } else {
-        serialize_mappings(
-            &sm.tokens,
-            &TokenChunk::new(0, sm.tokens.len() as u32, 0, 0, 0, 0, 0, 0),
-            output,
-        );
-    }
+    serialize_mappings(&sm.mappings, output);
 }
 
 // Max length of a single VLQ encoding
 const MAX_VLQ_BYTES: usize = 7;
 
-fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut String) {
-    let TokenChunk {
-        start,
-        end,
-        mut prev_dst_line,
-        mut prev_dst_col,
-        mut prev_src_line,
-        mut prev_src_col,
-        mut prev_name_id,
-        mut prev_source_id,
-    } = *token_chunk;
+/// Write [`Mappings`] as the `mappings` field.
+///
+/// Both formats store a token as deltas under the same rules, so each token's deltas are
+/// written as they are, without decoding the positions.
+fn serialize_mappings(mappings: &Mappings, output: &mut String) {
+    let mut need_comma = false;
 
-    let mut need_comma = start != 0;
-
-    for token in &tokens[start as usize..end as usize] {
+    for token in mappings.raw_tokens() {
         // Max length of a single VLQ encoding is 7 bytes. Max number of calls to `encode_vlq` is 5.
         // Also need 1 byte for each line number difference, or 1 byte if no line num difference.
         // Reserve this amount of capacity in `rv` early, so can skip bounds checks in code below.
@@ -206,7 +193,9 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
         // https://godbolt.org/z/44G8jjss3
         const MAX_TOTAL_VLQ_BYTES: usize = 5 * MAX_VLQ_BYTES;
 
-        let num_line_breaks = token.get_dst_line() - prev_dst_line;
+        // Tokens are in generated order, so a line change moves forward.
+        let num_line_breaks =
+            if token.tag & TAG_LINE != 0 { token.dst_line.max(0) as u32 } else { 0 };
         if num_line_breaks != 0 {
             let required = MAX_TOTAL_VLQ_BYTES + num_line_breaks as usize;
             if output.capacity() - output.len() < required {
@@ -221,8 +210,6 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
                     push_bytes_unchecked(output, b';', num_line_breaks);
                 }
             }
-            prev_dst_col = 0;
-            prev_dst_line += num_line_breaks;
         } else if need_comma {
             let required = MAX_TOTAL_VLQ_BYTES + 1;
             if output.capacity() - output.len() < required {
@@ -231,33 +218,27 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             // SAFETY: We have reserved sufficient capacity for 1 byte
             unsafe { push_byte_unchecked(output, b',') };
         } else {
-            // First token of the first chunk: no delimiter is emitted, but the
-            // five VLQ fields below still write up to 35 bytes, and the
-            // caller's estimate can be tighter than that (~12 bytes/token), so
-            // capacity must still be ensured here.
+            // First token: no delimiter is emitted, but the five VLQ fields below
+            // still write up to 35 bytes, and the caller's estimate can be tighter
+            // than that, so capacity must still be ensured here.
             if output.capacity() - output.len() < MAX_TOTAL_VLQ_BYTES {
                 output.reserve(MAX_TOTAL_VLQ_BYTES);
             }
         }
 
-        if let Some(source_id) = token.get_source_id() {
+        let v0 = vlq_value(token.dst_col);
+        if token.tag & TAG_MAPPED != 0 {
             // The dominant segment shape in real bundler output is 4 or 5
             // single-digit VLQ fields (small deltas). Transform all field
             // deltas up front so that shape can be detected with one test and
             // written with a single 8-byte store, instead of running the
             // digit-at-a-time VLQ loop per field.
-            let v0 = vlq_value(token.get_dst_col(), prev_dst_col);
-            let v1 = vlq_value(source_id, prev_source_id);
-            let v2 = vlq_value(token.get_src_line(), prev_src_line);
-            let v3 = vlq_value(token.get_src_col(), prev_src_col);
-            prev_dst_col = token.get_dst_col();
-            prev_source_id = source_id;
-            prev_src_line = token.get_src_line();
-            prev_src_col = token.get_src_col();
+            let v1 = vlq_value(token.source_id);
+            let v2 = vlq_value(token.src_line);
+            let v3 = vlq_value(token.src_col);
 
-            if let Some(name_id) = token.get_name_id() {
-                let v4 = vlq_value(name_id, prev_name_id);
-                prev_name_id = name_id;
+            if token.tag & TAG_NAMED != 0 {
+                let v4 = vlq_value(token.name_id);
                 if !try_push_fast_4_or_5_segment(output, [v0, v1, v2, v3, v4]) {
                     // SAFETY: `MAX_TOTAL_VLQ_BYTES` (35) spare capacity was
                     // ensured above — five `encode_vlq` calls need 7 bytes each.
@@ -280,23 +261,22 @@ fn serialize_mappings(tokens: &[Token], token_chunk: &TokenChunk, output: &mut S
             }
         } else {
             // SAFETY: `MAX_TOTAL_VLQ_BYTES` spare capacity was ensured above.
-            unsafe { encode_vlq(output, vlq_value(token.get_dst_col(), prev_dst_col)) };
-            prev_dst_col = token.get_dst_col();
+            unsafe { encode_vlq(output, v0) };
         }
 
         need_comma = true;
     }
 }
 
-/// Transform the diff `a - b` into its VLQ integer representation: the sign
+/// Transform a delta into its VLQ integer representation: the sign
 /// goes in the low bit and the remaining bits are the magnitude (the
 /// branchless inverse of `decode_sign` in `decode.rs`).
 /// The result encodes to a single base64 char iff it fits the 5 payload bits
 /// of one char, i.e. no bit at or above the continuation bit is set
 /// (`value & !0x1F == 0`).
 #[inline]
-fn vlq_value(a: u32, b: u32) -> u64 {
-    (u64::from(a.abs_diff(b)) << 1) | u64::from(a < b)
+fn vlq_value(delta: i64) -> u64 {
+    (delta.unsigned_abs() << 1) | u64::from(delta < 0)
 }
 
 /// Fast path for the dominant sourcemap segment shapes: a 4- or 5-field
@@ -503,6 +483,7 @@ impl PreAllocatedString {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Token;
 
     #[test]
     fn encode_empty_ignore_list() {
@@ -597,8 +578,7 @@ mod tests {
             None,
             vec![Some("\0".into())],
             vec![Some("emoji-👀-\0".into())],
-            vec![].into_boxed_slice(),
-            None,
+            vec![],
         );
         sm.set_ignore_list(vec![0]);
         sm.set_debug_id("56431d54-c0a6-451d-8ea2-ba5de5d8ca2e");
@@ -651,7 +631,7 @@ mod tests {
         for (a, b, res) in FIXTURES.iter().copied() {
             let mut out = String::with_capacity(MAX_VLQ_BYTES);
             // SAFETY: `out` has 7 bytes spare capacity
-            unsafe { encode_vlq(&mut out, vlq_value(a, b)) };
+            unsafe { encode_vlq(&mut out, vlq_value(i64::from(a) - i64::from(b))) };
             assert_eq!(&out, res);
         }
     }
@@ -669,15 +649,8 @@ mod tests {
             Token::new(1, 1, 1, 1, Some(0), Some(0)),    // after line break, fast
             Token::new(1, 2, 1, 1, None, None),          // no source, dst_col only
         ];
-        let sm = SourceMap::new(
-            None,
-            vec!["a".into()],
-            None,
-            vec![Some("a.js".into())],
-            vec![],
-            tokens.into_boxed_slice(),
-            None,
-        );
+        let sm =
+            SourceMap::new(None, vec!["a".into()], None, vec![Some("a.js".into())], vec![], tokens);
         assert_eq!(sm.to_json().mappings, "eAeeA,eAff,gBAgBgBA,CAhBhBA;CACCA,C"); // spellchecker:disable-line
         let encoded = sm.to_json_string();
         let reparsed = SourceMap::from_json_string(&encoded).unwrap();
@@ -692,8 +665,7 @@ mod tests {
             None,
             vec![Some("a.js".into()), Some("b.js".into())],
             vec![None, None],
-            vec![].into_boxed_slice(),
-            None,
+            vec![],
         );
         let json = sm.to_json_string();
         assert!(
@@ -710,8 +682,7 @@ mod tests {
             None,
             vec![Some("a.js".into()), Some("b.js".into())],
             vec![Some("content".into()), None],
-            vec![].into_boxed_slice(),
-            None,
+            vec![],
         );
         let json = sm.to_json_string();
         assert!(
@@ -735,8 +706,7 @@ mod tests {
             Some("root\0path".into()),
             vec![],
             vec![],
-            vec![].into_boxed_slice(),
-            None,
+            vec![],
         );
         let json = sm.to_json_string();
         assert!(
@@ -777,15 +747,8 @@ mod tests {
                 Token::new(0, i * 100_000_000, source_position, source_position, Some(0), name)
             })
             .collect();
-        let sm = SourceMap::new(
-            None,
-            vec!["n".into()],
-            None,
-            vec![Some("a.js".into())],
-            vec![],
-            tokens.into_boxed_slice(),
-            None,
-        );
+        let sm =
+            SourceMap::new(None, vec!["n".into()], None, vec![Some("a.js".into())], vec![], tokens);
 
         // Both encoders must round-trip the same tokens despite the realloc.
         let encoded = sm.to_json_string();
@@ -807,9 +770,7 @@ mod tests {
             None,
             vec![Some("a.js".into())],
             vec![],
-            vec![Token::new(0, 536_870_912, 536_870_912, 536_870_912, Some(0), None)]
-                .into_boxed_slice(),
-            None,
+            vec![Token::new(0, 536_870_912, 536_870_912, 536_870_912, Some(0), None)],
         );
         let json = sm.to_json();
         assert_eq!(json.mappings, "ggggggBAggggggBggggggB");
@@ -831,8 +792,7 @@ mod tests {
             None,
             vec![Some("a.js".into())],
             vec![],
-            tokens.into_boxed_slice(),
-            None,
+            tokens,
         );
         let reparsed = SourceMap::from_json(sm.to_json()).unwrap();
         assert!(sm.get_tokens().eq(reparsed.get_tokens()));
@@ -848,9 +808,7 @@ mod tests {
             None,
             vec![],
             vec![],
-            vec![Token::new(0, 0, 0, 0, None, None), Token::new(0, 4, 0, 0, None, None)]
-                .into_boxed_slice(),
-            None,
+            vec![Token::new(0, 0, 0, 0, None, None), Token::new(0, 4, 0, 0, None, None)],
         );
         let encoded = sm.to_json_string();
         let reparsed = SourceMap::from_json_string(&encoded).unwrap();
