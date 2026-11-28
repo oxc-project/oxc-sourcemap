@@ -23,6 +23,9 @@ use crate::{
 ///   [`SourceMap<'a>`] — zero copy either way.
 /// * [`into_owned_sourcemap`](Self::into_owned_sourcemap) detaches to `'static`: entries moved in
 ///   via `add_sourcemap_owned` are kept as-is, only borrowed ones are copied.
+///
+/// Scope information (`scopes` and `ranges`) of the input maps is dropped unless enabled with
+/// [`with_scopes`](Self::with_scopes).
 #[derive(Debug, Default)]
 pub struct ConcatSourceMapBuilder<'a> {
     pub(crate) names: Vec<Cow<'a, str>>,
@@ -33,10 +36,52 @@ pub struct ConcatSourceMapBuilder<'a> {
     pub(crate) token_chunks: Vec<TokenChunk>,
     pub(crate) token_chunk_prev_source: (u32, u32, u32),
     pub(crate) token_chunk_prev_name_id: u32,
-    /// Encoded `scopes`, index-aligned with `sources` once any input map has scope information.
-    pub(crate) scopes: Option<Vec<Option<Cow<'a, str>>>>,
-    /// Encoded `ranges` segments, one per input map with ranges.
-    pub(crate) ranges: Option<Vec<Cow<'a, str>>>,
+    /// Whether the result includes the input maps' scope information.
+    pub(crate) scopes_enabled: bool,
+    /// Scope information of the input maps that have any, joined by `into_sourcemap` when
+    /// enabled. Kept encoded so that nothing is decoded when disabled.
+    pub(crate) scope_inputs: Vec<ScopeInput<'a>>,
+}
+
+/// One input map's encoded scope information, with the offsets it was added at.
+#[derive(Debug)]
+pub(crate) struct ScopeInput<'a> {
+    scopes: Option<Vec<Option<Cow<'a, str>>>>,
+    ranges: Option<Vec<Cow<'a, str>>>,
+    names_len: usize,
+    sources_len: usize,
+    offsets: Offsets,
+}
+
+impl<'a> ScopeInput<'a> {
+    /// The input's `scopes` entries and `ranges` segments, shifted by its offsets so they refer to
+    /// the combined generated code, `sources` and `names`.
+    ///
+    /// An input that needs no shift is passed through as-is. Others are decoded and re-encoded
+    /// into a single `ranges` segment; an input that does not decode strictly yields `None`, since
+    /// it could not be shifted reliably.
+    #[expect(clippy::type_complexity)]
+    fn shift(self) -> Option<(Vec<Option<Cow<'a, str>>>, Vec<Cow<'a, str>>)> {
+        let Self { scopes, ranges, names_len, sources_len, offsets } = self;
+        if offsets.line == 0 && offsets.source == 0 && offsets.name == 0 {
+            let mut scopes = scopes.unwrap_or_default();
+            scopes.resize(sources_len, None);
+            return Some((scopes, ranges.unwrap_or_default()));
+        }
+        let info = decode_scope_info(
+            scopes.as_deref(),
+            ranges.as_deref(),
+            names_len,
+            sources_len,
+            ScopeDecodeMode::Strict,
+        )
+        .ok()??;
+        let encoded = encode_scope_info(&info, None, offsets).ok()?;
+        Some((
+            encoded.scopes.into_iter().map(|scope| scope.map(Cow::Owned)).collect(),
+            encoded.ranges.map(Cow::Owned).into_iter().collect(),
+        ))
+    }
 }
 
 impl<'a> ConcatSourceMapBuilder<'a> {
@@ -60,9 +105,36 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             token_chunks: Vec::with_capacity(token_chunks_len),
             token_chunk_prev_source: (0, 0, 0),
             token_chunk_prev_name_id: 0,
-            scopes: None,
-            ranges: None,
+            scopes_enabled: false,
+            scope_inputs: Vec::new(),
         }
+    }
+
+    /// Whether to include the input maps' scope information (`scopes` and `ranges`, from the
+    /// [ECMA-426 Scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md))
+    /// in the result. Off by default.
+    ///
+    /// When enabled, each input map's scope information is shifted to the combined map: the first
+    /// map's is passed through, later maps' are decoded, shifted and re-encoded, and maps with
+    /// malformed scope information contribute none. When disabled, the result has no `scopes` or
+    /// `ranges` and nothing is decoded.
+    ///
+    /// It applies to all input maps, including those added before the call.
+    ///
+    /// # Example
+    /// ```
+    /// # use oxc_sourcemap::{ConcatSourceMapBuilder, SourceMap};
+    /// # let sourcemap1 = SourceMap::default();
+    /// # let sourcemap2 = SourceMap::default();
+    /// let combined_sourcemap =
+    ///     ConcatSourceMapBuilder::from_sourcemaps(&[(&sourcemap1, 0), (&sourcemap2, 100)])
+    ///         .with_scopes(true)
+    ///         .into_sourcemap();
+    /// ```
+    #[must_use]
+    pub fn with_scopes(mut self, enabled: bool) -> Self {
+        self.scopes_enabled = enabled;
+        self
     }
 
     /// Sum the `names` / `sources` / `tokens` lengths across `maps`, to pre-size the builder.
@@ -204,12 +276,7 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         self.add_tokens(&parts.tokens, line_offset, source_offset, name_offset);
     }
 
-    /// Append one input map's `scopes` and `ranges`, shifted by `offsets` so they refer to the
-    /// combined generated code, `sources` and `names`.
-    ///
-    /// The first contributing map needs no shift and is passed through as-is. Later maps are
-    /// decoded and re-encoded into a single `ranges` segment; a map whose scope information does
-    /// not decode strictly contributes none, since it could not be shifted reliably.
+    /// Record one input map's `scopes` and `ranges` with the offsets it is added at.
     fn add_scope_info(
         &mut self,
         scopes: Option<Vec<Option<Cow<'a, str>>>>,
@@ -218,47 +285,8 @@ impl<'a> ConcatSourceMapBuilder<'a> {
         sources_len: usize,
         offsets: Offsets,
     ) {
-        let unshifted = offsets.line == 0 && offsets.source == 0 && offsets.name == 0;
-        let shifted = if scopes.is_none() && ranges.is_none() {
-            None
-        } else if unshifted {
-            let mut scopes = scopes.unwrap_or_default();
-            scopes.resize(sources_len, None);
-            Some((scopes, ranges.unwrap_or_default()))
-        } else {
-            decode_scope_info(
-                scopes.as_deref(),
-                ranges.as_deref(),
-                names_len,
-                sources_len,
-                ScopeDecodeMode::Strict,
-            )
-            .ok()
-            .flatten()
-            .and_then(|info| encode_scope_info(&info, None, offsets).ok())
-            .map(|encoded| {
-                (
-                    encoded.scopes.into_iter().map(|scope| scope.map(Cow::Owned)).collect(),
-                    encoded.ranges.map(Cow::Owned).into_iter().collect(),
-                )
-            })
-        };
-
-        let source_offset = offsets.source as usize;
-        match shifted {
-            Some((new_scopes, new_ranges)) => {
-                let scopes = self.scopes.get_or_insert_with(Vec::new);
-                // Sources of earlier maps without scope information get `null`.
-                scopes.resize(source_offset, None);
-                scopes.extend(new_scopes);
-                self.ranges.get_or_insert_with(Vec::new).extend(new_ranges);
-            }
-            None => {
-                // Keep `scopes` aligned with `sources`.
-                if let Some(scopes) = &mut self.scopes {
-                    scopes.resize(source_offset + sources_len, None);
-                }
-            }
+        if scopes.is_some() || ranges.is_some() {
+            self.scope_inputs.push(ScopeInput { scopes, ranges, names_len, sources_len, offsets });
         }
     }
 
@@ -350,6 +378,11 @@ impl<'a> ConcatSourceMapBuilder<'a> {
     /// Finish, moving the accumulated names/sources/contents straight into a [`SourceMap<'a>`]
     /// (zero copy — the `Cow` vectors are moved, not rebuilt).
     pub fn into_sourcemap(self) -> SourceMap<'a> {
+        let (scopes, ranges) = if self.scopes_enabled {
+            join_scope_inputs(self.scope_inputs, self.sources.len())
+        } else {
+            (None, None)
+        };
         let mut sourcemap = SourceMap::new(
             None,
             self.names,
@@ -359,8 +392,8 @@ impl<'a> ConcatSourceMapBuilder<'a> {
             self.tokens.into_boxed_slice(),
             Some(self.token_chunks),
         );
-        sourcemap.scopes = self.scopes;
-        sourcemap.ranges = self.ranges.filter(|ranges| !ranges.is_empty());
+        sourcemap.scopes = scopes;
+        sourcemap.ranges = ranges;
         sourcemap
     }
 
@@ -371,6 +404,29 @@ impl<'a> ConcatSourceMapBuilder<'a> {
     pub fn into_owned_sourcemap(self) -> crate::OwnedSourceMap {
         self.into_sourcemap().into_owned_sourcemap()
     }
+}
+
+/// Join the scope information of the input maps, with `null` entries for the sources of maps
+/// without any, so `scopes` stays index-aligned with the `sources_len` combined sources.
+#[expect(clippy::type_complexity)]
+fn join_scope_inputs(
+    inputs: Vec<ScopeInput<'_>>,
+    sources_len: usize,
+) -> (Option<Vec<Option<Cow<'_, str>>>>, Option<Vec<Cow<'_, str>>>) {
+    let mut scopes: Option<Vec<_>> = None;
+    let mut ranges = Vec::new();
+    for input in inputs {
+        let source_offset = input.offsets.source as usize;
+        let Some((input_scopes, input_ranges)) = input.shift() else { continue };
+        let scopes = scopes.get_or_insert_with(Vec::new);
+        scopes.resize(source_offset, None);
+        scopes.extend(input_scopes);
+        ranges.extend(input_ranges);
+    }
+    if let Some(scopes) = &mut scopes {
+        scopes.resize(sources_len, None);
+    }
+    (scopes, (!ranges.is_empty()).then_some(ranges))
 }
 
 #[cfg(test)]
